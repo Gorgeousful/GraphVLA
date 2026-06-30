@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/data0/luokang/research/GraphVLA/FoundationPose/mycpp/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,23 @@
+[project]
+name = "foundationpose"
+version = "0.1.0"
+description = "Editable local install wrapper for FoundationPose."
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.setuptools]
+py-modules = [
+  "Utils",
+  "estimater",
+  "datareader",
+  "offscreen_renderer",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "foundationpose*",
+  "learning*",
+  "bundlesdf*",
+]
+namespaces = true

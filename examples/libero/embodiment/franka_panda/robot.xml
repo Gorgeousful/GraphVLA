@@ -1,0 +1,83 @@
+<mujoco model="panda">
+    <actuator>
+        <!-- Physical limits of the actuator. -->
+        <motor ctrllimited="true" ctrlrange="-80.0 80.0" joint="joint1" name="torq_j1"/>
+        <motor ctrllimited="true" ctrlrange="-80.0 80.0" joint="joint2" name="torq_j2"/>
+        <motor ctrllimited="true" ctrlrange="-80.0 80.0" joint="joint3" name="torq_j3"/>
+        <motor ctrllimited="true" ctrlrange="-80.0 80.0" joint="joint4" name="torq_j4"/>
+        <motor ctrllimited="true" ctrlrange="-80.0 80.0" joint="joint5" name="torq_j5"/>
+        <motor ctrllimited="true" ctrlrange="-12.0 12.0" joint="joint6" name="torq_j6"/>
+        <motor ctrllimited="true" ctrlrange="-12.0 12.0" joint="joint7" name="torq_j7"/>
+        <position ctrllimited="true" ctrlrange="0.0 0.04" joint="finger_joint1" kp="1000" name="gripper_finger_joint1" forcelimited="true" forcerange="-20 20"/>
+        <position ctrllimited="true" ctrlrange="-0.04 0.0" joint="finger_joint2" kp="1000" name="gripper_finger_joint2" forcelimited="true" forcerange="-20 20"/>
+    </actuator>
+
+    <asset>
+        <mesh name="link0_vis" file="meshes/link0_vis.stl" />
+        <mesh name="link1_vis" file="meshes/link1_vis.stl" />
+        <mesh name="link2_vis" file="meshes/link2_vis.stl" />
+        <mesh name="link3_vis" file="meshes/link3_vis.stl" />
+        <mesh name="link4_vis" file="meshes/link4_vis.stl" />
+        <mesh name="link5_vis" file="meshes/link5_vis.stl" />
+        <mesh name="link6_vis" file="meshes/link6_vis.stl" />
+        <mesh name="link7_vis" file="meshes/link7_vis.stl" />
+        <mesh name="hand_vis" file="meshes/panda_gripper/hand_vis.stl" />
+        <mesh name="finger_vis" file="meshes/panda_gripper/finger_vis.stl" />
+    </asset>
+    
+    <worldbody>
+        <body name="base" pos="0 0 0">
+            <!-- robot view -->
+            <camera mode="fixed" name="robotview" pos="1.0 0 0.4" quat="0.653 0.271 0.271 0.653"/>
+            <!-- mount attached here -->
+            <body name="link0" pos="0 0 0">
+                <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link0_vis" name="link0_visual" rgba="1 1 1 1" />
+                <body name="link1" pos="0 0 0.333">
+                    <joint name="joint1" pos="0 0 0" axis="0 0 1" limited="true" range="-2.8973 2.8973" damping="0.1"/>
+                    <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link1_vis" name="link1_visual" rgba="1 1 1 1" />
+                    <body name="link2" pos="0 0 0" quat="0.707107 -0.707107 0 0">
+                        <joint name="joint2" pos="0 0 0" axis="0 0 1" limited="true" range="-1.7628 1.7628" damping="0.1"/>
+                        <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link2_vis" name="link2_visual" rgba="1 1 1 1" />
+                        <body name="link3" pos="0 -0.316 0" quat="0.707107 0.707107 0 0">
+                            <joint name="joint3" pos="0 0 0" axis="0 0 1" limited="true" range="-2.8973 2.8973" damping="0.1"/>
+                            <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link3_vis" name="link3_visual" rgba="1 1 1 1" />
+                            <body name="link4" pos="0.0825 0 0" quat="0.707107 0.707107 0 0">
+                                <joint name="joint4" pos="0 0 0" axis="0 0 1" limited="true" range="-3.0718 -0.0698" damping="0.1"/>
+                                <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link4_vis" name="link4_visual" rgba="1 1 1 1" />
+                                <body name="link5" pos="-0.0825 0.384 0" quat="0.707107 -0.707107 0 0">
+                                    <joint name="joint5" pos="0 0 0" axis="0 0 1" limited="true" range="-2.8973 2.8973" damping="0.1"/>
+                                    <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link5_vis" name="link5_visual" rgba="1 1 1 1" />
+                                    <body name="link6" pos="0 0 0" quat="0.707107 0.707107 0 0">
+                                        <joint name="joint6" pos="0 0 0" axis="0 0 1" limited="true" range="-0.0175 3.7525" damping="0.01"/>
+                                        <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link6_vis" name="link6_visual" rgba="1 1 1 1" />
+                                        <body name="link7" pos="0.088 0 0" quat="0.707107 0.707107 0 0">
+                                            <joint name="joint7" pos="0 0 0" axis="0 0 1" limited="true" range="-2.8973 2.8973" damping="0.01"/>
+                                            <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="link7_vis" name="link7_visual" rgba="1. 1. 1. 1." />
+                                            <!-- rotate 135deg to align physically to the tool-->
+                                            <body name="right_hand" pos="0 0 0.1065" quat="0.924 0 0 -0.383"> <!-- note -->
+                                                <!-- This camera points out from the eef. -->
+                                                <camera mode="fixed" name="eye_in_hand" pos="0.05 0 0" quat="0 0.707108 0.707108 0" fovy="75"/>
+                                                <!-- to add gripper -->
+                                                <body name="right_gripper" pos="0 0 0" quat="0.707107 0 0 -0.707107"> <!-- note -->
+                                                    <geom pos="0 0 0" quat="0.707107 0 0 0.707107" type="mesh" contype="0" conaffinity="0" group="1" mesh="hand_vis" name="hand_visual" rgba="1 1 1 1" />
+                                                    <body name="leftfinger" pos="0 0 0.0524" quat="0.707107 0 0 0.707107">
+                                                        <joint name="finger_joint1" pos="0 0 0" axis="0 1 0" type="slide" limited="true" range="0.0 0.04" damping="100" armature="1.0" frictionloss="1.0"/>
+                                                        <geom type="mesh" contype="0" conaffinity="0" group="1" mesh="finger_vis" name="finger1_visual" rgba="0.499 0.499 0.499 1" />
+                                                    </body>
+                                                    <body name="rightfinger" pos="0 0 0.0524" quat="0.707107 0 0 0.707107">
+                                                        <joint name="finger_joint2" pos="0 0 0" axis="0 1 0" type="slide" limited="true" range="-0.04 0.0" damping="100" armature="1.0" frictionloss="1.0"/>
+                                                        <geom quat="0 0 0 1" type="mesh" contype="0" conaffinity="0" group="1" mesh="finger_vis" name="finger2_visual" rgba="0.499 0.499 0.499 1" />
+                                                    </body>
+                                                </body>
+                                            </body>
+                                        </body>
+                                    </body>
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+</mujoco>

@@ -1,0 +1,14 @@
+[
+{
+  "directory": "/data0/luokang/research/GraphVLA/FoundationPose/mycpp/build",
+  "command": "/usr/bin/c++ -Dmycpp_EXPORTS -I/home/admin01/miniconda3/envs/foundationpose/include/eigen3 -I/data0/luokang/research/GraphVLA/FoundationPose/mycpp/include -I/data0/luokang/miniconda3/envs/robobrain/include -isystem /data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/pybind11/include -isystem /data0/luokang/miniconda3/envs/robobrain/include/python3.11 -isystem /data0/luokang/miniconda3/envs/robobrain/include/eigen3  -std=c++17 -fopenmp -g3 -O3 -O3 -DNDEBUG -fPIC -fvisibility=hidden -flto=auto -fno-fat-lto-objects -o CMakeFiles/mycpp.dir/src/app/pybind_api.cpp.o -c /data0/luokang/research/GraphVLA/FoundationPose/mycpp/src/app/pybind_api.cpp",
+  "file": "/data0/luokang/research/GraphVLA/FoundationPose/mycpp/src/app/pybind_api.cpp",
+  "output": "CMakeFiles/mycpp.dir/src/app/pybind_api.cpp.o"
+},
+{
+  "directory": "/data0/luokang/research/GraphVLA/FoundationPose/mycpp/build",
+  "command": "/usr/bin/c++ -Dmycpp_EXPORTS -I/home/admin01/miniconda3/envs/foundationpose/include/eigen3 -I/data0/luokang/research/GraphVLA/FoundationPose/mycpp/include -I/data0/luokang/miniconda3/envs/robobrain/include -isystem /data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/pybind11/include -isystem /data0/luokang/miniconda3/envs/robobrain/include/python3.11 -isystem /data0/luokang/miniconda3/envs/robobrain/include/eigen3  -std=c++17 -fopenmp -g3 -O3 -O3 -DNDEBUG -fPIC -fvisibility=hidden -flto=auto -fno-fat-lto-objects -o CMakeFiles/mycpp.dir/src/Utils.cpp.o -c /data0/luokang/research/GraphVLA/FoundationPose/mycpp/src/Utils.cpp",
+  "file": "/data0/luokang/research/GraphVLA/FoundationPose/mycpp/src/Utils.cpp",
+  "output": "CMakeFiles/mycpp.dir/src/Utils.cpp.o"
+}
+]
