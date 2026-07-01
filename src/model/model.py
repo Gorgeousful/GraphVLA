@@ -17,7 +17,8 @@ class GraphVLATokenQueryModel(nn.Module):
 
     def __init__(
         self,
-        hidden_dim: int,
+        encoder_hidden_dim: int = 1024,
+        decoder_hidden_dim: int = 1024,
         encoder_layers: int = 8,
         encoder_heads: int = 8,
         encoder_mlp_ratio: float = 4.0,
@@ -30,32 +31,42 @@ class GraphVLATokenQueryModel(nn.Module):
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
-        self.position_embedding = RelativeTokenPositionEmbedding(hidden_dim=hidden_dim)
+        self.encoder_position_embedding = RelativeTokenPositionEmbedding(hidden_dim=encoder_hidden_dim)
+        self.query_position_embedding = RelativeTokenPositionEmbedding(hidden_dim=decoder_hidden_dim)
         self.encoder = TokenMemoryEncoder(
-            hidden_dim=hidden_dim,
+            hidden_dim=encoder_hidden_dim,
             num_layers=encoder_layers,
             num_heads=encoder_heads,
             mlp_ratio=encoder_mlp_ratio,
             attention_pattern=attention_pattern,
             dropout=dropout,
-            position_embedding=self.position_embedding,
+            position_embedding=self.encoder_position_embedding,
+        )
+        self.memory_proj = (
+            nn.Identity()
+            if decoder_hidden_dim == encoder_hidden_dim
+            else nn.Linear(encoder_hidden_dim, decoder_hidden_dim)
         )
         self.query_embedder = TokenQueryEmbedder(
-            hidden_dim=hidden_dim,
+            hidden_dim=decoder_hidden_dim,
             num_query_types=num_query_types,
-            position_embedding=self.position_embedding,
+            position_embedding=self.query_position_embedding,
         )
         self.decoder = IndependentQueryDecoder(
-            hidden_dim=hidden_dim,
+            hidden_dim=decoder_hidden_dim,
             num_layers=decoder_layers,
             num_heads=decoder_heads,
             mlp_ratio=decoder_mlp_ratio,
             dropout=dropout,
         )
-        self.heads = PredictionHeads(hidden_dim=hidden_dim, output_dims=output_dims or {"prediction": hidden_dim})
+        self.heads = PredictionHeads(
+            hidden_dim=decoder_hidden_dim,
+            output_dims=output_dims or {"prediction": decoder_hidden_dim},
+        )
 
     def encode(self, tokens: torch.Tensor, extra_tokens: torch.Tensor | None = None) -> torch.Tensor:
-        return self.encoder(tokens=tokens, extra_tokens=extra_tokens)
+        memory = self.encoder(tokens=tokens, extra_tokens=extra_tokens)
+        return self.memory_proj(memory)
 
     def embed_queries(
         self,

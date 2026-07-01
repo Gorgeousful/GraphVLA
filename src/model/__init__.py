@@ -1,4 +1,6 @@
 from .decoder import IndependentQueryDecoder
+from .encoder import PointEncoder
+from .encoder import SetEncoder
 from .encoder import TokenMemoryEncoder
 from .heads import PredictionHeads
 from .model import GraphVLATokenQueryModel
@@ -9,7 +11,9 @@ __all__ = [
     "GraphVLATokenQueryModel",
     "IndependentQueryDecoder",
     "PredictionHeads",
+    "PointEncoder",
     "RelativeTokenPositionEmbedding",
+    "SetEncoder",
     "TokenMemoryEncoder",
     "TokenQueryEmbedder",
 ]

@@ -23,6 +23,160 @@ def _normalize_attention_pattern(pattern: str | None) -> str:
     return aliases.get(raw, raw)
 
 
+class SetEncoder(nn.Module):
+    """Encode per-object tracked point sets into object tokens.
+
+    Args:
+        point_feats: ``[B, T, N, P, F]`` where ``P`` is the number of
+            tracked points for each object. Returns ``[B, T, N, C]``.
+    """
+
+    def __init__(
+        self,
+        point_dim: int,
+        hidden_dim: int = 1024,
+        num_points: int = 128,
+        num_heads: int = 4,
+        num_layers: int = 1,
+        mlp_ratio: float = 4.0,
+    ) -> None:
+        super().__init__()
+        self.point_dim = point_dim
+        self.hidden_dim = hidden_dim
+        self.num_points = num_points
+        self.point_mlp = nn.Sequential(
+            nn.Linear(point_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+
+        ff_dim = int(math.ceil(hidden_dim * mlp_ratio))
+        self.blocks = nn.ModuleList(
+            [
+                nn.ModuleDict(
+                    {
+                        "norm_attn": nn.LayerNorm(hidden_dim),
+                        "attn": nn.MultiheadAttention(
+                            embed_dim=hidden_dim,
+                            num_heads=num_heads,
+                            batch_first=True,
+                        ),
+                        "norm_ff": nn.LayerNorm(hidden_dim),
+                        "ff": nn.Sequential(
+                            nn.Linear(hidden_dim, ff_dim),
+                            nn.GELU(),
+                            nn.Linear(ff_dim, hidden_dim),
+                        ),
+                    }
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+        self.pool_query = nn.Parameter(torch.randn(1, 1, hidden_dim) * 0.02)
+        self.norm_pool_q = nn.LayerNorm(hidden_dim)
+        self.norm_pool_kv = nn.LayerNorm(hidden_dim)
+        self.pool_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
+            batch_first=True,
+        )
+        self.out_norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, point_feats: torch.Tensor) -> torch.Tensor:
+        if point_feats.ndim != 5:
+            raise ValueError(f"Expected point_feats [B, T, N, P, F], got {point_feats.shape}")
+        bsz, steps, num_objects, num_points, point_dim = point_feats.shape
+        if point_dim != self.point_dim:
+            raise ValueError(f"Expected point dim {self.point_dim}, got {point_dim}")
+        if num_points > self.num_points:
+            raise ValueError(f"Expected at most {self.num_points} points, got {num_points}")
+
+        x = self.point_mlp(point_feats)
+        x = x.reshape(bsz * steps * num_objects, num_points, self.hidden_dim)
+        for block in self.blocks:
+            q = block["norm_attn"](x)
+            attn_out, _ = block["attn"](
+                q,
+                q,
+                q,
+                need_weights=False,
+            )
+            x = x + attn_out
+            x = x + block["ff"](block["norm_ff"](x))
+
+        query = self.pool_query.expand(x.shape[0], -1, -1)
+        query = self.norm_pool_q(query)
+        kv = self.norm_pool_kv(x)
+        pooled, _ = self.pool_attn(
+            query,
+            kv,
+            kv,
+            need_weights=False,
+        )
+        pooled = self.out_norm(pooled.squeeze(1))
+        return pooled.reshape(bsz, steps, num_objects, self.hidden_dim)
+
+
+class PointEncoder(nn.Module):
+    """DP3-style PointNet encoder for per-object point features.
+
+    Supports ``[B, T, N, P, F]`` inputs and returns ``[B, T, N, C]``.
+    F = [u,v,d,v,r,g,b]
+    The core implementation follows DP3's point cloud encoder: per-point MLP,
+    max pooling over points, then a final projection.
+    """
+
+    def __init__(
+        self,
+        point_dim: int,
+        hidden_dim: int = 1024,
+        block_channels: tuple[int, ...] = (64, 128, 256, 512),
+        use_layernorm: bool = True,
+        final_norm: str = "layernorm",
+    ) -> None:
+        super().__init__()
+        if not block_channels:
+            raise ValueError("block_channels must contain at least one channel")
+        self.point_dim = point_dim
+        self.hidden_dim = hidden_dim
+
+        layers: list[nn.Module] = []
+        in_dim = point_dim
+        for idx, out_dim in enumerate(block_channels):
+            layers.append(nn.Linear(in_dim, out_dim))
+            if use_layernorm:
+                layers.append(nn.LayerNorm(out_dim))
+            if idx < len(block_channels) - 1:
+                layers.append(nn.ReLU())
+            in_dim = out_dim
+        self.mlp = nn.Sequential(*layers)
+
+        if final_norm == "layernorm":
+            self.final_projection = nn.Sequential(
+                nn.Linear(block_channels[-1], hidden_dim),
+                nn.LayerNorm(hidden_dim),
+            )
+        elif final_norm == "none":
+            self.final_projection = nn.Linear(block_channels[-1], hidden_dim)
+        else:
+            raise ValueError(f"Unsupported final_norm: {final_norm}")
+
+    def forward(self, point_feats: torch.Tensor) -> torch.Tensor:
+        if point_feats.ndim != 5:
+            raise ValueError(f"Expected point_feats [B, T, N, P, F], got {point_feats.shape}")
+        bsz, steps, num_objects, num_points, point_dim = point_feats.shape
+        if point_dim != self.point_dim:
+            raise ValueError(f"Expected point dim {self.point_dim}, got {point_dim}")
+
+        x = point_feats.reshape(bsz * steps * num_objects, num_points, point_dim)
+        x = self.mlp(x)
+        x = torch.max(x, dim=1).values
+        x = self.final_projection(x)
+        return x.reshape(bsz, steps, num_objects, self.hidden_dim)
+
+
 class SelfAttentionBlock(nn.Module):
     """Pre-norm transformer block with self-attention + MLP.
 
@@ -36,7 +190,6 @@ class SelfAttentionBlock(nn.Module):
         self.attn = nn.MultiheadAttention(
             embed_dim=hidden_dim,
             num_heads=num_heads,
-            dropout=dropout,
             batch_first=True,
         )
         self.norm_ff = nn.LayerNorm(hidden_dim)
@@ -69,10 +222,10 @@ class TokenMemoryEncoder(nn.Module):
 
     def __init__(
         self,
-        hidden_dim: int,
-        num_layers: int,
-        num_heads: int,
-        mlp_ratio: float,
+        hidden_dim: int = 1024,
+        num_layers: int =16,
+        num_heads: int = 8,
+        mlp_ratio: float = 4.0,
         attention_pattern: str | None = "interleaved_local_global",
         dropout: float = 0.1,
         position_embedding: RelativeTokenPositionEmbedding | None = None,
