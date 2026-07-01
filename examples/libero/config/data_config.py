@@ -60,9 +60,9 @@ LIBERO_OPTIONAL_REPACK = {
 }
 
 LIBERO_HORIZON = {
-    "observation.images.image": list(range(-9, 1)),
-    "observation.images.wrist_image": list(range(-9, 1)),
-    "observation.state": list(range(-9, 1)),
+    "observation.images.image": list(range(-15, 1)),
+    "observation.images.wrist_image": list(range(-15, 1)),
+    "observation.state": list(range(-15, 1)),
     "action": list(range(16)),
 }
 
@@ -74,8 +74,11 @@ LIBERO_TRANSFORM = (
     PromptFromTask(tasks=load_lerobot_tasks(LIBERO_DATASET_DIR)),
 )
 
+TASKS = [31]
+
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
     horizon=LIBERO_HORIZON,
     transforms=LIBERO_TRANSFORM,
+    tasks=TASKS,
 )

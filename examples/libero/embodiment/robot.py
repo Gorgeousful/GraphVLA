@@ -4,7 +4,7 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 file_dir = Path(__file__).resolve().parent
-from examples.geom_utils import (
+from src.common.geom_utils import (
     bbox_from_mask,
     make_pose,
     project_meshes_to_depth,
