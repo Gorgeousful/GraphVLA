@@ -1,0 +1,15 @@
+#Ignore all model paths or ckpts
+*.ckpt
+*.pth
+
+# Ignore all Videos
+*.mp4
+# Ignore all builded models 
+*.onnx
+*.trt
+
+# Ignore folders:
+__pycache__/
+.vscode/
+outputs/
+old_builds/

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "online-video-depth-anything"
+version = "0.0.1"
+description = "Editable local install wrapper for Online Video Depth Anything."
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "oVDA*",
+  "src*",
+]
