@@ -621,7 +621,8 @@ if __name__ == "__main__":
     for task_desc in task_descs:
         response = analyzer.analyze(task_desc, 
         special_situations, 
-        cache_dir="/data0/luokang/research/GraphVLA/examples/libero/cache",
+        # cache_dir="/data0/luokang/research/GraphVLA/examples/libero/cache1",
+        cache_dir="/data0/luokang/research/GraphVLA/__tmp__/cache",
         update=False)
         cs.print(response, markup=False)
     

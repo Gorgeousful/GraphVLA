@@ -192,7 +192,7 @@ class DepthPredictor: # oVDA
             frames_bgr.append(cv2.applyColorMap(depth_u8, cv2.COLORMAP_TURBO))
 
         if save_path is not None:
-            fps = cap.get(cv2.CAP_PROP_FPS) or 10.0
+            fps = 10.0
             h, w = frames_bgr[0].shape[:2]
             proc = subprocess.Popen(
                 [
@@ -221,11 +221,7 @@ class DepthPredictor: # oVDA
 
 
 def OnlineTest():
-    video_path = (
-        "/data0/luokang/research/GraphVLA/__test__/v1/data/"
-        "put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding"
-        "_to_the_right_of_the_plate_ep0_image.mp4"
-    )
+    video_path = "/data0/luokang/research/GraphVLA/__test__/data/data.mp4"
     predictor = DepthPredictor()
 
     depths = []

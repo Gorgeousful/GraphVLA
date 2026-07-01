@@ -129,15 +129,8 @@ class MeshExtractor:
 
 
 if __name__ == "__main__":
-    video_path = (
-        "/data0/luokang/research/GraphVLA/__test__/v1/data/"
-        "put_the_white_mug_on_the_plate_and_put_the_chocolate_pudding"
-        "_to_the_right_of_the_plate_ep0_image.mp4"
-    )
-    tracking_pkl = (
-        "/data0/luokang/research/GraphVLA/__test__/v1/"
-        "0_0_point_tracking_frames.pkl"
-    )
+    video_path = "/data0/luokang/research/GraphVLA/__test__/data/data.mp4"
+    tracking_pkl = "/data0/luokang/research/GraphVLA/__test__/data/0_0_point_tracking_frames.pkl"
     save_dir = "/data0/luokang/research/GraphVLA/__tmp__"
     os.makedirs(save_dir, exist_ok=True)
     frame_index = 0

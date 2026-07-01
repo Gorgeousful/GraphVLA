@@ -13,7 +13,7 @@ import subprocess
 from io import BytesIO
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from qwen_vl_utils import process_vision_info
-from common.schema import ActionType, Node, NodeRole, SubtaskStructure, TaskStructure
+from src.common.schema import ActionType, Node, NodeRole, SubtaskStructure, TaskStructure
 from rich.console import Console
 cs = Console()
 
