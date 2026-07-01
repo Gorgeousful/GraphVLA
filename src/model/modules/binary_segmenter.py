@@ -158,7 +158,7 @@ if __name__ == "__main__":
             raise RuntimeError(f"ffmpeg failed for {save_path}: {stderr}")
 
 
-    video_path = "/data0/luokang/research/GraphVLA/__test__/v2/data.mp4"
+    video_path = "/data0/luokang/research/GraphVLA/__test__/data/data.mp4"
     save_dir = "/data0/luokang/research/GraphVLA/__tmp__"
     os.makedirs(save_dir, exist_ok=True)
     foreground_video = os.path.join(save_dir, "binary_segmenter_foreground.mp4")
