@@ -12,8 +12,6 @@ from tqdm import tqdm
 from omegaconf import OmegaConf
 from accelerate import Accelerator
 from safetensors.torch import load_file
-from oVDA.models import onlineVideoDepthAnything
-from oVDA.preprocessing import VideoPreprocessor
 from rich.console import Console
 cs = Console()
 
@@ -32,11 +30,13 @@ class DepthPredictor: # oVDA
         self,
         model_path="/data0/luokang/dataset/luokang/ckpts/oVDA/oVDA_c16.pth",
         config_path=None,
-        device="cuda:0",
+        device="cuda",
         input_size=518,
         fp32=False,
         preprocess_device="cpu",
     ):
+        from oVDA.models import onlineVideoDepthAnything
+
         if config_path is None:
             config_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
@@ -76,6 +76,8 @@ class DepthPredictor: # oVDA
 
     def reset(self, frame_rgb):
         """Initialize cache from the first frame."""
+        from oVDA.preprocessing import VideoPreprocessor
+
         h, w = frame_rgb.shape[:2]
         ratio = max(h, w) / min(h, w)
         input_size = self.input_size
@@ -179,6 +181,116 @@ class DepthPredictor: # oVDA
             )
         return depth_pred.squeeze().cpu().numpy().astype(np.float32)
 
+    def draw_on_image(self, depths, save_path=None):
+        depth_stack = np.stack(depths, axis=0)
+        vmin = float(np.nanpercentile(depth_stack, 1))
+        vmax = float(np.nanpercentile(depth_stack, 99))
+        if vmax <= vmin:
+            vmax = vmin + 1e-6
+        frames_bgr = []
+        for depth in depth_stack:
+            norm = (np.clip(depth, vmin, vmax) - vmin) / (vmax - vmin + 1e-8)
+            depth_u8 = (norm * 255).astype(np.uint8)
+            frames_bgr.append(cv2.applyColorMap(depth_u8, cv2.COLORMAP_TURBO))
+
+        if save_path is not None:
+            fps = 10.0
+            h, w = frames_bgr[0].shape[:2]
+            proc = subprocess.Popen(
+                [
+                    "ffmpeg", "-y",
+                    "-f", "rawvideo",
+                    "-pix_fmt", "bgr24",
+                    "-s", f"{w}x{h}",
+                    "-r", str(fps),
+                    "-i", "-",
+                    "-c:v", "libx264", "-preset", "veryslow", "-crf", "26", "-g", "2",
+                    "-pix_fmt", "yuv420p",
+                    save_path,
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            for frame in frames_bgr:
+                proc.stdin.write(frame.tobytes())
+            proc.stdin.close()
+            proc.wait()
+            cs.print(f"Vis video: {save_path} ({len(depth_stack)} frames, {fps:.1f} fps)")  
+        
+        return frames_bgr
+
+
+class DepthPredictorSTream3R: # STream3R
+    """Online depth prediction using STream3R window-mode streaming."""
+
+    def __init__(
+        self,
+        model_path="/data0/luokang/dataset/luokang/ckpts/STream3R",
+        window_size=5,
+        input_size=518,
+        device="cuda",
+    ):
+        from PIL import Image
+        from torchvision import transforms as TF
+        from stream3r.models.stream3r import STream3R
+        from stream3r.stream_session import StreamSession
+
+        self.Image = Image
+        self.to_tensor = TF.ToTensor()
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.input_size = input_size
+        self.window_size = window_size
+
+        self.model = STream3R.from_pretrained(model_path).to(self.device).eval()
+        self.session = StreamSession(self.model, mode="window", window_size=window_size)
+
+    def reset(self):
+        self.session.clear()
+
+    def _preprocess_frame(self, frame_rgb):
+        img = self.Image.fromarray(frame_rgb.astype(np.uint8)).convert("RGB")
+        width, height = img.size
+        new_width = self.input_size
+        new_height = round(height * (new_width / width) / 14) * 14
+        img = img.resize((new_width, new_height), self.Image.Resampling.BICUBIC)
+        image = self.to_tensor(img)
+        if new_height > self.input_size:
+            start_y = (new_height - self.input_size) // 2
+            image = image[:, start_y:start_y + self.input_size, :]
+        return image.unsqueeze(0).to(self.device)
+
+    def predict(self, frame_rgb, anchor_frame=False):
+        from stream3r.models.components.utils.pose_enc import pose_encoding_to_extri_intri
+
+        if anchor_frame:
+            self.reset()
+
+        frame_rgb = np.asarray(frame_rgb)
+        h, w = frame_rgb.shape[:2]
+        image = self._preprocess_frame(frame_rgb)
+
+        with torch.no_grad():
+            predictions = self.session.forward_stream(image)
+            depth = predictions["depth"][:, -1].permute(0, 3, 1, 2).float()
+            if depth.shape[-2:] != (h, w):
+                depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+
+            intrinsic = None
+            if anchor_frame:
+                _, intrinsic_tensor = pose_encoding_to_extri_intri(
+                    predictions["pose_enc"][:, -1:], image.shape[-2:]
+                )
+                intrinsic = intrinsic_tensor[0, 0].detach().cpu().numpy().astype(np.float32)
+                intrinsic[0, :] *= w / image.shape[-1]
+                intrinsic[1, :] *= h / image.shape[-2]
+
+        self.session.predictions = self.session.get_last_prediction()
+        depth_np = depth.squeeze().cpu().numpy().astype(np.float32)
+        if anchor_frame:
+            return depth_np, intrinsic
+        return depth_np
+    
     def draw_on_image(self, depths, save_path=None):
         depth_stack = np.stack(depths, axis=0)
         vmin = float(np.nanpercentile(depth_stack, 1))

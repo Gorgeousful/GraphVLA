@@ -190,7 +190,187 @@ class GeomFrankaPanda:
             device=device,
         )
 
+    def project_gripper_to_uvd(
+        self,
+        tcp_state: Iterable[float],
+        gripper_state: float,
+        intrinsic: np.ndarray,
+        extrinsic: np.ndarray,
+        image_size: tuple[int, int],
+        world_transform: np.ndarray | None = None,
+        mode: str = "3P" # "SG"
+    ) -> dict:
+        self._set_finger_state(gripper_state)
+        mujoco.mj_forward(self.model, self.data)
+
+        frame_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, self._GRIPPER_FRAME_BODY,
+        )
+        frame_from_world = np.linalg.inv(make_pose(
+            self.data.xpos[frame_id],
+            self.data.xmat[frame_id].reshape(3, 3),
+        ))
+
+        keypoints_local = {"root": np.zeros(3, dtype=np.float64)}
+        for key, geom_name in (
+            ("left_tip", "finger1_visual"),
+            ("right_tip", "finger2_visual"),
+        ):
+            geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
+            mesh_id = int(self.model.geom_dataid[geom_id])
+            vertices, _ = self._mesh_vertices_faces(mesh_id)
+            tip_geom = self._finger_tip_from_vertices(vertices)
+            world_from_geom = make_pose(
+                self.data.geom_xpos[geom_id],
+                self.data.geom_xmat[geom_id].reshape(3, 3),
+            )
+            keypoints_local[key] = transform_points(
+                transform_points(tip_geom[None], world_from_geom),
+                frame_from_world,
+            )[0]
+
+        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
+        points_camera = np.stack([
+            transform_points(keypoints_local["root"][None], local_to_camera)[0],
+            transform_points(keypoints_local["left_tip"][None], local_to_camera)[0],
+            transform_points(keypoints_local["right_tip"][None], local_to_camera)[0],
+        ])
+        intrinsic = np.asarray(intrinsic, dtype=np.float64)
+        pixels_h = (intrinsic @ points_camera.T).T
+        pixels = pixels_h[:, :2] / pixels_h[:, 2:3]
+        height, width = image_size
+        # Keep projected coordinates inside the image when points fall out of view.
+        pixels[:, 0] = np.clip(pixels[:, 0], 0, width - 1)
+        pixels[:, 1] = np.clip(pixels[:, 1], 0, height - 1)
+        uvd = np.concatenate([pixels, points_camera[:, 2:3]], axis=1)
+
+        output = {
+            "root_uvd": uvd[0],
+            "left_uvd": uvd[1],
+            "right_uvd": uvd[2],
+        }
+        if mode == "SG":
+            center_uvd = 0.5 * (output["left_uvd"] + output["right_uvd"])
+            delta = output["right_uvd"] - output["left_uvd"]
+            width = float(np.linalg.norm(delta))
+            output = {
+                "root_uvd": uvd[0],
+                "center_uvd": center_uvd,
+                "open_axis": delta / max(width, 1e-8),
+                "width": width,
+            }
+        return output
+
+    def project_uvd_to_gripper(
+        self,
+        uvd_dict: dict,
+        intrinsic: np.ndarray,
+        extrinsic: np.ndarray | None = None,
+        world_transform: np.ndarray | None = None,
+        mode: str = "3P" # "SG"
+    ) -> np.ndarray:
+        intrinsic = np.asarray(intrinsic, dtype=np.float64)
+
+        root_uvd = np.asarray(uvd_dict["root_uvd"], dtype=np.float64)
+        if "left_uvd" in uvd_dict and "right_uvd" in uvd_dict:
+            left_uvd = np.asarray(uvd_dict["left_uvd"], dtype=np.float64)
+            right_uvd = np.asarray(uvd_dict["right_uvd"], dtype=np.float64)
+        else:
+            center_uvd = np.asarray(uvd_dict["center_uvd"], dtype=np.float64)
+            open_axis = np.asarray(uvd_dict["open_axis"], dtype=np.float64)
+            width = float(uvd_dict["width"])
+            left_uvd = center_uvd - 0.5 * width * open_axis
+            right_uvd = center_uvd + 0.5 * width * open_axis
+
+        uvd = np.stack([root_uvd, left_uvd, right_uvd])
+        z = uvd[:, 2]
+        points_camera = np.stack([
+            (uvd[:, 0] - intrinsic[0, 2]) * z / intrinsic[0, 0],
+            (uvd[:, 1] - intrinsic[1, 2]) * z / intrinsic[1, 1],
+            z,
+        ], axis=1)
+        target_width = float(np.linalg.norm(points_camera[2] - points_camera[1]))
+
+        def keypoints_local_for_gripper(gripper: float) -> np.ndarray:
+            self._set_finger_state(gripper)
+            mujoco.mj_forward(self.model, self.data)
+            frame_id = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_BODY, self._GRIPPER_FRAME_BODY,
+            )
+            frame_from_world = np.linalg.inv(make_pose(
+                self.data.xpos[frame_id],
+                self.data.xmat[frame_id].reshape(3, 3),
+            ))
+            keypoints = [np.zeros(3, dtype=np.float64)]
+            for geom_name in ("finger1_visual", "finger2_visual"):
+                geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
+                mesh_id = int(self.model.geom_dataid[geom_id])
+                vertices, _ = self._mesh_vertices_faces(mesh_id)
+                tip_geom = self._finger_tip_from_vertices(vertices)
+                world_from_geom = make_pose(
+                    self.data.geom_xpos[geom_id],
+                    self.data.geom_xmat[geom_id].reshape(3, 3),
+                )
+                keypoints.append(transform_points(
+                    transform_points(tip_geom[None], world_from_geom),
+                    frame_from_world,
+                )[0])
+            return np.stack(keypoints)
+
+        jnt1_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "finger_joint1")
+        jnt2_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "finger_joint2")
+        max_gripper = float(self.model.jnt_range[jnt1_id, 1] - self.model.jnt_range[jnt2_id, 0])
+        # Binary search the gripper opening from the observed left/right tip distance within MJCF joint limits.
+        lo, hi = 0.0, max_gripper
+        for _ in range(32):
+            mid = 0.5 * (lo + hi)
+            local_mid = keypoints_local_for_gripper(mid)
+            mid_width = float(np.linalg.norm(local_mid[2] - local_mid[1]))
+            if mid_width < target_width:
+                lo = mid
+            else:
+                hi = mid
+        gripper_state = 0.5 * (lo + hi)
+        points_local = keypoints_local_for_gripper(gripper_state)
+
+        local_center = points_local.mean(axis=0)
+        camera_center = points_camera.mean(axis=0)
+        local_zero = points_local - local_center
+        camera_zero = points_camera - camera_center
+        u, _, vt = np.linalg.svd(local_zero.T @ camera_zero)
+        rot = vt.T @ u.T
+        if np.linalg.det(rot) < 0:
+            vt[-1] *= -1
+            rot = vt.T @ u.T
+        trans = camera_center - rot @ local_center
+        camera_from_gripper = np.eye(4, dtype=np.float64)
+        camera_from_gripper[:3, :3] = rot
+        camera_from_gripper[:3, 3] = trans
+
+        if extrinsic is None:
+            pose = camera_from_gripper
+        else:
+            pose = np.asarray(extrinsic, dtype=np.float64) @ camera_from_gripper
+            if world_transform is not None:
+                pose = np.linalg.inv(np.asarray(world_transform, dtype=np.float64)) @ pose
+
+        offset = np.eye(4, dtype=np.float64)
+        offset[:3, 3] = self._TCP_OFFSET
+        tcp_pose = pose @ np.linalg.inv(offset)
+        return np.concatenate([
+            tcp_pose[:3, 3],
+            R.from_matrix(tcp_pose[:3, :3]).as_rotvec(),
+            np.asarray([gripper_state], dtype=np.float64),
+        ])
+
     #: private
+    def _finger_tip_from_vertices(self, vertices: np.ndarray, axis: str = "z") -> np.ndarray:
+        """Return the fingertip point from finger mesh vertices in mesh-local frame."""
+        vertices = np.asarray(vertices, dtype=np.float64)
+        axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
+        axis_max = vertices[:, axis_idx].max()
+        return vertices[np.isclose(vertices[:, axis_idx], axis_max, atol=1e-5)].mean(axis=0)
+
     def _load_meshes_for_geoms(self, geom_names: tuple[str, ...]) -> list[dict]:
         """Load meshes for the given geom names in the current gripper frame."""
         frame_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, self._GRIPPER_FRAME_BODY)

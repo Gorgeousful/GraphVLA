@@ -29,7 +29,7 @@ class NodeSegmenter:
     def __init__(
         self,
         model_path="/data0/luokang/dataset/luokang/ckpts/sam3/sam3.pt",
-        device="cuda:0",
+        device="cuda",
     ):
         model = build_sam3_video_model(
             checkpoint_path=model_path,

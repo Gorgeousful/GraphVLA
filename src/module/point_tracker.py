@@ -29,7 +29,7 @@ class PointTracker:
     def __init__(
         self,
         model_path="/data0/luokang/dataset/luokang/ckpts/tapnextpp_ckpt.pt",
-        device="cuda:0",
+        device="cuda",
         image_size=256,
         use_certainty=False,
         threshold=0.5,

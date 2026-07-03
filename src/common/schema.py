@@ -190,3 +190,65 @@ def json_to_taskstructure(json_data) -> TaskStructure:
         task=str(data.get("task", "")),
         subtask_list=subtask_list,
     )
+
+
+def json_to_substructure(json_data) -> SubtaskStructure:
+    if isinstance(json_data, (str, bytes, os.PathLike)):
+        with open(json_data, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = json_data
+
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected dict or JSON path, got {type(data).__name__}")
+
+    node_list = []
+    for fallback_id, raw_node in enumerate(data.get("nodes", [])):
+        if not isinstance(raw_node, dict):
+            raise ValueError(f"Each node must be a dict, got {type(raw_node).__name__}")
+
+        node_list.append(Node(
+            id=int(raw_node.get("id", fallback_id)),
+            name=str(raw_node["name"]),
+            need_object=bool(raw_node.get("need_object", True)),
+            role=NodeRole(raw_node["role"]),
+            point=None if raw_node.get("point") is None else np.asarray(raw_node["point"], dtype=np.float32),
+            canon_pcd=None if raw_node.get("canon_pcd") is None else np.asarray(raw_node["canon_pcd"], dtype=np.float32),
+            pos=None if raw_node.get("pos") is None else np.asarray(raw_node["pos"], dtype=np.float32),
+            rot6d=None if raw_node.get("rot6d") is None else np.asarray(raw_node["rot6d"], dtype=np.float32),
+            gripper=None if raw_node.get("gripper") is None else np.asarray(raw_node["gripper"], dtype=np.float32),
+        ))
+
+    raw_action_type = data["action_type"]
+    action_type = next(
+        (item for item in ActionType if item.value[0] == raw_action_type),
+        None,
+    )
+    if action_type is None:
+        raise ValueError(f"Invalid action_type: {raw_action_type}")
+
+    return SubtaskStructure(
+        subtask=str(data["subtask"]),
+        action_type=action_type,
+        action_degree=data.get("action_degree"),
+        node_list=node_list,
+    )
+
+
+def json_to_jsonl(json_path_list, jsonl_path):
+    if isinstance(json_path_list, (str, bytes, os.PathLike)):
+        json_path_list = [json_path_list]
+
+    jsonl_dir = os.path.dirname(os.fspath(jsonl_path))
+    if jsonl_dir:
+        os.makedirs(jsonl_dir, exist_ok=True)
+
+    data_list = []
+    with open(jsonl_path, "w", encoding="utf-8") as out_f:
+        for json_path in json_path_list:
+            with open(json_path, "r", encoding="utf-8") as in_f:
+                data = json.load(in_f)
+            data_list.append(data)
+            json.dump(data, out_f, ensure_ascii=False, separators=(",", ":"))
+            out_f.write("\n")
+    return data_list

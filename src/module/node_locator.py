@@ -102,16 +102,16 @@ class NodeLocatorRobo:
         image = self.resize(image, scale=resize_scale)
 
         if task == "pointing":
-            cs.print("Pointing task detected. Adding pointing prompt.")
+            # cs.print("Pointing task detected. Adding pointing prompt.")
             text = f"{text}. Please provide its 2D coordinates. Your answer should be formatted as a tuple, i.e. [(x, y)], where the tuple contains the x and y coordinates of a point satisfying the conditions above."
         elif task == "trajectory":
-            cs.print("Trajectory task detected. Adding trajectory prompt.")
+            # cs.print("Trajectory task detected. Adding trajectory prompt.")
             text = f"Please predict 3D end-effector-centric waypoints to complete the task successfully. The task is \"{text}\". Your answer should be formatted as a list of tuples, i.e., [(x1, y1, d1), (x2, y2, d2), ...], where each tuple contains the x and y coordinates and the depth of the point."
         elif task == "grounding":
-            cs.print("Grounding task detected. Adding grounding prompt.")
+            # cs.print("Grounding task detected. Adding grounding prompt.")
             text = f"Please provide the bounding box coordinate of the region this sentence describes: {text}."
 
-        cs.print(f"\n{'='*20} INPUT {'='*20}\n{text}\n{'='*47}\n")
+        # cs.print(f"\n{'='*20} INPUT {'='*20}\n{text}\n{'='*47}\n")
 
         # PIL Images are passed directly to process_vision_info (no file paths needed)
         messages = [
@@ -140,7 +140,7 @@ class NodeLocatorRobo:
         inputs = inputs.to("cuda")
 
         # Inference
-        cs.print("Running inference ...")
+        # cs.print("Running inference ...")
         generated_ids = self.model.generate(**inputs, max_new_tokens=768, do_sample=do_sample, temperature=temperature)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -157,17 +157,17 @@ class NodeLocatorRobo:
                 trajectory_pattern = r'(\d+),\s*(\d+),\s*([+-]?\d+\.\d+)'
                 trajectory_matches = re.findall(trajectory_pattern, answer_text)
                 extraced_trajectories = [[(int(x), int(y), float(d)) for x, y, d in trajectory_matches]]
-                cs.print(f"Extracted trajectory points: {extraced_trajectories}")
+                # cs.print(f"Extracted trajectory points: {extraced_trajectories}")
             elif task == "pointing":
                 point_pattern = r'\(\s*(\d+)\s*,\s*(\d+)\s*\)'
                 point_matches = re.findall(point_pattern, answer_text)
                 extraced_points = [(int(x), int(y)) for x, y in point_matches]
-                cs.print(f"Extracted points: {extraced_points}")
+                # cs.print(f"Extracted points: {extraced_points}")
             elif task == "grounding":
                 box_pattern = r'\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]'
                 box_matches = re.findall(box_pattern, answer_text)
                 extraced_boxes = [[int(x1), int(y1), int(x2), int(y2)] for x1, y1, x2, y2 in box_matches]
-                cs.print(f"Extracted bounding boxes: {extraced_boxes}")
+                # cs.print(f"Extracted bounding boxes: {extraced_boxes}")
 
         # Plotting functionality
         if plot and task in ["pointing", "trajectory", "grounding"]:

@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fix-point", nargs=3, type=float, metavar=("X", "Y", "Z"), help="Add one fixed red reference point in camera coordinates.")
     parser.add_argument("--fix-point-size-scale", type=float, default=2, help="Fixed point size relative to --point-size.")
     parser.add_argument("--seed", type=int, default=0)
-    return parser.parse_args() # 0.002396 0.027254 0.092549 / 0.03240790590643883 0.37269094586372375 1.2518337965011597
+    return parser.parse_args() # 0.002396 0.027254 0.092549 / 0.01416531 0.15468535 0.52779436
 
 
 def resolve_npy_path(path_text: str) -> Path:

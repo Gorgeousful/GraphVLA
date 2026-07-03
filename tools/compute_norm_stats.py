@@ -144,19 +144,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compute LeRobot normalization stats for selected fields.")
     parser.add_argument("dataset_dir", type=Path, help="Local LeRobot dataset directory.")
     parser.add_argument("fields", nargs="+", help="Field names to compute, e.g. observation.state action.")
+    parser.add_argument("--level", choices=("suite", "task", "episode"), default="suite")
     parser.add_argument("--video-backend", default="pyav")
     parser.add_argument("--max-frames", type=int, default=None, help="Optional limit for quick stats debugging.")
     parser.add_argument("--batch-size", type=int, default=256, help="CPU batch size for stats computation.")
     parser.add_argument("--num-workers", type=int, default=4, help="CPU DataLoader workers.")
     parser.add_argument("--num-quantile-bins", type=int, default=5000)
-    parser.add_argument("--output", type=Path, default=None, help="Defaults to <dataset_dir>/meta/norm_stats.json.")
+    parser.add_argument("--output", type=Path, default=None, help="Defaults to <dataset_dir>/meta/norm_stats_<level>.json.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     dataset_dir = args.dataset_dir.resolve()
-    output_path = args.output or dataset_dir / "meta" / "norm_stats.json"
+    output_path = args.output or dataset_dir / "meta" / f"norm_stats_{args.level}.json"
 
     dataset = LeRobotDataset(
         repo_id=str(dataset_dir),
@@ -173,16 +174,50 @@ def main() -> None:
         pin_memory=False,
         persistent_workers=args.num_workers > 0,
     )
-    stats = {field: RunningStats(num_quantile_bins=args.num_quantile_bins) for field in args.fields}
+    if args.level == "suite":
+        stats = {field: RunningStats(num_quantile_bins=args.num_quantile_bins) for field in args.fields}
+    else:
+        stats = {field: {} for field in args.fields}
 
     for batch in tqdm(data_loader, desc="Computing norm stats", unit="batch"):
-        for field, running_stats in stats.items():
-            if field not in batch:
-                raise KeyError(f"Field {field!r} not found. Available keys: {sorted(batch.keys())}")
-            running_stats.update(batch[field])
+        if args.level == "suite":
+            for field, running_stats in stats.items():
+                if field not in batch:
+                    raise KeyError(f"Field {field!r} not found. Available keys: {sorted(batch.keys())}")
+                running_stats.update(batch[field])
+        else:
+            index_field = "task_index" if args.level == "task" else "episode_index"
+            if index_field not in batch:
+                raise KeyError(f"Field {index_field!r} not found. Available keys: {sorted(batch.keys())}")
+            group_indices = np.asarray(batch[index_field]).reshape(-1)
+            for field, field_stats in stats.items():
+                if field not in batch:
+                    raise KeyError(f"Field {field!r} not found. Available keys: {sorted(batch.keys())}")
+                values = np.asarray(batch[field])
+                if values.shape[0] != group_indices.shape[0]:
+                    raise ValueError(
+                        f"Field {field!r} batch dimension {values.shape[0]} does not match "
+                        f"{index_field!r} dimension {group_indices.shape[0]}"
+                    )
+                for group_index, value in zip(group_indices, values, strict=True):
+                    group_key = str(int(group_index.item() if hasattr(group_index, "item") else group_index))
+                    running_stats = field_stats.setdefault(
+                        group_key,
+                        RunningStats(num_quantile_bins=args.num_quantile_bins),
+                    )
+                    running_stats.update(value)
 
-    norm_stats = {field: asdict(running_stats.get_statistics()) for field, running_stats in stats.items()}
-    output = {"norm_stats": norm_stats}
+    if args.level == "suite":
+        norm_stats = {field: asdict(running_stats.get_statistics()) for field, running_stats in stats.items()}
+    else:
+        norm_stats = {
+            field: {
+                group_key: asdict(running_stats.get_statistics())
+                for group_key, running_stats in sorted(field_stats.items(), key=lambda item: int(item[0]))
+            }
+            for field, field_stats in stats.items()
+        }
+    output = {"level": args.level, "norm_stats": norm_stats}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote norm stats to {output_path}")

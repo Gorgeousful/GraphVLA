@@ -306,16 +306,25 @@ def rot_transform(input_data, input_format="rot6d", target_format="matrix") -> n
         raise ValueError(f"不支持的输出格式: {target_format}。支持 'quat', 'matrix', 'rot6d', 'euler', 'axis_angle'")
 
 
-def sample_points_from_mask(mask: np.ndarray, num_points: int = 128) -> np.ndarray:
+def sample_points_from_mask(mask: np.ndarray, num_points: int = 128, erode_pixel: int = 0) -> np.ndarray:
     """Sample points from a binary mask using farthest point sampling.
 
     Args:
         mask: np.ndarray, shape (H, W), non-zero values are valid pixels.
         num_points: Number of points to return.
+        erode_pixel: Pixels to erode before sampling. Falls back to the original
+            mask if erosion removes all valid pixels.
 
     Returns:
         np.ndarray, shape (num_points, 2), float32, coordinates in (x, y).
     """
+    mask = np.asarray(mask, dtype=bool)
+    if erode_pixel > 0 and mask.any():
+        kernel = np.ones((2 * int(erode_pixel) + 1, 2 * int(erode_pixel) + 1), dtype=np.uint8)
+        eroded = cv2.erode(mask.astype(np.uint8), kernel, iterations=1).astype(bool)
+        if eroded.any():
+            mask = eroded
+
     ys, xs = np.nonzero(mask)
     if len(xs) == 0:
         raise ValueError("mask contains no valid pixels")

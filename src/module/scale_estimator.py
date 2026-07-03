@@ -5,7 +5,7 @@ import trimesh
 import numpy as np
 from rich.console import Console
 cs = Console()
-REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir, os.pardir))
+REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir))
 EXAMPLES_DIR = os.path.join(REPO_ROOT, "examples")
 
 class ScaleEstimator:

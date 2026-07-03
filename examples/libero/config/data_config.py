@@ -20,6 +20,16 @@ def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
             tasks[int(row["task_index"])] = str(row["task"])
     return tasks
 
+def load_norm_stats(dataset_dir: str | Path, level: str = "suite") -> dict[str, Any]:
+    path = Path(dataset_dir) / "meta" / f"norm_stats_{level}.json"
+    with path.open("r", encoding="utf-8") as f:
+        norm_stats = json.load(f)
+
+    file_level = norm_stats.get("level", "suite")
+    if file_level != level:
+        raise ValueError(f"Norm stats level mismatch: expected {level!r}, got {file_level!r} from {path}")
+    return norm_stats
+
 
 @dataclass
 class DataConfig:
@@ -53,10 +63,7 @@ LIBERO_REPACK = {
 }
 
 LIBERO_OPTIONAL_REPACK = {
-    "grounding": "grounding",
     "subtask": "subtask",
-    "phase": "phase",
-    "focus": "focus",
 }
 
 LIBERO_HORIZON = {
@@ -74,7 +81,7 @@ LIBERO_TRANSFORM = (
     PromptFromTask(tasks=load_lerobot_tasks(LIBERO_DATASET_DIR)),
 )
 
-TASKS = [31]
+TASKS = [30, 31]
 
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,

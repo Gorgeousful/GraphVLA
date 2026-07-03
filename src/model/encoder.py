@@ -27,6 +27,8 @@ class SetEncoder(nn.Module):
     """Encode per-object tracked point sets into object tokens.
 
     Args:
+        F = [u_0,v_0,d_rel_0, u,v,d_rel,vis, d_metric]
+        if lacking, fill in with -1
         point_feats: ``[B, T, N, P, F]`` where ``P`` is the number of
             tracked points for each object. Returns ``[B, T, N, C]``.
     """
@@ -123,7 +125,6 @@ class PointEncoder(nn.Module):
     """DP3-style PointNet encoder for per-object point features.
 
     Supports ``[B, T, N, P, F]`` inputs and returns ``[B, T, N, C]``.
-    F = [u,v,d,v,r,g,b]
     The core implementation follows DP3's point cloud encoder: per-point MLP,
     max pooling over points, then a final projection.
     """
@@ -222,9 +223,9 @@ class TokenMemoryEncoder(nn.Module):
 
     def __init__(
         self,
-        hidden_dim: int = 1024,
-        num_layers: int =16,
-        num_heads: int = 8,
+        hidden_dim: int,
+        num_layers: int,
+        num_heads: int,
         mlp_ratio: float = 4.0,
         attention_pattern: str | None = "interleaved_local_global",
         dropout: float = 0.1,

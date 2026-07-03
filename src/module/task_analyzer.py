@@ -116,7 +116,7 @@ class TaskAnalyzer:
         self,
         api_key: str,
         base_url: str = "https://models.sjtu.edu.cn/api/v1",
-        model: str = "qwen3vl",
+        model: str = "glm",
     ):
         self.client = Client(api_key, base_url, model)
 

@@ -29,7 +29,7 @@ class BinarySegmenter:
         low_thres=0.5,
         foreground_erode=1,
         foreground_dilate=1,
-        device="cuda:0",
+        device="cuda",
         fp32=False,
     ):
         self.model_path = model_path
@@ -72,7 +72,7 @@ class BinarySegmenter:
             input_image = input_image.half()
 
         with torch.inference_mode():
-            pred = self.model(input_image)[-1].sigmoid().detach().cpu()[0].squeeze()
+            pred = self.model(input_image)[-1].sigmoid().detach()[0].squeeze().float().cpu()
 
         pred_pil = transforms.ToPILImage()(pred).resize(image.size, getattr(Image, "Resampling", Image).BILINEAR)
         return (np.asarray(pred_pil, dtype=np.float32) / 255.0).astype(np.float32, copy=False)
