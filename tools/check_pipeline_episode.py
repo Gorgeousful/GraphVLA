@@ -27,7 +27,6 @@ def parse_args() -> argparse.Namespace:
         default=Path("/data0/luokang/research/GraphVLA/__tmp__/check"),
     )
     parser.add_argument("--video-key", default=None)
-    parser.add_argument("--no-flip-gripper-u", action="store_true")
     return parser.parse_args()
 
 
@@ -80,6 +79,10 @@ def episode_video_path(dataset_dir: Path, info: dict, video_key: str, episode_in
     )
 
 
+def is_libero_dataset(dataset_dir: Path) -> bool:
+    return "libero" in dataset_dir.name.lower()
+
+
 def nested_node(row) -> np.ndarray:
     return np.array([[np.asarray(point, dtype=np.float32) for point in node] for node in row], dtype=np.float32)
 
@@ -109,8 +112,17 @@ def draw_node_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int) -> np
     colors = [(60, 60, 255), (255, 144, 30), (50, 205, 50), (0, 215, 255), (255, 0, 255), (255, 255, 0)]
     panel = frame.copy()
     tracks = nested_node(df["node_points_track"].iloc[frame_index])
-    for node_index, node in enumerate(tracks):
-        color = colors[node_index % len(colors)]
+    if "node_points_mask" in df.columns:
+        node_points_mask = np.asarray(df["node_points_mask"].iloc[frame_index], dtype=bool)
+    else:
+        node_points_mask = np.ones(tracks.shape[0], dtype=bool)
+
+    active = np.zeros(tracks.shape[0], dtype=bool)
+    active[:len(node_points_mask)] = node_points_mask[:tracks.shape[0]]
+    draw_order = list(np.where(~active)[0]) + list(np.where(active)[0])
+    for node_index in draw_order:
+        node = tracks[node_index]
+        color = colors[node_index % len(colors)] if active[node_index] else (145, 145, 145)
         valid = node[:, 2] > 0.5
         for x, y, visible in node:
             if visible > 0.5:
@@ -142,18 +154,11 @@ def draw_far_background_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: 
     return add_panel_title(panel, "far_background_mask")
 
 
-def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int, flip_u: bool) -> np.ndarray:
+def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int) -> np.ndarray:
     height, width = frame.shape[:2]
     panel = frame.copy()
     uvd = df["gripper_uvd"].iloc[frame_index]
-
-    def point(value) -> np.ndarray:
-        p = np.asarray(value, dtype=np.float64).copy()
-        if flip_u:
-            p[0] = width - 1 - p[0]
-        return p
-
-    root, left, right = [point(value) for value in np.asarray(uvd, dtype=np.float64)[:3]]
+    root, left, right = [np.asarray(point, dtype=np.float64) for point in uvd[:3]]
     center = 0.5 * (left + right)
 
     for name, p, color in (
@@ -179,7 +184,7 @@ def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int, fl
     return add_panel_title(panel, "gripper_uvd")
 
 
-def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: int, output_dir: Path, video_key: str | None, flip_gripper_u: bool) -> Path:
+def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: int, output_dir: Path, video_key: str | None) -> Path:
     info = load_json(dataset_dir / "meta" / "info.json")
     video_key = infer_video_key(info, video_key)
     episodes = scan_task_episodes(dataset_dir, info, task_index)
@@ -199,6 +204,8 @@ def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: 
     ok, first = cap.read()
     if not ok:
         raise RuntimeError(f"Empty video: {video_path}")
+    if is_libero_dataset(dataset_dir):
+        first = cv2.flip(first, 1)
     height, width = first.shape[:2]
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
@@ -232,13 +239,15 @@ def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: 
             ok, frame = cap.read()
             if not ok:
                 break
+            if is_libero_dataset(dataset_dir):
+                frame = cv2.flip(frame, 1)
             grid = np.vstack([
                 np.hstack([draw_node_panel(frame, df, frame_index), draw_depth_panel(df, frame_index)]),
-                np.hstack([draw_far_background_panel(frame, df, frame_index), draw_gripper_panel(frame, df, frame_index, flip_gripper_u)]),
+                np.hstack([draw_far_background_panel(frame, df, frame_index), draw_gripper_panel(frame, df, frame_index)]),
             ])
             canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
             canvas[header_h:] = grid
-            header = f"task={task_index} episode={episode_index} local={local_episode_index}  subtask_id={int(df['subtask_id'].iloc[frame_index])}  complete={bool(df['is_complete'].iloc[frame_index])}"
+            header = f"subtask_id={int(df['subtask_id'].iloc[frame_index])}  complete={bool(df['is_complete'].iloc[frame_index])}"
             add_header(canvas, header, header_h)
             proc.stdin.write(canvas.tobytes())
             frame_index += 1
@@ -265,7 +274,6 @@ def main() -> None:
         local_episode_index=args.local_episode_index,
         output_dir=args.output_dir,
         video_key=args.video_key,
-        flip_gripper_u=not args.no_flip_gripper_u,
     )
 
 

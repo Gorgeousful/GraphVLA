@@ -63,6 +63,7 @@ class OfflinePipeline:
         overwrite_defaults = {
             "taskstructure": False,
             "node_points_track": True,
+            "node_points_mask": True,
             "depths_rel": True,
             "far_background_mask": True,
             "is_complete": True,
@@ -92,6 +93,7 @@ class OfflinePipeline:
         self.gripper_geometry = None
 
     def run(self):
+        self._ensure_output_features()
         task_indices = [int(task_index) for task_index in self.config.episode_selector]
         taskstructures = self.build_taskstructures(task_indices)
         episode_indices = self.resolve_episode_indices(self.config.episode_selector)
@@ -181,6 +183,7 @@ class OfflinePipeline:
             self.overwrite["node_points_track"]
             or "node_points_track" not in df.columns
         )
+        need_node_points_mask = self.overwrite["node_points_mask"] or "node_points_mask" not in df.columns
         need_depth = self.overwrite["depths_rel"] or "depths_rel" not in df.columns
         need_far_background = (
             self.overwrite["far_background_mask"]
@@ -188,9 +191,14 @@ class OfflinePipeline:
         )
         need_is_complete = self.overwrite["is_complete"] or "is_complete" not in df.columns
         need_gripper_uvd = self.overwrite["gripper_uvd"] or "gripper_uvd" not in df.columns
-        need_subtask_id = self.overwrite["subtask_id"] or "subtask_id" not in df.columns
+        need_subtask_id = (
+            self.overwrite["subtask_id"]
+            or "subtask_id" not in df.columns
+            or (need_node_points_mask and "subtask_id" not in df.columns)
+        )
         if (
             not need_node_track
+            and not need_node_points_mask
             and not need_depth
             and not need_far_background
             and not need_is_complete
@@ -213,6 +221,10 @@ class OfflinePipeline:
         if need_subtask_id:
             df["subtask_id"] = self._build_subtask_id(df, task_index).tolist()
 
+        if need_node_points_mask:
+            node_points_mask = self._build_node_points_mask(df, taskstructures[task_index])
+            df["node_points_mask"] = [mask.tolist() for mask in node_points_mask]
+
         if need_gripper_uvd:
             gripper_uvd = self._build_gripper_uvd(df, task_index)
             df["gripper_uvd"] = gripper_uvd
@@ -225,11 +237,15 @@ class OfflinePipeline:
                 )
 
         if need_node_track:
+            debug_node_points_masks = None
+            if self.config.debug and "node_points_mask" in df.columns:
+                debug_node_points_masks = np.asarray(df["node_points_mask"].tolist(), dtype=bool)
             tracks = self._build_node_points_track(
                 frames,
                 taskstructures[task_index],
                 episode_index=episode_index,
                 task_index=task_index,
+                node_points_masks=debug_node_points_masks,
             )
             df["node_points_track"] = [frame_track.tolist() for frame_track in tracks]
 
@@ -262,6 +278,7 @@ class OfflinePipeline:
         table = pa.Table.from_pandas(df, preserve_index=False)
         target_types = {
             "node_points_track": pa.list_(pa.list_(pa.list_(pa.float32()))),
+            "node_points_mask": pa.list_(pa.bool_()),
             "depths_rel": pa.list_(pa.list_(pa.float32())),
             "far_background_mask": pa.list_(pa.list_(pa.bool_())),
             "gripper_uvd": pa.list_(pa.list_(pa.float32())),
@@ -281,6 +298,7 @@ class OfflinePipeline:
         taskstructure: TaskStructure,
         episode_index: int,
         task_index: int,
+        node_points_masks: np.ndarray | None = None,
     ) -> np.ndarray:
         nodes = self._object_nodes(taskstructure)
         if len(nodes) > self.config.max_nodes:
@@ -340,6 +358,7 @@ class OfflinePipeline:
                 tracker_results,
                 episode_index=episode_index,
                 task_index=task_index,
+                node_points_masks=node_points_masks,
             )
         tracks = np.stack(frame_tracks, axis=0).astype(np.float32)
         padded_tracks = np.zeros(
@@ -510,6 +529,32 @@ class OfflinePipeline:
         self.libero_subtask_id_map = subtask_id_map
         return self.libero_subtask_id_map
 
+    def _build_node_points_mask(self, df: pd.DataFrame, taskstructure: TaskStructure) -> np.ndarray:
+        dataset_type = str(self.config.dataset_type).lower()
+        if dataset_type != "libero":
+            raise KeyError(f"Unsupported dataset_type for node_points_mask: {self.config.dataset_type}")
+        if "subtask_id" not in df.columns:
+            raise KeyError("subtask_id is required to build node_points_mask")
+
+        spans = []
+        cursor = 0
+        for subtask in taskstructure.subtask_list:
+            count = sum(
+                1
+                for node in (subtask.node_list or [])
+                if bool(node.need_object) and node.role != NodeRole.ACTOR
+            )
+            spans.append((cursor, cursor + count))
+            cursor += count
+
+        masks = np.zeros((len(df), self.config.max_nodes), dtype=bool)
+        for row_index, subtask_id in enumerate(df["subtask_id"]):
+            subtask_index = int(subtask_id) - 1
+            if 0 <= subtask_index < len(spans):
+                start, end = spans[subtask_index]
+                masks[row_index, start:min(end, self.config.max_nodes)] = True
+        return masks
+
     def _build_gripper_uvd(self, df: pd.DataFrame, task_index: int) -> list[list[list[float]]]:
         dataset_type = str(self.config.dataset_type).lower()
         if dataset_type == "libero":
@@ -610,7 +655,7 @@ class OfflinePipeline:
         cs.rule()
         cs.print("[bold cyan]Pipeline outputs[/bold cyan]")
         cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
-        cs.print("parquet fields: node_points_track, depths_rel, far_background_mask, is_complete, gripper_uvd, subtask_id")
+        cs.print("parquet fields: node_points_track, node_points_mask, depths_rel, far_background_mask, is_complete, gripper_uvd, subtask_id")
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
             cs.print(f"debug point tracker videos: {self.point_tracker_vis_dir}")
@@ -700,6 +745,7 @@ class OfflinePipeline:
         tracker_results: Sequence[dict],
         episode_index: int,
         task_index: int,
+        node_points_masks: np.ndarray | None = None,
     ):
         if not frames:
             return
@@ -724,9 +770,10 @@ class OfflinePipeline:
             stderr=subprocess.PIPE,
         )
         try:
-            for frame, result in zip(frames, tracker_results):
+            for frame_index, (frame, result) in enumerate(zip(frames, tracker_results)):
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                drawn = self.point_tracker.draw_on_image(frame_bgr, result)
+                mask = None if node_points_masks is None else node_points_masks[frame_index]
+                drawn = self._draw_point_tracker_result(frame_bgr, result, mask)
                 proc.stdin.write(drawn.tobytes())
             proc.stdin.close()
             proc.wait()
@@ -736,6 +783,41 @@ class OfflinePipeline:
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
             raise RuntimeError(f"ffmpeg failed for {save_path}: {stderr}")
+
+
+    @staticmethod
+    def _draw_point_tracker_result(
+        image_bgr: np.ndarray,
+        result: Mapping[str, np.ndarray],
+        node_points_mask: np.ndarray | None = None,
+    ) -> np.ndarray:
+        colors = [
+            (60, 60, 255),
+            (255, 144, 30),
+            (50, 205, 50),
+            (0, 215, 255),
+            (255, 0, 255),
+            (255, 255, 0),
+        ]
+        drawn = image_bgr.copy()
+        points = np.asarray(result["points"], dtype=np.float32)
+        visibles = np.asarray(result.get("visibles", np.ones(points.shape[:2], dtype=bool)), dtype=bool)
+        if node_points_mask is None:
+            node_points_mask = np.ones(points.shape[0], dtype=bool)
+        else:
+            node_points_mask = np.asarray(node_points_mask, dtype=bool)[:points.shape[0]]
+
+        active = np.zeros(points.shape[0], dtype=bool)
+        active[:len(node_points_mask)] = node_points_mask[:points.shape[0]]
+        draw_order = list(np.where(~active)[0]) + list(np.where(active)[0])
+        for node_index in draw_order:
+            color = colors[node_index % len(colors)] if active[node_index] else (145, 145, 145)
+            pale_color = tuple(int(round(c * 0.35 + 255 * 0.65)) for c in color)
+            for point, visible in zip(points[node_index], visibles[node_index]):
+                x, y = np.round(point).astype(int)
+                draw_color = color if visible else pale_color
+                cv2.circle(drawn, (int(x), int(y)), 2, draw_color, -1, lineType=cv2.LINE_AA)
+        return drawn
 
     def _save_pointcloud_npy(
         self,
@@ -837,8 +919,6 @@ class OfflinePipeline:
         try:
             for frame, uvd in zip(frames, gripper_uvds):
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                if str(self.config.dataset_type).lower() == "libero":
-                    frame_bgr = cv2.flip(frame_bgr, 1)
                 drawn = self._draw_gripper_uvd(frame_bgr, uvd)
                 proc.stdin.write(drawn.tobytes())
             proc.stdin.close()
@@ -959,7 +1039,10 @@ class OfflinePipeline:
                 ok, frame_bgr = cap.read()
                 if not ok:
                     break
-                frames.append(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                if str(self.config.dataset_type).lower() == "libero":
+                    frame_rgb = np.ascontiguousarray(np.fliplr(frame_rgb))
+                frames.append(frame_rgb)
         finally:
             cap.release()
         return frames
@@ -973,6 +1056,62 @@ class OfflinePipeline:
                 )
             self.task_analyzer = TaskAnalyzer(api_key=self.config.task_analyzer_api_key)
         return self.task_analyzer
+
+
+    def _ensure_output_features(self) -> None:
+        features = dict(self.info.get("features", {}))
+        output_features = {
+            "node_points_track": {
+                "dtype": "float32",
+                "shape": [self.config.max_nodes, self.config.points_per_node, 3],
+                "names": ["node", "point", "xyv"],
+            },
+            "node_points_mask": {
+                "dtype": "bool",
+                "shape": [self.config.max_nodes],
+                "names": ["node"],
+            },
+            "depths_rel": {
+                "dtype": "float32",
+                "shape": [256, 256],
+                "names": ["height", "width"],
+            },
+            "far_background_mask": {
+                "dtype": "bool",
+                "shape": [256, 256],
+                "names": ["height", "width"],
+            },
+            "gripper_uvd": {
+                "dtype": "float32",
+                "shape": [3, 3],
+                "names": ["point", "uvd"],
+            },
+            "is_complete": {
+                "dtype": "bool",
+                "shape": [1],
+                "names": None,
+            },
+            "subtask_id": {
+                "dtype": "int64",
+                "shape": [1],
+                "names": None,
+            },
+        }
+
+        changed = False
+        for key, spec in output_features.items():
+            if features.get(key) != spec:
+                features[key] = spec
+                changed = True
+
+        if not changed:
+            return
+
+        self.info["features"] = features
+        info_path = self.meta_dir / "info.json"
+        with info_path.open("w", encoding="utf-8") as f:
+            json.dump(self.info, f, ensure_ascii=False, indent=2)
+            f.write("\n")
 
     def _load_taskstructures_jsonl(self) -> dict[int, TaskStructure]:
         taskstructures = {}

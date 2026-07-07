@@ -71,11 +71,12 @@ LIBERO_REPACK = {
     "is_complete": "is_complete",
     "depths.depth_rel": "depths_rel",
     "node_points_track": "node_points_track",
+    "node_points_mask": "node_points_mask",
     "gripper_uvd": "gripper_uvd",
 }
 
 LIBERO_HISTORY_HORIZON = 15
-LIBERO_FUTURE_HORIZON = 15
+LIBERO_FUTURE_HORIZON = 16
 LIBERO_HORIZON = {
     # "observation.images.image": list(range(-15, 1)),
     # "observation.images.wrist_image": list(range(-15, 1)),
@@ -84,6 +85,7 @@ LIBERO_HORIZON = {
     "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "is_complete": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "node_points_track": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "node_points_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "gripper_uvd": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "depths_rel": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
@@ -101,7 +103,7 @@ LIBERO_TRANSFORM = (
         use_quantiles=True, 
         quantile_to_neg_one_one=True
     ),
-    CustomTransform(mode="build_final_input"),
+    CustomTransform(mode="build_model_input"),
 )
 
 LIBERO_DATA_CONFIG = DataConfig(

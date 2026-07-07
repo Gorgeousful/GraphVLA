@@ -8,17 +8,11 @@ import numpy as np
 import torch
 from rich.console import Console
 cs = Console()
-
-
 DataDict = dict[str, Any]
-
 
 class TransformFn:
     def __call__(self, data: DataDict) -> DataDict:
         raise NotImplementedError
-
-
-
 
 
 @dataclass
@@ -369,8 +363,8 @@ class CustomTransform(TransformFn):
             return self.add_subtaskstructure(data)
         if self.mode == "split_gripper_uvd":
             return self.split_gripper_uvd(data)
-        if self.mode == "build_final_input":
-            return self.build_final_input(data)
+        if self.mode in {"build_model_input", "build_final_input"}:
+            return self.build_model_input(data)
         else:
             raise KeyError(f"Not support mode: {self.mode}")
 
@@ -380,7 +374,7 @@ class CustomTransform(TransformFn):
         data["gripper_d"] = gripper_uvd[..., 2:3]
         return data
     
-    def build_final_input(self, data: DataDict) -> DataDict:
+    def build_model_input(self, data: DataDict) -> DataDict:
         height = 256
         width = 256
 
@@ -388,9 +382,45 @@ class CustomTransform(TransformFn):
         depth_rel = data["depths.depth_rel"]
         gripper_uv = data["gripper_uv"]
         gripper_d = data["gripper_d"]
+        is_complete = data["is_complete"]
+        history_horizon = int(data["history_horizon"])
+        future_horizon = int(data["future_horizon"])
+
+        time_indices = self._nearest_same_subtask_indices(
+            data["subtask_id"],
+            current_index=history_horizon,
+            device=node_points_track.device,
+        )
+        node_points_track = node_points_track.index_select(0, time_indices)
+        depth_rel = depth_rel.index_select(0, time_indices)
+        gripper_uv = gripper_uv.index_select(0, time_indices)
+        gripper_d = gripper_d.index_select(0, time_indices)
+        is_complete = is_complete.index_select(0, time_indices.to(device=is_complete.device))
+        node_points_mask = None
+        if "node_points_mask" in data:
+            node_points_mask = data["node_points_mask"].to(dtype=torch.bool, device=node_points_track.device)
+            if node_points_mask.ndim == 2:
+                node_points_mask = node_points_mask.index_select(0, time_indices)[history_horizon]
 
         node_valid = node_points_track.abs().sum(dim=(0, 2, 3)) > 0
-        node_xyv = node_points_track[:, node_valid]
+        if node_points_mask is not None:
+            node_valid = node_valid & node_points_mask[:node_valid.shape[0]]
+            selected_node_indices = torch.nonzero(node_valid, as_tuple=False).flatten()
+        else:
+            object_start, object_end = data.get("subtask_object_slice", (0, node_points_track.shape[1]))
+            selected_node_indices = torch.arange(
+                int(object_start),
+                min(int(object_end), node_points_track.shape[1]),
+                device=node_points_track.device,
+            )
+            selected_node_indices = selected_node_indices[node_valid[selected_node_indices]]
+
+        node_xyv = self._select_object_slots(
+            node_points_track,
+            selected_node_indices,
+            object_roles=self._object_roles(data["subtaskstructure"], None),
+        )
+        object_valid_mask = node_xyv.abs().sum(dim=(0, 2, 3)) > 0
         node_uv = node_xyv[..., :2]
         node_vis = node_xyv[..., 2:3]
         node_depth, node_in_bounds = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
@@ -402,6 +432,7 @@ class CustomTransform(TransformFn):
             [node_uv_norm, node_depth, node_vis, node_metric, node_metric_mask],
             dim=-1,
         )
+        object_roles = ["patient", "target"]
 
         actor_uv = gripper_uv
         actor_depth, actor_in_bounds = self._sample_flat_depth(depth_rel, actor_uv, height=height, width=width)
@@ -414,15 +445,205 @@ class CustomTransform(TransformFn):
             dim=-1,
         )
         actor_points = actor_points.unsqueeze(1)
+
+        input_horizon = history_horizon + 1
+        frame_offsets = torch.arange(
+            -history_horizon,
+            future_horizon + 1,
+            dtype=torch.long,
+            device=object_points.device,
+        )
+        if frame_offsets.numel() != object_points.shape[0]:
+            raise ValueError(
+                f"Expected {frame_offsets.numel()} frames from horizon, got {object_points.shape[0]}"
+            )
+
+        target_point, target_point_mask, object_id, point_id, frame_id = self._build_point_targets(
+            object_points=object_points,
+            actor_points=actor_points,
+            frame_offsets=frame_offsets,
+            object_valid_mask=object_valid_mask,
+            object_roles=object_roles,
+        )
+        object_condition, actor_condition = self._build_conditions(
+            data["subtaskstructure"],
+            object_roles=object_roles,
+            device=object_points.device,
+        )
+
         return {
-            "object_points": object_points,
-            "actor_points": actor_points,
-            "subtask_id": data["subtask_id"],
-            "is_complete": data["is_complete"],
-            "history_horizon": data["history_horizon"],
-            "future_horizon": data["future_horizon"],
-            "subtaskstructure": data["subtaskstructure"],
+            "point_feats": object_points[:input_horizon],
+            "actor_feats": actor_points[:input_horizon],
+            "object_condition": object_condition,
+            "actor_condition": actor_condition,
+            "object_id": object_id,
+            "point_id": point_id,
+            "frame_id": frame_id,
+            "frame_query_frame_id": frame_offsets,
+            "target": {
+                "point": target_point,
+                "point_mask": target_point_mask,
+                "is_complete": is_complete,
+            },
         }
+
+    def _select_object_slots(
+        self,
+        node_points_track: torch.Tensor,
+        selected_node_indices: torch.Tensor,
+        *,
+        object_roles: Sequence[str],
+    ) -> torch.Tensor:
+        object_slots = node_points_track.new_zeros(
+            (node_points_track.shape[0], 2, node_points_track.shape[2], node_points_track.shape[3])
+        )
+        for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
+            if role == "patient":
+                slot_index = 0
+            elif role == "target":
+                slot_index = 1
+            else:
+                slot_index = role_index
+            if slot_index >= object_slots.shape[1]:
+                continue
+            object_slots[:, slot_index] = node_points_track[:, selected_node_indices[role_index]]
+        return object_slots
+
+    def _nearest_same_subtask_indices(
+        self,
+        subtask_id: torch.Tensor,
+        *,
+        current_index: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        subtask_id = subtask_id.to(device=device).reshape(-1)
+        frame_indices = torch.arange(subtask_id.numel(), device=device)
+        current_subtask_id = subtask_id[current_index]
+        same_indices = torch.nonzero(subtask_id == current_subtask_id, as_tuple=False).flatten()
+        if same_indices.numel() == 0:
+            return frame_indices
+        distances = (frame_indices[:, None] - same_indices[None]).abs()
+        return same_indices[distances.argmin(dim=1)].long()
+
+    def _build_point_targets(
+        self,
+        *,
+        object_points: torch.Tensor,
+        actor_points: torch.Tensor,
+        frame_offsets: torch.Tensor,
+        object_valid_mask: torch.Tensor,
+        object_roles: Sequence[str],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        target_chunks = []
+        target_masks = []
+        object_ids = []
+        point_ids = []
+        frame_ids = []
+        actor_local_ids = torch.arange(actor_points.shape[2], dtype=torch.long, device=object_points.device)
+        object_local_ids = torch.arange(object_points.shape[2], dtype=torch.long, device=object_points.device)
+
+        for frame_index, frame_offset in enumerate(frame_offsets):
+            actor_frame = actor_points[frame_index, 0]
+            target_chunks.append(actor_frame)
+            target_masks.append(torch.ones(actor_frame.shape[0], dtype=torch.bool, device=object_points.device))
+            object_ids.append(torch.zeros(actor_frame.shape[0], dtype=torch.long, device=object_points.device))
+            point_ids.append(actor_local_ids)
+            frame_ids.append(torch.full((actor_frame.shape[0],), int(frame_offset.item()), dtype=torch.long, device=object_points.device))
+
+            for node_index, role in enumerate(object_roles):
+                object_frame = object_points[frame_index, node_index]
+                object_id = 1 if role == "patient" else 2 if role == "target" else node_index + 1
+                target_chunks.append(object_frame)
+                target_masks.append(torch.full((object_frame.shape[0],), bool(object_valid_mask[node_index].item()), dtype=torch.bool, device=object_points.device))
+                object_ids.append(torch.full((object_frame.shape[0],), object_id, dtype=torch.long, device=object_points.device))
+                point_ids.append(object_local_ids)
+                frame_ids.append(torch.full((object_frame.shape[0],), int(frame_offset.item()), dtype=torch.long, device=object_points.device))
+
+        return (
+            torch.cat(target_chunks, dim=0),
+            torch.cat(target_masks, dim=0),
+            torch.cat(object_ids, dim=0),
+            torch.cat(point_ids, dim=0),
+            torch.cat(frame_ids, dim=0),
+        )
+
+    def _build_conditions(
+        self,
+        subtaskstructure: Mapping[str, Any],
+        *,
+        object_roles: Sequence[str],
+        device: torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        action_type = str(subtaskstructure.get("action_type", ""))
+        action_degree = subtaskstructure.get("action_degree")
+        actor_condition = self._condition_for("actor", action_type, action_degree, device=device).unsqueeze(0)
+        object_conditions = [
+            self._condition_for(role, action_type, action_degree, device=device)
+            for role in object_roles
+        ]
+        if object_conditions:
+            object_condition = torch.stack(object_conditions, dim=0)
+        else:
+            object_condition = actor_condition.new_zeros((0, actor_condition.shape[-1]))
+        return object_condition, actor_condition
+
+    def _condition_for(self, role: str, action_type: str, action_degree: Any, *, device: torch.device) -> torch.Tensor:
+        return torch.cat(
+            [
+                self._embed_text(role, device=device),
+                self._embed_text(action_type, device=device),
+                self._embed_text(None if action_degree is None else str(action_degree), device=device),
+            ],
+            dim=0,
+        )
+
+    def _embed_text(self, text: str | None, *, device: torch.device) -> torch.Tensor:
+        self._ensure_bge()
+        assert self.extra is not None
+        dim = int(self.extra["bge_dim"])
+        if text is None:
+            return torch.zeros(dim, dtype=torch.float32, device=device)
+
+        cache = self.extra["embedding_cache"]
+        if text not in cache:
+            tokenizer = self.extra["bge_tokenizer"]
+            model = self.extra["bge_model"]
+            batch = tokenizer([text], padding=True, truncation=True, return_tensors="pt")
+            with torch.no_grad():
+                outputs = model(**batch)
+                embedding = outputs.last_hidden_state[:, 0]
+                embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)[0]
+            cache[text] = embedding.detach().cpu().float()
+        return cache[text].to(device=device)
+
+    def _ensure_bge(self) -> None:
+        if self.extra is not None and "bge_model" in self.extra:
+            return
+        from transformers import AutoModel, AutoTokenizer
+
+        model_path = Path("/data0/luokang/dataset/luokang/ckpts/bge-small-en-v1.5")
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        model = AutoModel.from_pretrained(model_path)
+        model.eval()
+        self.extra = {
+            "bge_tokenizer": tokenizer,
+            "bge_model": model,
+            "embedding_cache": {},
+            "bge_dim": int(model.config.hidden_size),
+        }
+
+    def _object_roles(self, subtaskstructure: Mapping[str, Any], expected_count: int | None) -> list[str]:
+        roles = []
+        for node in subtaskstructure.get("nodes", []):
+            role = str(node.get("role", ""))
+            if role != "actor":
+                roles.append(role)
+        if expected_count is not None:
+            if len(roles) < expected_count:
+                fallback = ["patient", "target"]
+                roles.extend(fallback[len(roles):expected_count])
+            roles = roles[:expected_count]
+        return roles
 
     def _normalize_uv(self, uv: torch.Tensor, *, height: int, width: int) -> torch.Tensor:
         uv_norm = uv.clone()
@@ -468,7 +689,12 @@ class CustomTransform(TransformFn):
             raise KeyError("subtask_id")
 
         subtask_index = self._to_int(subtask_id_value) - 1
-        data["subtaskstructure"] = self.extra[task][subtask_index]
+        subtasks = self.extra[task]
+        data["subtaskstructure"] = subtasks[subtask_index]
+
+        object_start = sum(len(self._object_roles(subtask, None)) for subtask in subtasks[:subtask_index])
+        object_end = object_start + len(self._object_roles(data["subtaskstructure"], None))
+        data["subtask_object_slice"] = (object_start, object_end)
         return data
 
     def _to_str(self, value: Any) -> str:
