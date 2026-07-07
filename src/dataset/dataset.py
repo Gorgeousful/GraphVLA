@@ -11,17 +11,28 @@ from torch.utils.data import DataLoader as TorchDataLoader
 from torch.utils.data import Dataset
 from torch.utils.data.distributed import DistributedSampler
 
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+try:
+    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+except ModuleNotFoundError:
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from .transform import Compose
+
+
+def make_lerobot_dataset(dataset_dir: Path, **kwargs: Any) -> LeRobotDataset:
+    dataset_dir = Path(dataset_dir)
+    try:
+        return LeRobotDataset(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
+    except TypeError:
+        return LeRobotDataset(repo_id=str(dataset_dir), **kwargs)
 
 
 class GenericDataset(Dataset):
     def __init__(self, data_config: Any) -> None:
         self.data_config = data_config
         self.dataset_dir = Path(data_config.dataset_dir)
-        self.dataset = LeRobotDataset(
-            repo_id=str(self.dataset_dir),
+        self.dataset = make_lerobot_dataset(
+            self.dataset_dir,
             episodes=data_config.episodes,
             video_backend=data_config.video_backend,
             delta_timestamps=self._build_delta_timestamps(getattr(data_config, "horizon", None)),

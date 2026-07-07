@@ -1,5 +1,3 @@
-import json
-import os
 import cv2
 import numpy as np
 import torch
@@ -11,50 +9,37 @@ cs = Console()
 
 
 class NodeSegmenter:
-    """Real-time streaming node segmentation using SAM3 tracker.
-
-    Frame-by-frame tracking with point prompts on the first frame.
-    No complete video required — frames are fed one at a time.
-
-    Usage::
-
-        segmenter = NodeSegmenter()
-        for i, frame in enumerate(frames):
-            if i == 0:
-                masks = segmenter.predict(frame, points=points_list, anchor_frame=True)
-            else:
-                masks = segmenter.predict(frame, anchor_frame=False)
-    """
+    """Frame-by-frame node segmentation and video-level prompt segmentation with one SAM3 model."""
 
     def __init__(
         self,
         model_path="/data0/luokang/dataset/luokang/ckpts/sam3/sam3.pt",
         device="cuda",
+        mode=None,
     ):
-        model = build_sam3_video_model(
+        self.model_path = model_path
+        self.device = device
+        self.model = build_sam3_video_model(
             checkpoint_path=model_path,
             load_from_HF=False,
+            device=device,
         )
-        self.tracker = model.tracker
-        self.tracker.backbone = model.detector.backbone
-
-        # state — populated by reset()
-        self.state = None
+        self.model.tracker.backbone = self.model.detector.backbone
+        self.point_state = None
+        self.prompt_state = None
 
     def _preprocess(self, frame_rgb):
-        """numpy RGB → float16 tensor, shape (3, S, S), normalized [-1, 1]."""
-        img_size = self.tracker.image_size
+        img_size = self.model.image_size
         pil_img = Image.fromarray(frame_rgb)
         pil_img = TF.resize(pil_img, size=(img_size, img_size))
-        tensor = TF.to_tensor(pil_img).half()       # float16, [0, 1]
-        tensor = (tensor - 0.5) / 0.5                # [-1, 1]
+        tensor = TF.to_tensor(pil_img).half()
+        tensor = (tensor - 0.5) / 0.5
         return tensor
 
-    def _extract_masks(self):
-        """Extract bool masks from self.state['video_res_masks']."""
-        h, w = self.state["output_size"]
-        obj_ids = self.state["obj_ids"]
-        video_res_masks = self.state["video_res_masks"]
+    def _extract_point_masks(self):
+        h, w = self.point_state["output_size"]
+        obj_ids = self.point_state["obj_ids"]
+        video_res_masks = self.point_state["video_res_masks"]
 
         masks = []
         for i in range(len(obj_ids)):
@@ -66,24 +51,36 @@ class NodeSegmenter:
                     interpolation=cv2.INTER_NEAREST,
                 ).astype(bool)
             masks.append(mask_np)
-
         return masks
 
-    def reset(self, frame_rgb, points):
-        """Initialize tracker with first frame and point prompts.
+    def _extract_output_masks(self, outputs, image_size: tuple[int, int]) -> list[np.ndarray]:
+        if not outputs:
+            return []
+        masks = outputs.get("out_binary_masks")
+        if masks is None:
+            return []
 
-        Args:
-            frame_rgb: np.ndarray, shape (H, W, 3), uint8, RGB order.
-            points: list of point sets, one per node.
-                Each element is a list of (x, y) pixel coordinates.
+        height, width = image_size
+        masks = np.asarray(masks)
+        if masks.ndim == 2:
+            masks = masks[None]
 
-        Returns:
-            list[np.ndarray]: One bool mask per node, each shape (H, W).
-        """
+        result = []
+        for mask in masks:
+            mask = np.asarray(mask, dtype=bool)
+            if mask.shape != (height, width):
+                mask = cv2.resize(
+                    mask.astype(np.uint8),
+                    (width, height),
+                    interpolation=cv2.INTER_NEAREST,
+                ).astype(bool)
+            result.append(mask)
+        return result
+
+    def _reset_point(self, frame_rgb, points):
         h, w = frame_rgb.shape[:2]
-
-        # manually init state — no video_path required
-        inference_state = self.tracker.init_state(
+        tracker = self.model.tracker
+        inference_state = tracker.init_state(
             video_height=h,
             video_width=w,
             num_frames=1,
@@ -91,14 +88,13 @@ class NodeSegmenter:
         )
         inference_state["images"] = [self._preprocess(frame_rgb)]
 
-        # add point prompts for all nodes on frame 0
         for node_idx, node_points in enumerate(points):
             pts_array = np.array(node_points, dtype=np.float32)
             pts_array[:, 0] /= w
             pts_array[:, 1] /= h
             np.clip(pts_array, 0, 1, out=pts_array)
 
-            _, obj_ids, _, video_res_masks = self.tracker.add_new_points_or_box(
+            tracker.add_new_points_or_box(
                 inference_state=inference_state,
                 frame_idx=0,
                 obj_id=node_idx,
@@ -106,10 +102,9 @@ class NodeSegmenter:
                 labels=torch.ones(len(node_points), dtype=torch.int32),
             )
 
-        # propagate frame 0 to get initial masks
         obj_ids = None
         video_res_masks = None
-        for result in self.tracker.propagate_in_video(
+        for result in tracker.propagate_in_video(
             inference_state,
             start_frame_idx=0,
             max_frame_num_to_track=1,
@@ -119,35 +114,27 @@ class NodeSegmenter:
         ):
             _, obj_ids, _, video_res_masks, _ = result
 
-        self.state = {
+        self.point_state = {
             "inference_state": inference_state,
             "output_size": (h, w),
             "obj_ids": obj_ids,
             "video_res_masks": video_res_masks,
             "frame_idx": 0,
         }
+        return self._extract_point_masks()
 
-        return self._extract_masks()
+    def _update_point(self, frame_rgb):
+        if self.point_state is None:
+            raise RuntimeError("Point tracker is not initialized; call reset(..., points=...) first")
 
-    def update(self, frame_rgb):
-        """Advance tracker by one frame and return masks.
-
-        Args:
-            frame_rgb: np.ndarray, shape (H, W, 3), uint8, RGB order.
-
-        Returns:
-            list[np.ndarray]: One bool mask per node, each shape (H, W).
-        """
-        st = self.state
+        tracker = self.model.tracker
+        st = self.point_state
         st["frame_idx"] += 1
         frame_idx = st["frame_idx"]
-
-        # append new frame to state
         st["inference_state"]["images"].append(self._preprocess(frame_rgb))
         st["inference_state"]["num_frames"] = frame_idx + 1
 
-        # propagate one frame
-        for result in self.tracker.propagate_in_video(
+        for result in tracker.propagate_in_video(
             st["inference_state"],
             start_frame_idx=frame_idx,
             max_frame_num_to_track=1,
@@ -157,25 +144,63 @@ class NodeSegmenter:
         ):
             _, st["obj_ids"], _, st["video_res_masks"], _ = result
 
-        return self._extract_masks()
+        return self._extract_point_masks()
 
-    def predict(self, frame_rgb, points=None, anchor_frame=True):
-        """Process one frame and return masks for all nodes.
+    def _init_video_state(self, frames: list[np.ndarray]):
+        if not frames:
+            raise ValueError("frames must not be empty")
+        height, width = frames[0].shape[:2]
+        images = [self._preprocess(frame) for frame in frames]
+        inference_state = {
+            "image_size": self.model.image_size,
+            "num_frames": len(images),
+            "orig_height": height,
+            "orig_width": width,
+            "constants": {},
+        }
+        self.model._construct_initial_input_batch(inference_state, images)
+        inference_state["tracker_inference_states"] = []
+        inference_state["tracker_metadata"] = {}
+        inference_state["feature_cache"] = {}
+        inference_state["cached_frame_outputs"] = {}
+        inference_state["action_history"] = []
+        inference_state["is_image_only"] = len(images) == 1
+        return inference_state
 
-        Args:
-            frame_rgb: np.ndarray, shape (H, W, 3), uint8, RGB order.
-            points: list of point sets, one per node. Required when anchor_frame=True.
-            anchor_frame: If True, reset tracker (first frame + point prompts).
-                          If False, advance tracking by one frame.
+    def segment_prompt_video(self, frames, prompt: str) -> list[list[np.ndarray]]:
+        frames = [np.asarray(frame) for frame in frames]
+        inference_state = self._init_video_state(frames)
+        image_size = frames[0].shape[:2]
 
-        Returns:
-            list[np.ndarray]: One bool mask per node, each shape (H, W).
-        """
+        with torch.inference_mode():
+            self.model.add_prompt(inference_state, frame_idx=0, text_str=str(prompt))
+            frame_masks = [None] * len(frames)
+            with open(os.devnull, "w") as devnull, contextlib.redirect_stderr(devnull):
+                for frame_idx, outputs in self.model.propagate_in_video(
+                    inference_state,
+                    start_frame_idx=0,
+                    max_frame_num_to_track=len(frames),
+                    reverse=False,
+                ):
+                    frame_masks[frame_idx] = self._extract_output_masks(outputs, image_size)
+
+        self.prompt_state = inference_state
+        empty = []
+        return [masks if masks is not None else empty for masks in frame_masks]
+
+    def reset(self, frame_rgb, points=None, prompt=None):
+        if points is not None:
+            return self._reset_point(frame_rgb, points)
+        if prompt is not None:
+            return self.segment_prompt_video([frame_rgb], prompt)[0]
+        raise ValueError("either points or prompt is required")
+
+    def update(self, frame_rgb):
+        return self._update_point(frame_rgb)
+
+    def predict(self, frame_rgb, points=None, prompt=None, anchor_frame=True):
         if anchor_frame:
-            if points is None:
-                raise ValueError("points are required when anchor_frame=True")
-            return self.reset(frame_rgb, points)
-
+            return self.reset(frame_rgb, points=points, prompt=prompt)
         return self.update(frame_rgb)
 
     def draw_on_image(self, image, masks, labels=None, save_path=None):

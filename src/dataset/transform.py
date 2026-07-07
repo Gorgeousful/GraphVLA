@@ -18,9 +18,33 @@ class TransformFn:
         raise NotImplementedError
 
 
+
+
+
+@dataclass
+class FlattenTransform(TransformFn):
+    fields: Sequence[str]
+
+    def __call__(self, data: DataDict) -> DataDict:
+        for field in self.fields:
+            data[field] = self._flatten(data[field])
+        return data
+
+    def _flatten(self, value: Any) -> Any:
+        ndim = getattr(value, "ndim", None)
+        if ndim is None:
+            ndim = len(getattr(value, "shape"))
+        if ndim < 2:
+            raise ValueError(f"Cannot flatten value with ndim={ndim}; expected at least 2 dimensions")
+        if hasattr(value, "flatten"):
+            return value.flatten(start_dim=1)
+        shape = value.shape
+        return value.reshape(shape[0], -1)
+
+
 @dataclass
 class Compose(TransformFn):
-    transforms: Sequence[Transform]
+    transforms: Sequence[TransformFn]
 
     def __call__(self, data: DataDict) -> DataDict:
         for transform in self.transforms:
@@ -31,38 +55,19 @@ class Compose(TransformFn):
 @dataclass
 class RepackTransform(TransformFn):
     structure: Mapping[str, Any]
-    optional_structure: Mapping[str, Any] | None = None
 
     def __call__(self, data: DataDict) -> DataDict:
-        result = self._repack_required(self.structure, data)
-        if self.optional_structure:
-            optional = self._repack_optional(self.optional_structure, data)
-            result.update(optional)
-        return result
+        return self._repack(self.structure, data)
 
-    def _repack_required(self, structure: Mapping[str, Any], data: DataDict) -> DataDict:
+    def _repack(self, structure: Mapping[str, Any], data: DataDict) -> DataDict:
         result: DataDict = {}
         for key, value in structure.items():
             if isinstance(value, str):
                 result[key] = data[value]
             elif isinstance(value, Mapping):
-                result[key] = self._repack_required(value, data)
+                result[key] = self._repack(value, data)
             else:
                 raise TypeError(f"Unsupported repack spec for key={key!r}: {value!r}")
-        return result
-
-    def _repack_optional(self, structure: Mapping[str, Any], data: DataDict) -> DataDict:
-        result: DataDict = {}
-        for key, value in structure.items():
-            if isinstance(value, str):
-                if value in data:
-                    result[key] = data[value]
-            elif isinstance(value, Mapping):
-                nested = self._repack_optional(value, data)
-                if nested:
-                    result[key] = nested
-            else:
-                raise TypeError(f"Unsupported optional repack spec for key={key!r}: {value!r}")
         return result
 
 
@@ -197,8 +202,8 @@ class ResizeImages(TransformFn):
 @dataclass
 class Normalize(TransformFn):
     norm_stats: Mapping[str, Any] | None
-    use_quantiles: bool = False
-    quantile_to_neg_one_one: bool = False
+    use_quantiles: bool = True
+    quantile_to_neg_one_one: bool = True
     eps: float = 1e-6
     task_index_path: tuple[str, ...] = ("task_index",)
     episode_index_path: tuple[str, ...] = ("episode_index",)
@@ -211,7 +216,8 @@ class Normalize(TransformFn):
 
         for key, field_stats in stats.items():
             if key not in data:
-                raise KeyError(f"Cannot normalize missing field: {key}")
+                cs.print(f"[Normalize] skip missing field: {key}")
+                continue
             value = data[key]
             selected_stats = self._select_field_stats(field_stats, level, data)
             value = (
@@ -295,6 +301,8 @@ class Normalize(TransformFn):
         raise TypeError(f"Cannot normalize value of type {type(value)!r}")
 
     def _match_last_dim(self, stats: Any, dim: int) -> Any:
+        if stats.shape[-1] == 1:
+            return stats
         if stats.shape[-1] < dim:
             raise ValueError(f"Norm stats dim={stats.shape[-1]} is smaller than value dim={dim}")
         return stats[..., :dim]
@@ -339,48 +347,104 @@ class Unnormalize(Normalize):
 
 
 @dataclass
-class AddExtraField(TransformFn):
+class AddHorizon(TransformFn):
+    history_horizon: int
+    future_horizon: int
+
+    def __call__(self, data: DataDict) -> DataDict:
+        data["history_horizon"] = self.history_horizon
+        data["future_horizon"] = self.future_horizon
+        return data
+
+
+@dataclass
+class CustomTransform(TransformFn):
     mode: str
-    dataset_dir: str
+    dataset_dir: str | Path | None = None
     extra: dict | None = None
     
 
     def __call__(self, data: DataDict) -> DataDict:
-        if self.mode == "is_complete":
-            return self.add_is_complete(data)
-        elif self.mode == "subtaskstructure":
+        if self.mode == "add_subtaskstructure":
             return self.add_subtaskstructure(data)
+        if self.mode == "split_gripper_uvd":
+            return self.split_gripper_uvd(data)
+        if self.mode == "build_final_input":
+            return self.build_final_input(data)
         else:
             raise KeyError(f"Not support mode: {self.mode}")
-    
-    def add_is_complete(self, data):
-        if self.extra is None:
-            extra_file = Path(self.dataset_dir) / "meta" / "episodes_phase_segment.jsonl"
-            with extra_file.open("r", encoding="utf-8") as f:
-                if extra_file.suffix == ".jsonl":
-                    rows = [json.loads(line) for line in f if line.strip()]
-                elif extra_file.suffix == ".json":
-                    rows = json.load(f)
-                else:
-                    raise ValueError(f"Unsupported extra file extension: {extra_file.suffix}")
 
-            self.extra = {}
-            for row in rows:
-                episode_index = int(row["episode_index"])
-                intervals = self.extra.setdefault(episode_index, [])
-                for segment in row.get("segments", []):
-                    if str(segment.get("phase_id")) == "4":
-                        intervals.append((int(segment["start_idx"]), int(segment["end_idx"])))
-
-        episode_index = self._to_int(data["metadata"]["episode_index"])
-        frame_index = self._to_int(data["metadata"]["frame_index"])
-        data["is_complete"] = any(
-            start_idx <= frame_index <= end_idx
-            for start_idx, end_idx in self.extra.get(episode_index, [])
-        )
+    def split_gripper_uvd(self, data: DataDict) -> DataDict:
+        gripper_uvd = data["gripper_uvd"]
+        data["gripper_uv"] = gripper_uvd[..., :2]
+        data["gripper_d"] = gripper_uvd[..., 2:3]
         return data
+    
+    def build_final_input(self, data: DataDict) -> DataDict:
+        height = 256
+        width = 256
+
+        node_points_track = data["node_points_track"]
+        depth_rel = data["depths.depth_rel"]
+        gripper_uv = data["gripper_uv"]
+        gripper_d = data["gripper_d"]
+
+        node_valid = node_points_track.abs().sum(dim=(0, 2, 3)) > 0
+        node_xyv = node_points_track[:, node_valid]
+        node_uv = node_xyv[..., :2]
+        node_vis = node_xyv[..., 2:3]
+        node_depth, node_in_bounds = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
+        node_uv_norm = self._normalize_uv(node_uv, height=height, width=width)
+        node_vis = node_vis * node_in_bounds.to(dtype=node_vis.dtype)
+        node_metric = torch.zeros_like(node_depth)
+        node_metric_mask = torch.zeros_like(node_depth)
+        object_points = torch.cat(
+            [node_uv_norm, node_depth, node_vis, node_metric, node_metric_mask],
+            dim=-1,
+        )
+
+        actor_uv = gripper_uv
+        actor_depth, actor_in_bounds = self._sample_flat_depth(depth_rel, actor_uv, height=height, width=width)
+        actor_uv_norm = self._normalize_uv(actor_uv, height=height, width=width)
+        actor_vis = actor_in_bounds.to(dtype=actor_depth.dtype)
+        actor_metric = gripper_d.unsqueeze(-1) if gripper_d.ndim == 2 else gripper_d
+        actor_metric_mask = torch.ones_like(actor_metric)
+        actor_points = torch.cat(
+            [actor_uv_norm, actor_depth, actor_vis, actor_metric, actor_metric_mask],
+            dim=-1,
+        )
+        actor_points = actor_points.unsqueeze(1)
+        return {
+            "object_points": object_points,
+            "actor_points": actor_points,
+            "subtask_id": data["subtask_id"],
+            "is_complete": data["is_complete"],
+            "history_horizon": data["history_horizon"],
+            "future_horizon": data["future_horizon"],
+            "subtaskstructure": data["subtaskstructure"],
+        }
+
+    def _normalize_uv(self, uv: torch.Tensor, *, height: int, width: int) -> torch.Tensor:
+        uv_norm = uv.clone()
+        uv_norm[..., 0] = (uv[..., 0] - width / 2.0) / (width / 2.0)
+        uv_norm[..., 1] = (uv[..., 1] - height / 2.0) / (height / 2.0)
+        return uv_norm
+
+    def _sample_flat_depth(self, depth: torch.Tensor, uv: torch.Tensor, *, height: int, width: int) -> tuple[torch.Tensor, torch.Tensor]:
+        u = torch.round(uv[..., 0]).long()
+        v = torch.round(uv[..., 1]).long()
+        in_bounds = (u >= 0) & (u < width) & (v >= 0) & (v < height)
+        flat_index = (v.clamp(0, height - 1) * width + u.clamp(0, width - 1)).long()
+        batch_index = torch.arange(depth.shape[0], device=depth.device)
+        for _ in range(flat_index.ndim - 1):
+            batch_index = batch_index.unsqueeze(-1)
+        sampled = depth[batch_index.expand_as(flat_index), flat_index]
+        sampled = sampled.masked_fill(~in_bounds, 0.0)
+        return sampled.unsqueeze(-1), in_bounds.unsqueeze(-1)
 
     def add_subtaskstructure(self, data):
+        if self.dataset_dir is None:
+            raise ValueError("dataset_dir is required for add_subtaskstructure")
         if self.extra is None:
             extra_file = Path(self.dataset_dir) / "meta" / "taskstructures.jsonl"
             with extra_file.open("r", encoding="utf-8") as f:
@@ -394,14 +458,17 @@ class AddExtraField(TransformFn):
             self.extra = {}
             for row in rows:
                 task = str(row["task"])
-                self.extra[task] = {
-                    str(subtask["subtask"]): subtask
-                    for subtask in row.get("subtasks", [])
-                }
+                self.extra[task] = list(row.get("subtasks", []))
 
         task = self._to_str(data.get("prompt", data.get("task")))
-        subtask = self._to_str(data["subtask"])
-        data["subtaskstructure"] = self.extra[task][subtask]
+        subtask_id_value = data.get("subtask_id")
+        if subtask_id_value is None and isinstance(data.get("metadata"), Mapping):
+            subtask_id_value = data["metadata"].get("subtask_id")
+        if subtask_id_value is None:
+            raise KeyError("subtask_id")
+
+        subtask_index = self._to_int(subtask_id_value) - 1
+        data["subtaskstructure"] = self.extra[task][subtask_index]
         return data
 
     def _to_str(self, value: Any) -> str:

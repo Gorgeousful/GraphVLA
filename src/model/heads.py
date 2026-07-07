@@ -15,5 +15,15 @@ class PredictionHeads(nn.Module):
             raise ValueError("output_dims must contain at least one head")
         self.heads = nn.ModuleDict({name: nn.Linear(hidden_dim, dim) for name, dim in output_dims.items()})
 
-    def forward(self, decoded_queries: torch.Tensor) -> dict[str, torch.Tensor]:
-        return {name: head(decoded_queries) for name, head in self.heads.items()}
+    def forward(
+        self,
+        decoded_queries: torch.Tensor,
+        head_names: str | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        if head_names is None:
+            selected = self.heads.keys()
+        elif isinstance(head_names, str):
+            selected = (head_names,)
+        else:
+            selected = head_names
+        return {name: self.heads[name](decoded_queries) for name in selected}

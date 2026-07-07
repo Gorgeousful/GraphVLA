@@ -5,7 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.dataset.transform import PromptFromTask, RepackTransform
+from src.dataset.transform import (
+    PromptFromTask,
+    AddHorizon,
+    RepackTransform,
+    Normalize,
+    Unnormalize,
+    CustomTransform,
+    FlattenTransform,
+    FlipTransform,
+)
 
 
 def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
@@ -43,16 +52,14 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = Path(
     "/data0/luokang/dataset/luokang/lerobot/libero/"
-    "libero_all_no_noops_1.0.0_lerobot_10hz"
+    "libero_30-31_no_noops_1.0.0_lerobot_10hz"
 )
 
 LIBERO_REPACK = {
-    "images": {
-        "image": "observation.images.image",
-        "wrist_image": "observation.images.wrist_image",
-    },
-    "state": "observation.state",
-    "action": "action",
+    # "images.image": "observation.images.image",
+    # "images.wrist_image": "observation.images.wrist_image",
+    # "action": "action",
+    # "state": "observation.state",
     "metadata": {
         "episode_index": "episode_index",
         "frame_index": "frame_index",
@@ -60,32 +67,45 @@ LIBERO_REPACK = {
         "timestamp": "timestamp",
         "index": "index",
     },
+    "subtask_id": "subtask_id",
+    "is_complete": "is_complete",
+    "depths.depth_rel": "depths_rel",
+    "node_points_track": "node_points_track",
+    "gripper_uvd": "gripper_uvd",
 }
 
-LIBERO_OPTIONAL_REPACK = {
-    "subtask": "subtask",
-}
-
+LIBERO_HISTORY_HORIZON = 15
+LIBERO_FUTURE_HORIZON = 15
 LIBERO_HORIZON = {
-    "observation.images.image": list(range(-15, 1)),
-    "observation.images.wrist_image": list(range(-15, 1)),
-    "observation.state": list(range(-15, 1)),
-    "action": list(range(16)),
+    # "observation.images.image": list(range(-15, 1)),
+    # "observation.images.wrist_image": list(range(-15, 1)),
+    # "action": list(range(16)),
+    "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "is_complete": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "node_points_track": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "gripper_uvd": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "depths_rel": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
 LIBERO_TRANSFORM = (
-    RepackTransform(
-        structure=LIBERO_REPACK,
-        optional_structure=LIBERO_OPTIONAL_REPACK,
-    ),
+    RepackTransform(structure=LIBERO_REPACK),
     PromptFromTask(tasks=load_lerobot_tasks(LIBERO_DATASET_DIR)),
-)
+    AddHorizon(history_horizon=LIBERO_HISTORY_HORIZON, future_horizon=LIBERO_FUTURE_HORIZON),
+    CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
 
-TASKS = [30, 31]
+    CustomTransform(mode="split_gripper_uvd"),
+    FlattenTransform(fields=("depths.depth_rel", "gripper_d")),
+    Normalize(
+        norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"), 
+        use_quantiles=True, 
+        quantile_to_neg_one_one=True
+    ),
+    CustomTransform(mode="build_final_input"),
+)
 
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
     horizon=LIBERO_HORIZON,
     transforms=LIBERO_TRANSFORM,
-    tasks=TASKS,
 )

@@ -238,10 +238,6 @@ class GeomFrankaPanda:
         intrinsic = np.asarray(intrinsic, dtype=np.float64)
         pixels_h = (intrinsic @ points_camera.T).T
         pixels = pixels_h[:, :2] / pixels_h[:, 2:3]
-        height, width = image_size
-        # Keep projected coordinates inside the image when points fall out of view.
-        pixels[:, 0] = np.clip(pixels[:, 0], 0, width - 1)
-        pixels[:, 1] = np.clip(pixels[:, 1], 0, height - 1)
         uvd = np.concatenate([pixels, points_camera[:, 2:3]], axis=1)
 
         output = {
@@ -249,16 +245,17 @@ class GeomFrankaPanda:
             "left_uvd": uvd[1],
             "right_uvd": uvd[2],
         }
-        if mode == "SG":
+        if mode in {"SG", "all"}:
             center_uvd = 0.5 * (output["left_uvd"] + output["right_uvd"])
             delta = output["right_uvd"] - output["left_uvd"]
             width = float(np.linalg.norm(delta))
-            output = {
+            sg_output = {
                 "root_uvd": uvd[0],
                 "center_uvd": center_uvd,
                 "open_axis": delta / max(width, 1e-8),
                 "width": width,
             }
+            output = {**output, **sg_output} if mode == "all" else sg_output
         return output
 
     def project_uvd_to_gripper(
@@ -498,6 +495,7 @@ class GeomFrankaPanda:
         return self._raster_contexts[key]
 
 
+# 外部接口
 class GeomRobot:
     """Factory wrapper for embodiment-specific geometry helpers."""
 
