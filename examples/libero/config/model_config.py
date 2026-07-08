@@ -12,7 +12,7 @@ from typing import Any
 class ModelConfig:
     """Keyword configuration for GraphVLA.src.model.model.PointQueryModel."""
     point_dim: int = 6
-    num_points: int = 128
+    num_points: int = 32
     actor_num_points: int = 3
     set_hidden_dim: int = 384
     set_layers: int = 12

@@ -10,10 +10,9 @@ from src.dataset.transform import (
     AddHorizon,
     RepackTransform,
     Normalize,
-    Unnormalize,
     CustomTransform,
     FlattenTransform,
-    FlipTransform,
+    SubtaskBoundryPadding,
 )
 
 
@@ -52,7 +51,7 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = Path(
     "/data0/luokang/dataset/luokang/lerobot/libero/"
-    "libero_30-31_no_noops_1.0.0_lerobot_10hz"
+    "libero_31_no_noops_1.0.0_lerobot_10hz"
 )
 
 LIBERO_REPACK = {
@@ -103,6 +102,7 @@ LIBERO_TRANSFORM = (
         use_quantiles=True, 
         quantile_to_neg_one_one=True
     ),
+    SubtaskBoundryPadding(),
     CustomTransform(mode="build_model_input"),
 )
 

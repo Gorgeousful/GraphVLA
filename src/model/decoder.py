@@ -6,6 +6,7 @@ import math
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 
 class CrossAttentionBlock(nn.Module):
@@ -57,9 +58,16 @@ class IndependentQueryDecoder(nn.Module):
             ]
         )
         self.out_norm = nn.LayerNorm(hidden_dim)
+        self.gradient_checkpointing = False
+
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        self.gradient_checkpointing = enabled
 
     def forward(self, query_tokens: torch.Tensor, memory_tokens: torch.Tensor) -> torch.Tensor:
         x = query_tokens
         for block in self.blocks:
-            x = block(x, memory_tokens)
+            if self.gradient_checkpointing and self.training:
+                x = checkpoint(block, x, memory_tokens, use_reentrant=False)
+            else:
+                x = block(x, memory_tokens)
         return self.out_norm(x)

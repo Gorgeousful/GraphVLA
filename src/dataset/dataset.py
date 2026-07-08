@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -9,6 +8,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader as TorchDataLoader
 from torch.utils.data import Dataset
+from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 
 try:
@@ -25,6 +25,27 @@ def make_lerobot_dataset(dataset_dir: Path, **kwargs: Any) -> LeRobotDataset:
         return LeRobotDataset(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
     except TypeError:
         return LeRobotDataset(repo_id=str(dataset_dir), **kwargs)
+
+
+class EpochRandomSampler(Sampler[int]):
+    def __init__(self, dataset: Dataset, *, shuffle: bool, seed: int = 0) -> None:
+        self.dataset = dataset
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+
+    def __iter__(self) -> Iterator[int]:
+        if not self.shuffle:
+            return iter(range(len(self.dataset)))
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+        return iter(torch.randperm(len(self.dataset), generator=generator).tolist())
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
 
 
 class GenericDataset(Dataset):
@@ -91,17 +112,16 @@ class GenericDataLoader:
         drop_last: bool = True,
         persistent_workers: bool | None = None,
         collate_fn: Any | None = None,
-        auto_init_distributed: bool = True,
-        distributed_backend: str = "nccl",
+        distributed: bool = False,
+        world_size: int = 1,
+        rank: int = 0,
+        seed: int = 0,
     ) -> None:
         self.data_config = data_config
-        self.is_distributed = self._setup_distributed(
-            enabled=auto_init_distributed,
-            backend=distributed_backend,
-        )
-        self.world_size = torch.distributed.get_world_size() if self.is_distributed else 1
-        self.rank = torch.distributed.get_rank() if self.is_distributed else 0
-        self.local_rank = int(os.environ.get("LOCAL_RANK", 0)) if self.is_distributed else 0
+        self.is_distributed = distributed
+        self.world_size = world_size
+        self.rank = rank
+        self.seed = seed
 
         self.dataset = GenericDataset(data_config)
         self.global_batch_size = batch_size
@@ -114,7 +134,7 @@ class GenericDataLoader:
         self.loader = TorchDataLoader(
             self.dataset,
             batch_size=self.local_batch_size,
-            shuffle=shuffle if self.sampler is None else False,
+            shuffle=False,
             sampler=self.sampler,
             num_workers=num_workers,
             pin_memory=pin_memory,
@@ -129,28 +149,31 @@ class GenericDataLoader:
     def __len__(self) -> int:
         return len(self.loader)
 
+    def resume_position(self, skip_batches: int) -> tuple[int, int]:
+        if skip_batches < 0:
+            raise ValueError(f"skip_batches must be non-negative, got {skip_batches}")
+        batches_per_epoch = len(self)
+        if batches_per_epoch <= 0:
+            raise ValueError("dataloader has no batches; check dataset size and batch_size")
+        return divmod(skip_batches, batches_per_epoch)
+
+    def iter_epoch(self, epoch: int, skip_batches: int = 0) -> Iterator[Any]:
+        self.set_epoch(epoch)
+        iterator = iter(self.loader)
+        for _ in range(skip_batches):
+            try:
+                next(iterator)
+            except StopIteration:
+                return
+        yield from iterator
+
     def set_epoch(self, epoch: int) -> None:
         if self.sampler is not None:
             self.sampler.set_epoch(epoch)
 
-    def _setup_distributed(self, *, enabled: bool, backend: str) -> bool:
-        if not enabled or not torch.distributed.is_available():
-            return torch.distributed.is_available() and torch.distributed.is_initialized()
-
-        if not torch.distributed.is_initialized():
-            has_torchrun_env = "RANK" in os.environ and "WORLD_SIZE" in os.environ
-            if not has_torchrun_env:
-                return False
-            torch.distributed.init_process_group(backend=backend)
-
-        if torch.cuda.is_available() and "LOCAL_RANK" in os.environ:
-            torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-        return torch.distributed.get_world_size() > 1
-
-    def _build_sampler(self, *, shuffle: bool, drop_last: bool) -> DistributedSampler | None:
+    def _build_sampler(self, *, shuffle: bool, drop_last: bool) -> Sampler[int]:
         if not self.is_distributed:
-            return None
+            return EpochRandomSampler(self.dataset, shuffle=shuffle, seed=self.seed)
 
         return DistributedSampler(
             self.dataset,

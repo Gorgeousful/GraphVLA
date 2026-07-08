@@ -214,7 +214,7 @@ def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: 
     canvas_height = height * 2 + header_h
     fps = float(info.get("fps", 10) or 10)
     output_dir.mkdir(parents=True, exist_ok=True)
-    save_path = output_dir / f"episode_{episode_index:06d}_task{task_index:03d}_check.mp4"
+    save_path = output_dir / f"task{task_index:03d}-episode_{episode_index:06d}.mp4"
 
     proc = subprocess.Popen(
         [

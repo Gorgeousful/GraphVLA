@@ -14,6 +14,15 @@ class TransformFn:
     def __call__(self, data: DataDict) -> DataDict:
         raise NotImplementedError
 
+@dataclass
+class Compose(TransformFn):
+    transforms: Sequence[TransformFn]
+
+    def __call__(self, data: DataDict) -> DataDict:
+        for transform in self.transforms:
+            data = transform(data)
+        return data
+
 
 @dataclass
 class FlattenTransform(TransformFn):
@@ -37,13 +46,85 @@ class FlattenTransform(TransformFn):
 
 
 @dataclass
-class Compose(TransformFn):
-    transforms: Sequence[TransformFn]
+class SubtaskBoundryPadding(TransformFn):
+    fields: Sequence[str] = (
+        "subtask_id",
+        "is_complete",
+        "node_points_track",
+        "node_points_mask",
+        "depths.depth_rel",
+        "gripper_uv",
+        "gripper_d",
+    )
 
     def __call__(self, data: DataDict) -> DataDict:
-        for transform in self.transforms:
-            data = transform(data)
+        if "subtask_id" in data:
+            subtask = data["subtask_id"]
+        elif "subtask" in data:
+            subtask = data["subtask"]
+        else:
+            raise KeyError("SubtaskBoundryPadding requires subtask_id or subtask")
+
+        history_horizon = int(data["history_horizon"])
+        device = subtask.device if isinstance(subtask, torch.Tensor) else None
+        time_indices = self._nearest_same_subtask_indices(
+            subtask,
+            current_index=history_horizon,
+            device=device,
+        )
+        for field in self.fields:
+            if field in data:
+                data[field] = self._index_first_dim(data[field], time_indices)
         return data
+
+    def _nearest_same_subtask_indices(
+        self,
+        subtask: Any,
+        *,
+        current_index: int,
+        device: torch.device | None,
+    ) -> torch.Tensor:
+        if self._is_string_sequence(subtask):
+            values = self._string_values(subtask)
+            frame_indices = torch.arange(len(values), dtype=torch.long)
+            current_subtask = values[current_index]
+            same_indices = torch.tensor(
+                [index for index, value in enumerate(values) if value == current_subtask],
+                dtype=torch.long,
+            )
+        else:
+            subtask = torch.as_tensor(subtask, device=device).reshape(-1)
+            frame_indices = torch.arange(subtask.numel(), device=subtask.device)
+            current_subtask = subtask[current_index]
+            same_indices = torch.nonzero(subtask == current_subtask, as_tuple=False).flatten()
+
+        if same_indices.numel() == 0:
+            return frame_indices
+        distances = (frame_indices[:, None] - same_indices[None]).abs()
+        return same_indices[distances.argmin(dim=1)].long()
+
+    def _is_string_sequence(self, value: Any) -> bool:
+        if isinstance(value, (str, bytes)):
+            return True
+        if isinstance(value, np.ndarray) and value.dtype.kind in {"U", "S", "O"}:
+            return True
+        if isinstance(value, Sequence) and not isinstance(value, torch.Tensor):
+            return any(isinstance(item, (str, bytes)) for item in value)
+        return False
+
+    def _string_values(self, value: Any) -> list[str]:
+        if isinstance(value, (str, bytes)):
+            return [str(value).strip().lower()]
+        if isinstance(value, np.ndarray):
+            return [str(item).strip().lower() for item in value.reshape(-1).tolist()]
+        return [str(item).strip().lower() for item in value]
+
+    def _index_first_dim(self, value: Any, indices: torch.Tensor) -> Any:
+        if not hasattr(value, "shape") or len(value.shape) == 0 or value.shape[0] != indices.numel():
+            return value
+        if isinstance(value, torch.Tensor):
+            return value.index_select(0, indices.to(device=value.device))
+        return value[indices.cpu().numpy()]
 
 
 @dataclass
@@ -386,21 +467,11 @@ class CustomTransform(TransformFn):
         history_horizon = int(data["history_horizon"])
         future_horizon = int(data["future_horizon"])
 
-        time_indices = self._nearest_same_subtask_indices(
-            data["subtask_id"],
-            current_index=history_horizon,
-            device=node_points_track.device,
-        )
-        node_points_track = node_points_track.index_select(0, time_indices)
-        depth_rel = depth_rel.index_select(0, time_indices)
-        gripper_uv = gripper_uv.index_select(0, time_indices)
-        gripper_d = gripper_d.index_select(0, time_indices)
-        is_complete = is_complete.index_select(0, time_indices.to(device=is_complete.device))
         node_points_mask = None
         if "node_points_mask" in data:
             node_points_mask = data["node_points_mask"].to(dtype=torch.bool, device=node_points_track.device)
             if node_points_mask.ndim == 2:
-                node_points_mask = node_points_mask.index_select(0, time_indices)[history_horizon]
+                node_points_mask = node_points_mask[history_horizon]
 
         node_valid = node_points_track.abs().sum(dim=(0, 2, 3)) > 0
         if node_points_mask is not None:
@@ -508,22 +579,6 @@ class CustomTransform(TransformFn):
                 continue
             object_slots[:, slot_index] = node_points_track[:, selected_node_indices[role_index]]
         return object_slots
-
-    def _nearest_same_subtask_indices(
-        self,
-        subtask_id: torch.Tensor,
-        *,
-        current_index: int,
-        device: torch.device,
-    ) -> torch.Tensor:
-        subtask_id = subtask_id.to(device=device).reshape(-1)
-        frame_indices = torch.arange(subtask_id.numel(), device=device)
-        current_subtask_id = subtask_id[current_index]
-        same_indices = torch.nonzero(subtask_id == current_subtask_id, as_tuple=False).flatten()
-        if same_indices.numel() == 0:
-            return frame_indices
-        distances = (frame_indices[:, None] - same_indices[None]).abs()
-        return same_indices[distances.argmin(dim=1)].long()
 
     def _build_point_targets(
         self,

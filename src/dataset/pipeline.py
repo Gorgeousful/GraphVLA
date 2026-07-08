@@ -93,7 +93,10 @@ class OfflinePipeline:
         self.gripper_geometry = None
 
     def run(self):
-        self._ensure_output_features()
+        if not self.config.debug:
+            self._ensure_output_features()
+        else:
+            cs.print("[yellow]debug dry-run: skip meta/info.json update[/yellow]")
         task_indices = [int(task_index) for task_index in self.config.episode_selector]
         taskstructures = self.build_taskstructures(task_indices)
         episode_indices = self.resolve_episode_indices(self.config.episode_selector)
@@ -271,6 +274,9 @@ class OfflinePipeline:
             )
             df["far_background_mask"] = [mask.tolist() for mask in far_background_masks]
 
+        if self.config.debug:
+            cs.print(f"[yellow]debug dry-run: skip writing parquet {parquet_path}[/yellow]")
+            return
         self._write_episode_parquet(df, parquet_path)
 
     @staticmethod
@@ -505,29 +511,14 @@ class OfflinePipeline:
         raise KeyError(f"Unsupported dataset_type for subtask_id: {self.config.dataset_type}")
 
     def _build_libero_subtask_id(self, df: pd.DataFrame, task_index: int) -> np.ndarray:
-        mapping = self._load_libero_subtask_id_map()[int(task_index)]
-        return np.asarray([mapping[str(subtask).strip()] for subtask in df["subtask"]], dtype=np.int32)
-
-    def _load_libero_subtask_id_map(self) -> dict[int, dict[str, int]]:
-        if self.libero_subtask_id_map is not None:
-            return self.libero_subtask_id_map
-
-        segment_file = self.meta_dir / "tasks_segment.json"
-        with segment_file.open("r", encoding="utf-8") as f:
-            rows = json.load(f)
-
-        subtask_id_map = {}
-        for row in rows:
-            task_index = int(row["task_index"])
-            mapping = subtask_id_map.setdefault(task_index, {})
-            for subtask in row.get("task_segment", {}).get("sub_tasks", []):
-                subtask_id = int(subtask["sub_task_id"])
-                for key in ("sub_task", "concrete_sub_task"):
-                    text = subtask.get(key)
-                    if text:
-                        mapping[str(text).strip()] = subtask_id
-        self.libero_subtask_id_map = subtask_id_map
-        return self.libero_subtask_id_map
+        mapping: dict[str, int] = {}
+        ids = []
+        for subtask in df["subtask"]:
+            key = str(subtask).strip().lower()
+            if key not in mapping:
+                mapping[key] = len(mapping) + 1
+            ids.append(mapping[key])
+        return np.asarray(ids, dtype=np.int32)
 
     def _build_node_points_mask(self, df: pd.DataFrame, taskstructure: TaskStructure) -> np.ndarray:
         dataset_type = str(self.config.dataset_type).lower()
@@ -654,8 +645,12 @@ class OfflinePipeline:
     def _print_save_plan(self):
         cs.rule()
         cs.print("[bold cyan]Pipeline outputs[/bold cyan]")
-        cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
-        cs.print("parquet fields: node_points_track, node_points_mask, depths_rel, far_background_mask, is_complete, gripper_uvd, subtask_id")
+        if self.config.debug:
+            cs.print("taskstructures jsonl: debug dry-run prints generated taskstructures instead of appending")
+            cs.print("parquet fields: debug dry-run does not write original parquet files")
+        else:
+            cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
+            cs.print("parquet fields: node_points_track, node_points_mask, depths_rel, far_background_mask, is_complete, gripper_uvd, subtask_id")
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
             cs.print(f"debug point tracker videos: {self.point_tracker_vis_dir}")
@@ -1131,8 +1126,13 @@ class OfflinePipeline:
         return taskstructures
 
     def _append_taskstructure_jsonl(self, task_index: int, taskstructure: TaskStructure):
-        self.taskstructures_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         data = taskstructure_to_json(taskstructure)
+        if self.config.debug:
+            cs.print(f"[yellow]debug dry-run: skip appending taskstructure for task_index={task_index}[/yellow]")
+            cs.print_json(data=data)
+            return
+
+        self.taskstructures_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         with self.taskstructures_jsonl_path.open("a", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
             f.write("\n")
@@ -1168,9 +1168,16 @@ if __name__ == "__main__":
         episode_selector={
             # 30: [0],
             # 31: [0],
+            # 32: [0],
+            # 33: [0],
+            # 34: [0],
             30: ["*"],
             31: ["*"],
+            32: ["*"],
+            33: ["*"],
+            34: ["*"],
         },
+        points_per_node=32,
         overwrite={
             "taskstructure": False,
             "node_points_track": True,

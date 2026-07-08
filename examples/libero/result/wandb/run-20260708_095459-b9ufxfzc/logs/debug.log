@@ -1,0 +1,44 @@
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_setup.py:_flush():81] Current SDK version is 0.28.0
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_setup.py:_flush():81] Configure stats pid to 3145543
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_setup.py:_flush():81] Loading settings from environment variables
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_init.py:setup_run_log_directory():725] Logging user logs to examples/libero/result/wandb/run-20260708_095459-b9ufxfzc/logs/debug.log
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_init.py:setup_run_log_directory():726] Logging internal logs to examples/libero/result/wandb/run-20260708_095459-b9ufxfzc/logs/debug-internal.log
+2026-07-08 09:54:59,524 INFO    MainThread:3145543 [wandb_init.py:init():768] calling init triggers
+2026-07-08 09:54:59,525 INFO    MainThread:3145543 [wandb_init.py:init():773] wandb.init called with sweep_config: {}
+config: {'data': {'dataset_dir': '/data0/luokang/dataset/luokang/lerobot/libero/libero_31_no_noops_1.0.0_lerobot_10hz', 'episodes': None, 'tasks': None, 'horizon': {'observation.state': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'subtask_id': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'is_complete': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'node_points_track': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'node_points_mask': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'gripper_uvd': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 'depths_rel': [-15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]}, 'video_backend': 'pyav', 'transforms': [{'structure': {'metadata': {'episode_index': 'episode_index', 'frame_index': 'frame_index', 'task_index': 'task_index', 'timestamp': 'timestamp', 'index': 'index'}, 'subtask_id': 'subtask_id', 'is_complete': 'is_complete', 'depths.depth_rel': 'depths_rel', 'node_points_track': 'node_points_track', 'node_points_mask': 'node_points_mask', 'gripper_uvd': 'gripper_uvd'}}, {'tasks': {'0': 'put the white mug on the plate and put the chocolate pudding to the right of the plate'}, 'task_index_path': ['metadata', 'task_index'], 'output_key': 'prompt'}, {'history_horizon': 15, 'future_horizon': 16}, {'mode': 'add_subtaskstructure', 'dataset_dir': '/data0/luokang/dataset/luokang/lerobot/libero/libero_31_no_noops_1.0.0_lerobot_10hz', 'extra': None}, {'mode': 'split_gripper_uvd', 'dataset_dir': None, 'extra': None}, {'fields': ['depths.depth_rel', 'gripper_d']}, {'norm_stats': {'level': 'suite', 'norm_stats': {'depths.depth_rel': {'mean': [0.6239896904154435], 'std': [0.1655568311894978], 'q01': [0.3190514282370641], 'q99': [1.0454670434983797]}, 'gripper_d': {'mean': [0.7081243300846315], 'std': [0.09727297517028465], 'q01': [0.5123049069654285], 'q99': [0.8841566437714787]}}}, 'use_quantiles': True, 'quantile_to_neg_one_one': True, 'eps': 1e-06, 'task_index_path': ['task_index'], 'episode_index_path': ['episode_index']}, {'fields': ['subtask_id', 'is_complete', 'node_points_track', 'node_points_mask', 'depths.depth_rel', 'gripper_uv', 'gripper_d']}, {'mode': 'build_model_input', 'dataset_dir': None, 'extra': None}]}, 'model': {'point_dim': 6, 'num_points': 32, 'actor_num_points': 3, 'set_hidden_dim': 384, 'set_layers': 12, 'set_heads': 6, 'set_mlp_ratio': 4.0, 'set_register_tokens': 0, 'condition_dim': 1152, 'encoder_hidden_dim': 1024, 'encoder_layers': 24, 'encoder_heads': 16, 'encoder_mlp_ratio': 4.0, 'decoder_hidden_dim': 1024, 'decoder_layers': 8, 'decoder_heads': 16, 'decoder_mlp_ratio': 4.0, 'output_dims': {'point': 6, 'is_complete': 1}, 'num_query_types': 0, 'num_frame_query_types': 0, 'max_objects': 3, 'min_frame': -15, 'max_frame': 16, 'attention_pattern': 'interleaved_local_global', 'dropout': 0.1}, 'training': {'resume': True, 'max_steps': 30000, 'batch_size': 2, 'gradient_accumulation_steps': 1, 'gradient_checkpointing': True, 'gradient_clip_l2_norm': 1.0, 'warmup_steps': 1000, 'peak_lr': 1e-05, 'decay_steps': 100000, 'decay_lr': 1e-05, 'weight_decay': 0.01, 'betas': [0.9, 0.95], 'ckpt_path': None, 'save_dir': 'examples/libero/result', 'log_interval': 100, 'save_interval': 1000, 'keep_period': 5000, 'seed': 42, 'num_workers': 8, 'pin_memory': True, 'persistent_workers': True, 'use_ddp': True, 'distributed_backend': 'nccl', 'use_amp': True, 'compile_model': False, 'log_backend': 'wandb', 'wandb_entity': 'luokang2192-irmv', 'wandb_project': 'GraphVLA', 'wandb_name': 'test'}, '_wandb': {}}
+2026-07-08 09:54:59,525 INFO    MainThread:3145543 [wandb_init.py:init():816] starting backend
+2026-07-08 09:54:59,525 INFO    MainThread:3145543 [wandb_init.py:init():831] sending inform_init request
+2026-07-08 09:55:00,130 INFO    MainThread:3145543 [wandb_init.py:init():836] backend started and connected
+2026-07-08 09:55:00,136 INFO    MainThread:3145543 [wandb_init.py:init():906] updated telemetry
+2026-07-08 09:55:00,148 INFO    MainThread:3145543 [wandb_init.py:init():929] communicating run to backend with 90.0 second timeout
+2026-07-08 09:55:01,126 INFO    MainThread:3145543 [wandb_init.py:init():974] starting run threads in backend
+2026-07-08 09:55:01,332 INFO    MainThread:3145543 [wandb_run.py:_console_start():2523] atexit reg
+2026-07-08 09:55:01,332 INFO    MainThread:3145543 [wandb_run.py:_redirect():2373] redirect: wrap_raw
+2026-07-08 09:55:01,332 INFO    MainThread:3145543 [wandb_run.py:_redirect():2442] Wrapping output streams.
+2026-07-08 09:55:01,332 INFO    MainThread:3145543 [wandb_run.py:_redirect():2465] Redirects installed.
+2026-07-08 09:55:01,361 INFO    MainThread:3145543 [wandb_init.py:init():1012] run started, returning control to user process
+2026-07-08 09:59:36,956 INFO    wandb-AsyncioManager-main:3145543 [service_client.py:_forward_responses():122] [no run ID] Reached EOF.
+2026-07-08 09:59:36,956 INFO    wandb-AsyncioManager-main:3145543 [mailbox.py:close():154] [no run ID] Closing mailbox, abandoning 2 handles.
+2026-07-08 09:59:36,957 ERROR   wandb-AsyncioManager-main:3145543 [asyncio_manager.py:fn_wrap_exceptions():184] Uncaught exception in run_soon callback.
+Traceback (most recent call last):
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/asyncio_manager.py", line 182, in fn_wrap_exceptions
+    await fn()
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/run_messages.py", line 90, in loop
+    await asyncio_compat.race(
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/asyncio_compat.py", line 278, in race
+    async with open_task_group(race=True) as tg:
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/contextlib.py", line 217, in __aexit__
+    await anext(self.gen)
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/asyncio_compat.py", line 240, in open_task_group
+    await task_group._wait_all(race=race, timeout=exit_timeout)
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/asyncio_compat.py", line 180, in _wait_all
+    raise exc
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/lib/run_messages.py", line 113, in _print_all
+    result = await handle.wait_async(timeout=None)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/mailbox/mailbox_handle.py", line 127, in wait_async
+    response = await self._handle.wait_async(timeout=timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/wandb/sdk/mailbox/response_handle.py", line 123, in wait_async
+    raise HandleAbandonedError()
+wandb.sdk.mailbox.mailbox_handle.HandleAbandonedError

@@ -8,6 +8,7 @@ from typing import Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from src.model.embedding import LearnableFrameObjectPointEmbedding
 
@@ -198,7 +199,11 @@ class SetEncoderViT(nn.Module):
             ]
         )
         self.norm = nn.LayerNorm(hidden_dim)
+        self.gradient_checkpointing = False
         self.init_weights()
+
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        self.gradient_checkpointing = enabled
 
     def init_weights(self) -> None:
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
@@ -278,7 +283,10 @@ class SetEncoderViT(nn.Module):
 
         x = self.prepare_tokens(point_feats, condition=condition)
         for block in self.blocks:
-            x = block(x)
+            if self.gradient_checkpointing and self.training:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
         x = self.norm(x)
         point_start = self.num_register_tokens + int(self.use_cls_token)
         point_tokens = x[:, point_start : point_start + num_points].reshape(
@@ -358,6 +366,10 @@ class PointMemoryEncoder(nn.Module):
         )
         self.block_modes = self._build_block_modes(num_layers)
         self.final_norm = nn.LayerNorm(hidden_dim)
+        self.gradient_checkpointing = False
+
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        self.gradient_checkpointing = enabled
 
     def _build_block_modes(self, num_layers: int) -> list[Literal["local", "global"]]:
         if self.attention_pattern == "interleaved_local_global":
@@ -414,13 +426,19 @@ class PointMemoryEncoder(nn.Module):
                 local = flat_tokens.reshape(bsz, steps, tokens_per_step, hidden).reshape(
                     bsz * steps, tokens_per_step, hidden
                 )
-                local = block(local)
+                if self.gradient_checkpointing and self.training:
+                    local = checkpoint(block, local, use_reentrant=False)
+                else:
+                    local = block(local)
                 flat_tokens = local.reshape(bsz, steps, tokens_per_step, hidden).reshape(
                     bsz, steps * tokens_per_step, hidden
                 )
                 continue
 
-            flat_tokens = block(flat_tokens)
+            if self.gradient_checkpointing and self.training:
+                flat_tokens = checkpoint(block, flat_tokens, use_reentrant=False)
+            else:
+                flat_tokens = block(flat_tokens)
         return self.final_norm(flat_tokens)
 
 

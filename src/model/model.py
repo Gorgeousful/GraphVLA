@@ -28,7 +28,7 @@ class PointQueryModel(nn.Module):
     def __init__(
         self,
         point_dim: int = 6,
-        num_points: int = 128,
+        num_points: int = 32,
         actor_num_points: int = 3,
         set_hidden_dim: int = 384,
         set_layers: int = 12,
@@ -146,6 +146,12 @@ class PointQueryModel(nn.Module):
         if output_dims is None:
             raise ValueError("output_dims must be provided")
         self.heads = PredictionHeads(hidden_dim=decoder_hidden_dim, output_dims=output_dims)
+
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        self.object_encoder.set_gradient_checkpointing(enabled)
+        self.actor_encoder.set_gradient_checkpointing(enabled)
+        self.encoder.set_gradient_checkpointing(enabled)
+        self.decoder.set_gradient_checkpointing(enabled)
 
     def encode_sets(
         self,
