@@ -446,6 +446,8 @@ class CustomTransform(TransformFn):
             return self.split_gripper_uvd(data)
         if self.mode in {"build_model_input", "build_final_input"}:
             return self.build_model_input(data)
+        if self.mode == "build_model_output":
+            return self.build_model_output(data)
         else:
             raise KeyError(f"Not support mode: {self.mode}")
 
@@ -455,6 +457,64 @@ class CustomTransform(TransformFn):
         data["gripper_d"] = gripper_uvd[..., 2:3]
         return data
     
+    def build_model_output(self, data: DataDict) -> DataDict:
+        height = int(self._extra_value("height", 256))
+        width = int(self._extra_value("width", 256))
+        outputs = data.get("outputs", data)
+        if not isinstance(outputs, Mapping):
+            raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
+
+        if "point" in outputs:
+            point = outputs["point"].clone()
+            point[..., 0] = (point[..., 0] + 1.0) * (width / 2.0)
+            point[..., 1] = (point[..., 1] + 1.0) * (height / 2.0)
+            point[..., 2:3] = self._unnormalize_output_field(
+                point[..., 2:3],
+                field="depths.depth_rel",
+                context=data,
+            )
+
+            batch = data.get("batch", data)
+            object_id = batch.get("object_id") if isinstance(batch, Mapping) else None
+            if object_id is not None and point.shape[-1] > 4:
+                actor_mask = object_id == 0
+                while actor_mask.ndim < point[..., 4:5].ndim:
+                    actor_mask = actor_mask.unsqueeze(-1)
+                actor_metric = self._unnormalize_output_field(
+                    point[..., 4:5],
+                    field="gripper_d",
+                    context=data,
+                )
+                point[..., 4:5] = torch.where(actor_mask, actor_metric, point[..., 4:5])
+            outputs["point"] = point
+
+        if self._extra_value("sigmoid_is_complete", True) and "is_complete" in outputs:
+            outputs["is_complete"] = torch.sigmoid(outputs["is_complete"])
+        return data
+
+    def _extra_value(self, key: str, default: Any) -> Any:
+        if self.extra is None:
+            return default
+        return self.extra.get(key, default)
+
+    def _unnormalize_output_field(self, value: Any, *, field: str, context: DataDict) -> Any:
+        if self.extra is None or "norm_stats" not in self.extra:
+            raise ValueError("build_model_output requires extra['norm_stats']")
+        transform = Unnormalize(
+            norm_stats=self.extra["norm_stats"],
+            use_quantiles=bool(self._extra_value("use_quantiles", True)),
+            quantile_to_neg_one_one=bool(self._extra_value("quantile_to_neg_one_one", True)),
+        )
+        stats = transform._unwrap_stats(transform.norm_stats)
+        if stats is None or field not in stats:
+            raise KeyError(f"Missing norm stats for output field: {field}")
+        field_stats = transform._select_field_stats(stats[field], transform._stats_level(transform.norm_stats), context)
+        return (
+            transform._normalize_quantile(value, field_stats)
+            if transform.use_quantiles
+            else transform._normalize(value, field_stats)
+        )
+
     def build_model_input(self, data: DataDict) -> DataDict:
         height = 256
         width = 256
@@ -542,7 +602,7 @@ class CustomTransform(TransformFn):
             device=object_points.device,
         )
 
-        return {
+        result = {
             "point_feats": object_points[:input_horizon],
             "actor_feats": actor_points[:input_horizon],
             "object_condition": object_condition,
@@ -557,6 +617,13 @@ class CustomTransform(TransformFn):
                 "is_complete": is_complete,
             },
         }
+        for key in ("images", "state", "metadata"):
+            if key in data:
+                result[key] = data[key]
+        for key, value in data.items():
+            if isinstance(key, str) and key.startswith("images."):
+                result[key] = value
+        return result
 
     def _select_object_slots(
         self,

@@ -4,3 +4,4 @@ __tmp__/
 __test__/
 *.pt
 examples/*/result/
+examples/*/eval/output/

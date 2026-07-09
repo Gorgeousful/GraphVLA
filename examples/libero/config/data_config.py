@@ -13,6 +13,7 @@ from src.dataset.transform import (
     CustomTransform,
     FlattenTransform,
     SubtaskBoundryPadding,
+    FlipTransform
 )
 
 
@@ -47,6 +48,18 @@ class DataConfig:
     horizon: dict[str, list[int]] | None = None
     video_backend: str = "pyav"
     transforms: tuple[Any, ...] = ()
+    out_transforms: tuple[Any, ...] = ()
+
+    def to_kwargs(self) -> dict[str, Any]:
+        return {
+            "dataset_dir": self.dataset_dir,
+            "episodes": self.episodes,
+            "tasks": self.tasks,
+            "horizon": self.horizon,
+            "video_backend": self.video_backend,
+            "transforms": self.transforms,
+            "out_transforms": self.out_transforms,
+        }
 
 
 LIBERO_DATASET_DIR = Path(
@@ -55,10 +68,10 @@ LIBERO_DATASET_DIR = Path(
 )
 
 LIBERO_REPACK = {
-    # "images.image": "observation.images.image",
+    "images.image": "observation.images.image",
+    "state": "observation.state",
     # "images.wrist_image": "observation.images.wrist_image",
     # "action": "action",
-    # "state": "observation.state",
     "metadata": {
         "episode_index": "episode_index",
         "frame_index": "frame_index",
@@ -77,7 +90,8 @@ LIBERO_REPACK = {
 LIBERO_HISTORY_HORIZON = 15
 LIBERO_FUTURE_HORIZON = 16
 LIBERO_HORIZON = {
-    # "observation.images.image": list(range(-15, 1)),
+    "observation.images.image": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     # "observation.images.wrist_image": list(range(-15, 1)),
     # "action": list(range(16)),
     "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
@@ -103,11 +117,28 @@ LIBERO_TRANSFORM = (
         quantile_to_neg_one_one=True
     ),
     SubtaskBoundryPadding(),
+
+    FlipTransform(mode="horizontal"),
     CustomTransform(mode="build_model_input"),
+)
+
+LIBERO_OUT_TRANSFORM = (
+    CustomTransform(
+        mode="build_model_output",
+        extra={
+            "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+            "use_quantiles": True,
+            "quantile_to_neg_one_one": True,
+            "height": 256,
+            "width": 256,
+            "sigmoid_is_complete": True,
+        },
+    ),
 )
 
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
     horizon=LIBERO_HORIZON,
     transforms=LIBERO_TRANSFORM,
+    out_transforms=LIBERO_OUT_TRANSFORM,
 )
