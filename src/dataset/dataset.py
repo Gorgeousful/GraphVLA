@@ -48,6 +48,40 @@ class EpochRandomSampler(Sampler[int]):
         self.epoch = epoch
 
 
+class SkipBatchSampler(Sampler[list[int]]):
+    def __init__(self, sampler: Sampler[int], *, batch_size: int, drop_last: bool, skip_batches: int = 0) -> None:
+        if skip_batches < 0:
+            raise ValueError(f"skip_batches must be non-negative, got {skip_batches}")
+        self.sampler = sampler
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.skip_batches = skip_batches
+
+    def __iter__(self) -> Iterator[list[int]]:
+        skipped = 0
+        batch = []
+        for index in self.sampler:
+            batch.append(index)
+            if len(batch) == self.batch_size:
+                if skipped < self.skip_batches:
+                    skipped += 1
+                else:
+                    yield batch
+                batch = []
+
+        if batch and not self.drop_last:
+            if skipped >= self.skip_batches:
+                yield batch
+
+    def __len__(self) -> int:
+        sampler_len = len(self.sampler)
+        if self.drop_last:
+            batch_count = sampler_len // self.batch_size
+        else:
+            batch_count = (sampler_len + self.batch_size - 1) // self.batch_size
+        return max(0, batch_count - self.skip_batches)
+
+
 class GenericDataset(Dataset):
     def __init__(self, data_config: Any) -> None:
         self.data_config = data_config
@@ -127,20 +161,26 @@ class GenericDataLoader:
         self.global_batch_size = batch_size
         self.sampler = self._build_sampler(shuffle=shuffle, drop_last=drop_last)
         self.local_batch_size = self._build_local_batch_size(batch_size)
+        self.drop_last = drop_last
 
         if persistent_workers is None:
             persistent_workers = num_workers > 0
 
+        mp_context = "spawn" if num_workers > 0 else None
+        self.loader_kwargs = {
+            "num_workers": num_workers,
+            "multiprocessing_context": mp_context,
+            "pin_memory": pin_memory,
+            "persistent_workers": persistent_workers,
+            "collate_fn": collate_fn,
+        }
         self.loader = TorchDataLoader(
             self.dataset,
             batch_size=self.local_batch_size,
             shuffle=False,
             sampler=self.sampler,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
             drop_last=drop_last,
-            persistent_workers=persistent_workers,
-            collate_fn=collate_fn,
+            **self.loader_kwargs,
         )
 
     def __iter__(self) -> Iterator[Any]:
@@ -159,13 +199,22 @@ class GenericDataLoader:
 
     def iter_epoch(self, epoch: int, skip_batches: int = 0) -> Iterator[Any]:
         self.set_epoch(epoch)
-        iterator = iter(self.loader)
-        for _ in range(skip_batches):
-            try:
-                next(iterator)
-            except StopIteration:
-                return
-        yield from iterator
+        if skip_batches <= 0:
+            yield from self.loader
+            return
+
+        batch_sampler = SkipBatchSampler(
+            self.sampler,
+            batch_size=self.local_batch_size,
+            drop_last=self.drop_last,
+            skip_batches=skip_batches,
+        )
+        loader = TorchDataLoader(
+            self.dataset,
+            batch_sampler=batch_sampler,
+            **self.loader_kwargs,
+        )
+        yield from loader
 
     def set_epoch(self, epoch: int) -> None:
         if self.sampler is not None:

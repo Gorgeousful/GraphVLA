@@ -3,20 +3,10 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import torch
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel
-
-
-class TrainingModel(nn.Module):
-    def __init__(self, model: nn.Module) -> None:
-        super().__init__()
-        self.model = model
-
-    def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        return self.model.loss(batch)
 
 
 class TrainingDistributed:
@@ -58,11 +48,10 @@ class TrainingDistributed:
             torch.distributed.barrier()
 
     def wrap_model(self, model: nn.Module, device: torch.device) -> nn.Module:
-        training_model = TrainingModel(model)
         if not self.enabled:
-            return training_model
+            return model
         return DistributedDataParallel(
-            training_model,
+            model,
             device_ids=[device.index] if device.type == "cuda" else None,
             output_device=device.index if device.type == "cuda" else None,
         )

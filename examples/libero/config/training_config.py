@@ -13,12 +13,12 @@ class TrainingConfig:
     # common
     resume: bool = True
     max_steps: int = 30_000
-    batch_size: int = 2
+    batch_size: int = 64
 
     # gradient
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = True
-    gradient_clip_l2_norm: float | None = 1.0
+    gradient_clip_norm: float | None = 1.0
 
     # cos
     warmup_steps: int = 1_000
@@ -33,7 +33,7 @@ class TrainingConfig:
     # ckpt
     ckpt_path: str | Path | None = None    
     save_dir: str | Path | None = "examples/libero/result"
-    log_interval: int = 100
+    log_interval: int = 10 # 100
     save_interval: int = 1_000
     keep_period: int = 5_000
 
@@ -45,7 +45,7 @@ class TrainingConfig:
     use_ddp: bool = True
     distributed_backend: str = "nccl"
     use_amp: bool = True
-    compile_model: bool = False
+    compile_model: bool = True
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"

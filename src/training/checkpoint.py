@@ -176,9 +176,6 @@ class TrainingCheckpoint:
             if hasattr(current, "_orig_mod"):
                 current = current._orig_mod
                 continue
-            if hasattr(current, "model"):
-                current = current.model
-                continue
             return current
 
     @staticmethod
@@ -211,6 +208,10 @@ class TrainingCheckpoint:
         if "numpy" in state:
             np.random.set_state(state["numpy"])
         if "torch" in state:
-            torch.set_rng_state(state["torch"])
+            torch_state = state["torch"]
+            if isinstance(torch_state, torch.Tensor):
+                torch_state = torch_state.cpu()
+            torch.set_rng_state(torch_state)
         if "cuda" in state and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(state["cuda"])
+            cuda_state = [item.cpu() if isinstance(item, torch.Tensor) else item for item in state["cuda"]]
+            torch.cuda.set_rng_state_all(cuda_state)

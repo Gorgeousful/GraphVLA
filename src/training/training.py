@@ -68,8 +68,10 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
     device = distributed.device
+    if distributed.is_main_process: 
+        cs.print("Distributed init!")
+
     dataloader = GenericDataLoader(
         data_config,
         batch_size=training_config.batch_size,
@@ -82,6 +84,9 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         rank=distributed.rank,
         seed=training_config.seed,
     )
+    if distributed.is_main_process: 
+        cs.print("DataLoader init!")
+
     checkpoint = TrainingCheckpoint(
         save_dir=training_config.save_dir,
         resume=training_config.resume,
@@ -89,24 +94,32 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         is_main_process=distributed.is_main_process,
         barrier=distributed.barrier,
     )
-    base_model = build_model(model_config, training_config, device)
-    checkpoint.load_pretrained(getattr(training_config, "ckpt_path", None), base_model, device)
-    model = distributed.wrap_model(base_model, device)
-    train_optimizer = TrainingOptimizer(model, training_config)
-    step = checkpoint.load_latest(model, train_optimizer, device) if training_config.resume else 0
+    if distributed.is_main_process: 
+        cs.print("Checkpoint Manager init!")
+
     logger = TrainingLogger(
         training_config,
         data_config=data_config,
         model_config=model_config,
         is_main_process=distributed.is_main_process,
     )
+    if distributed.is_main_process: 
+        cs.print("Logger init!")
+
+    base_model = build_model(model_config, training_config, device)
+    checkpoint.load_pretrained(getattr(training_config, "ckpt_path", None), base_model, device)
+    model = distributed.wrap_model(base_model, device)
+    train_optimizer = TrainingOptimizer(model, training_config)
+    model.train()
+    train_optimizer.zero_grad()
+    if distributed.is_main_process: 
+        cs.print("Model and Optimizer init!")
+
+
+    step = checkpoint.load_latest(model, train_optimizer, device) if training_config.resume else 0
     accum_steps = max(1, training_config.gradient_accumulation_steps)
     micro_step = step * accum_steps
     data_epoch, batch_offset = dataloader.resume_position(micro_step)
-
-    model.train()
-    train_optimizer.zero_grad()
-
     while step < training_config.max_steps:
         for batch in dataloader.iter_epoch(data_epoch, skip_batches=batch_offset):
             batch_offset = 0
@@ -122,7 +135,7 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
             if micro_step % accum_steps != 0:
                 continue
 
-            clip_norm = training_config.gradient_clip_l2_norm
+            clip_norm = training_config.gradient_clip_norm
             if clip_norm is not None:
                 grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), clip_norm)
             else:

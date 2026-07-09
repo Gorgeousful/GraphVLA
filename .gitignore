@@ -2,3 +2,5 @@ __history__/
 __note__/
 __tmp__/
 __test__/
+*.pt
+examples/*/result/

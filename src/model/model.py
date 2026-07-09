@@ -216,7 +216,7 @@ class PointQueryModel(nn.Module):
         decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
         return self.heads(decoded, head_names=head_names)
 
-    def forward(
+    def infer(
         self,
         point_feats: torch.Tensor,
         actor_feats: torch.Tensor,
@@ -257,7 +257,7 @@ class PointQueryModel(nn.Module):
             )
         return outputs
 
-    def loss(
+    def forward(
         self,
         batch: dict[str, torch.Tensor | dict[str, torch.Tensor]],
         weights: dict[str, float] | None = None,
