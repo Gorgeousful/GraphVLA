@@ -9,7 +9,6 @@ import torch
 from torch.utils.data import DataLoader as TorchDataLoader
 from torch.utils.data import Dataset
 from torch.utils.data import Sampler
-from torch.utils.data.distributed import DistributedSampler
 
 try:
     from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
@@ -27,59 +26,79 @@ def make_lerobot_dataset(dataset_dir: Path, **kwargs: Any) -> LeRobotDataset:
         return LeRobotDataset(repo_id=str(dataset_dir), **kwargs)
 
 
-class EpochRandomSampler(Sampler[int]):
-    def __init__(self, dataset: Dataset, *, shuffle: bool, seed: int = 0) -> None:
+class GlobalBatchSampler(Sampler[int]):
+    def __init__(
+        self,
+        dataset: Dataset,
+        *,
+        global_batch_size: int,
+        local_batch_size: int,
+        world_size: int,
+        rank: int,
+        shuffle: bool,
+        seed: int = 0,
+        drop_last: bool = True,
+    ) -> None:
+        if not drop_last:
+            raise ValueError("GlobalBatchSampler currently requires drop_last=True for stable cross-world-size resume")
+        if global_batch_size <= 0 or local_batch_size <= 0:
+            raise ValueError(
+                f"batch sizes must be positive, got global={global_batch_size}, local={local_batch_size}"
+            )
+        if world_size <= 0:
+            raise ValueError(f"world_size must be positive, got {world_size}")
+        if rank < 0 or rank >= world_size:
+            raise ValueError(f"rank must be in [0, {world_size}), got {rank}")
+        if global_batch_size % world_size != 0:
+            raise ValueError(f"global_batch_size={global_batch_size} must be divisible by world_size={world_size}")
+        expected_local = global_batch_size // world_size
+        if local_batch_size != expected_local:
+            raise ValueError(
+                f"local_batch_size must equal global_batch_size/world_size, got {local_batch_size} vs {expected_local}"
+            )
+
         self.dataset = dataset
+        self.global_batch_size = global_batch_size
+        self.local_batch_size = local_batch_size
+        self.world_size = world_size
+        self.rank = rank
         self.shuffle = shuffle
         self.seed = seed
         self.epoch = 0
+        self.skip_batches = 0
 
     def __iter__(self) -> Iterator[int]:
-        if not self.shuffle:
-            return iter(range(len(self.dataset)))
-        generator = torch.Generator()
-        generator.manual_seed(self.seed + self.epoch)
-        return iter(torch.randperm(len(self.dataset), generator=generator).tolist())
+        dataset_size = len(self.dataset)
+        num_global_batches = self._num_global_batches()
+        if num_global_batches <= 0:
+            return
+
+        if self.shuffle:
+            generator = torch.Generator()
+            generator.manual_seed(self.seed + self.epoch)
+            indices = torch.randperm(dataset_size, generator=generator)
+        else:
+            indices = torch.arange(dataset_size)
+        indices = indices[: num_global_batches * self.global_batch_size]
+
+        start = self.rank * self.local_batch_size
+        end = start + self.local_batch_size
+        for global_batch in indices.reshape(num_global_batches, self.global_batch_size)[self.skip_batches:]:
+            yield from global_batch[start:end].tolist()
 
     def __len__(self) -> int:
-        return len(self.dataset)
+        return max(0, self._num_global_batches() - self.skip_batches) * self.local_batch_size
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
 
-
-class SkipBatchSampler(Sampler[list[int]]):
-    def __init__(self, sampler: Sampler[int], *, batch_size: int, drop_last: bool, skip_batches: int = 0) -> None:
+    def set_skip_batches(self, skip_batches: int) -> None:
         if skip_batches < 0:
             raise ValueError(f"skip_batches must be non-negative, got {skip_batches}")
-        self.sampler = sampler
-        self.batch_size = batch_size
-        self.drop_last = drop_last
         self.skip_batches = skip_batches
 
-    def __iter__(self) -> Iterator[list[int]]:
-        skipped = 0
-        batch = []
-        for index in self.sampler:
-            batch.append(index)
-            if len(batch) == self.batch_size:
-                if skipped < self.skip_batches:
-                    skipped += 1
-                else:
-                    yield batch
-                batch = []
-
-        if batch and not self.drop_last:
-            if skipped >= self.skip_batches:
-                yield batch
-
-    def __len__(self) -> int:
-        sampler_len = len(self.sampler)
-        if self.drop_last:
-            batch_count = sampler_len // self.batch_size
-        else:
-            batch_count = (sampler_len + self.batch_size - 1) // self.batch_size
-        return max(0, batch_count - self.skip_batches)
+    def _num_global_batches(self) -> int:
+        return len(self.dataset) // self.global_batch_size
 
 
 class GenericDataset(Dataset):
@@ -153,15 +172,15 @@ class GenericDataLoader:
     ) -> None:
         self.data_config = data_config
         self.is_distributed = distributed
-        self.world_size = world_size
-        self.rank = rank
+        self.world_size = world_size if distributed else 1
+        self.rank = rank if distributed else 0
         self.seed = seed
 
         self.dataset = GenericDataset(data_config)
         self.global_batch_size = batch_size
-        self.sampler = self._build_sampler(shuffle=shuffle, drop_last=drop_last)
         self.local_batch_size = self._build_local_batch_size(batch_size)
         self.drop_last = drop_last
+        self.sampler = self._build_sampler(shuffle=shuffle, drop_last=drop_last)
 
         if persistent_workers is None:
             persistent_workers = num_workers > 0
@@ -199,36 +218,25 @@ class GenericDataLoader:
 
     def iter_epoch(self, epoch: int, skip_batches: int = 0) -> Iterator[Any]:
         self.set_epoch(epoch)
-        if skip_batches <= 0:
+        self.sampler.set_skip_batches(skip_batches)
+        try:
             yield from self.loader
-            return
-
-        batch_sampler = SkipBatchSampler(
-            self.sampler,
-            batch_size=self.local_batch_size,
-            drop_last=self.drop_last,
-            skip_batches=skip_batches,
-        )
-        loader = TorchDataLoader(
-            self.dataset,
-            batch_sampler=batch_sampler,
-            **self.loader_kwargs,
-        )
-        yield from loader
+        finally:
+            self.sampler.set_skip_batches(0)
 
     def set_epoch(self, epoch: int) -> None:
         if self.sampler is not None:
             self.sampler.set_epoch(epoch)
 
-    def _build_sampler(self, *, shuffle: bool, drop_last: bool) -> Sampler[int]:
-        if not self.is_distributed:
-            return EpochRandomSampler(self.dataset, shuffle=shuffle, seed=self.seed)
-
-        return DistributedSampler(
+    def _build_sampler(self, *, shuffle: bool, drop_last: bool) -> GlobalBatchSampler:
+        return GlobalBatchSampler(
             self.dataset,
-            num_replicas=self.world_size,
+            global_batch_size=self.global_batch_size,
+            local_batch_size=self.local_batch_size,
+            world_size=self.world_size,
             rank=self.rank,
             shuffle=shuffle,
+            seed=self.seed,
             drop_last=drop_last,
         )
 

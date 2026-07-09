@@ -45,7 +45,7 @@ class TrainingConfig:
     use_ddp: bool = True
     distributed_backend: str = "nccl"
     use_amp: bool = True
-    compile_model: bool = True
+    compile_model: bool = False
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
