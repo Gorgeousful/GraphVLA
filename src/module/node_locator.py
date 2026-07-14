@@ -32,12 +32,22 @@ class NodeLocatorRobo:
         """
         cs.print("Loading Checkpoint ...")
         self.model_id = model_id
+        self.device_map = device_map
         self.model = AutoModelForImageTextToText.from_pretrained(
             model_id, 
             dtype="auto", 
             device_map=device_map
         )
         self.processor = AutoProcessor.from_pretrained(model_id)
+
+    def _input_device(self):
+        device = getattr(self.model, "device", None)
+        if device is not None:
+            return device
+        try:
+            return next(self.model.parameters()).device
+        except StopIteration:
+            return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
     def resize(self, images, scale=1.0):
         """
@@ -137,7 +147,7 @@ class NodeLocatorRobo:
             padding=True,
             return_tensors="pt",
         )
-        inputs = inputs.to("cuda")
+        inputs = inputs.to(self._input_device())
 
         # Inference
         # cs.print("Running inference ...")

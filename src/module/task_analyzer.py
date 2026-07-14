@@ -23,7 +23,7 @@ class Client:
     def __init__(self, 
                 api_key: str, 
                 base_url: str = "https://models.sjtu.edu.cn/api/v1", 
-                model: str = "glm"): 
+                model: str = "deepseek-reasoner"): 
 
         self.client = OpenAI(
             api_key=api_key,
@@ -116,7 +116,7 @@ class TaskAnalyzer:
         self,
         api_key: str,
         base_url: str = "https://models.sjtu.edu.cn/api/v1",
-        model: str = "glm",
+        model: str = "deepseek-reasoner",
     ):
         self.client = Client(api_key, base_url, model)
 

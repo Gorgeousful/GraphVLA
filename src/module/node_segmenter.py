@@ -18,17 +18,26 @@ class NodeSegmenter:
         model_path="/data0/luokang/dataset/luokang/ckpts/sam3/sam3.pt",
         device="cuda",
         mode=None,
+        model=None,
     ):
         self.model_path = model_path
         self.device = device
-        self.model = build_sam3_video_model(
-            checkpoint_path=model_path,
-            load_from_HF=False,
-            device=device,
-        )
-        self.model.tracker.backbone = self.model.detector.backbone
+        self.model = model
+        if self.model is None:
+            with self._device_context():
+                self.model = build_sam3_video_model(
+                    checkpoint_path=model_path,
+                    load_from_HF=False,
+                    device=device,
+                )
+                self.model.tracker.backbone = self.model.detector.backbone
         self.point_state = None
         self.prompt_state = None
+
+    def _device_context(self):
+        if isinstance(self.device, str) and self.device.startswith("cuda"):
+            return torch.cuda.device(self.device)
+        return contextlib.nullcontext()
 
     def _preprocess(self, frame_rgb):
         img_size = self.model.image_size
@@ -36,7 +45,7 @@ class NodeSegmenter:
         pil_img = TF.resize(pil_img, size=(img_size, img_size))
         tensor = TF.to_tensor(pil_img).half()
         tensor = (tensor - 0.5) / 0.5
-        return tensor
+        return tensor.to(self.device)
 
     def _extract_point_masks(self):
         h, w = self.point_state["output_size"]
@@ -100,8 +109,8 @@ class NodeSegmenter:
                 inference_state=inference_state,
                 frame_idx=0,
                 obj_id=node_idx,
-                points=torch.from_numpy(pts_array),
-                labels=torch.ones(len(node_points), dtype=torch.int32),
+                points=torch.from_numpy(pts_array).to(self.device),
+                labels=torch.ones(len(node_points), dtype=torch.int32, device=self.device),
             )
 
         obj_ids = None
@@ -170,35 +179,38 @@ class NodeSegmenter:
         return inference_state
 
     def segment_prompt_video(self, frames, prompt: str) -> list[list[np.ndarray]]:
-        frames = [np.asarray(frame) for frame in frames]
-        inference_state = self._init_video_state(frames)
-        image_size = frames[0].shape[:2]
+        with self._device_context():
+            frames = [np.asarray(frame) for frame in frames]
+            inference_state = self._init_video_state(frames)
+            image_size = frames[0].shape[:2]
 
-        with torch.inference_mode():
-            self.model.add_prompt(inference_state, frame_idx=0, text_str=str(prompt))
-            frame_masks = [None] * len(frames)
-            with open(os.devnull, "w") as devnull, contextlib.redirect_stderr(devnull):
-                for frame_idx, outputs in self.model.propagate_in_video(
-                    inference_state,
-                    start_frame_idx=0,
-                    max_frame_num_to_track=len(frames),
-                    reverse=False,
-                ):
-                    frame_masks[frame_idx] = self._extract_output_masks(outputs, image_size)
+            with torch.inference_mode():
+                self.model.add_prompt(inference_state, frame_idx=0, text_str=str(prompt))
+                frame_masks = [None] * len(frames)
+                with open(os.devnull, "w") as devnull, contextlib.redirect_stderr(devnull):
+                    for frame_idx, outputs in self.model.propagate_in_video(
+                        inference_state,
+                        start_frame_idx=0,
+                        max_frame_num_to_track=len(frames),
+                        reverse=False,
+                    ):
+                        frame_masks[frame_idx] = self._extract_output_masks(outputs, image_size)
 
-        self.prompt_state = inference_state
-        empty = []
-        return [masks if masks is not None else empty for masks in frame_masks]
+            self.prompt_state = inference_state
+            empty = []
+            return [masks if masks is not None else empty for masks in frame_masks]
 
     def reset(self, frame_rgb, points=None, prompt=None):
-        if points is not None:
-            return self._reset_point(frame_rgb, points)
-        if prompt is not None:
-            return self.segment_prompt_video([frame_rgb], prompt)[0]
-        raise ValueError("either points or prompt is required")
+        with self._device_context():
+            if points is not None:
+                return self._reset_point(frame_rgb, points)
+            if prompt is not None:
+                return self.segment_prompt_video([frame_rgb], prompt)[0]
+            raise ValueError("either points or prompt is required")
 
     def update(self, frame_rgb):
-        return self._update_point(frame_rgb)
+        with self._device_context():
+            return self._update_point(frame_rgb)
 
     def predict(self, frame_rgb, points=None, prompt=None, anchor_frame=True):
         if anchor_frame:

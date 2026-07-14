@@ -9,11 +9,11 @@ It does not depend on a LIBERO simulation environment.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
 from typing import Any
-from urllib import error, request
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
@@ -22,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import cv2
 import numpy as np
 import torch
+import websockets
 
 from examples.libero.config.data_config import LIBERO_DATA_CONFIG
 from examples.libero.embodiment.robot import GeomFrankaPanda
@@ -65,20 +66,15 @@ def build_request(sample: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def post_json(url: str, data: dict[str, Any], timeout: float) -> dict[str, Any]:
-    body = json.dumps(data).encode("utf-8")
-    req = request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"server returned HTTP {exc.code}: {body}") from exc
+async def websocket_json_async(uri: str, data: dict[str, Any], timeout: float) -> dict[str, Any]:
+    async with websockets.connect(uri, open_timeout=timeout, max_size=None, proxy=None) as websocket:
+        await asyncio.wait_for(websocket.send(json.dumps(data)), timeout=timeout)
+        message = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+    return json.loads(message)
+
+
+def websocket_json(uri: str, data: dict[str, Any], timeout: float) -> dict[str, Any]:
+    return asyncio.run(websocket_json_async(uri, data, timeout))
 
 
 def image_to_bgr(image: torch.Tensor, *, width: int, height: int) -> np.ndarray:
@@ -187,6 +183,7 @@ def draw_uv_grid(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Offline GraphVLA server client for UV visualization.")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=10092)
     parser.add_argument("--episode-index", type=int, default=1)
     parser.add_argument("--sample-index", type=int, default=None)
@@ -200,7 +197,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("examples/libero/eval/output/offline_uv.png"),
+        default=Path("examples/libero/test/output/offline_uv.png"),
     )
     return parser.parse_args()
 
@@ -268,7 +265,7 @@ def run_sample(
     *,
     sample: dict[str, Any],
     sample_index: int,
-    server_url: str,
+    server_uri: str,
     output_path: Path,
     timeout: float,
     width: int,
@@ -280,7 +277,7 @@ def run_sample(
     extrinsic: np.ndarray,
 ) -> int:
     request_data = build_request(sample)
-    response = post_json(server_url, request_data, timeout=timeout)
+    response = websocket_json(server_uri, request_data, timeout=timeout)
     if "error" in response:
         raise RuntimeError(response["error"])
     outputs = response["outputs"]
@@ -350,9 +347,9 @@ def main() -> None:
         local_indices = local_indices[: args.num_samples]
     intrinsic, extrinsic = load_camera(LIBERO_CAMERA_DATASET_DIR, task_index=0, camera_name=args.camera_name)
     robot = GeomFrankaPanda()
-    server_url = f"http://127.0.0.1:{args.port}/infer"
+    server_uri = f"ws://{args.host}:{args.port}"
 
-    print(f"server_url: {server_url}")
+    print(f"server_uri: {server_uri}")
     print(f"episode_index: {args.episode_index}")
     print(f"local_sample_indices: {local_indices}")
     for local_index in local_indices:
@@ -361,7 +358,7 @@ def main() -> None:
         run_sample(
             sample=sample,
             sample_index=local_index,
-            server_url=server_url,
+            server_uri=server_uri,
             output_path=output_path_for_sample(args.output, local_index, len(local_indices)),
             timeout=args.timeout,
             width=args.width,
