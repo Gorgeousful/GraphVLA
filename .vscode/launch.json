@@ -1,0 +1,17 @@
+{
+    // You should adapt this configuration to match your project's structure and requirements.
+    "version": "0.2.0",
+    "configurations": 
+    [
+      {
+        "name": "Attach Python Debug",
+        "type": "debugpy",
+        "request": "attach",
+        "connect": {
+          "host": "localhost",
+          "port": 10092 // Set the listen port
+        },
+        "justMyCode": false
+      }
+    ]
+  }

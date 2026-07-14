@@ -44,7 +44,7 @@ LIBERO_CAMERA_NAME = "agentview"
 @dataclasses.dataclass
 class Args:
     host: str = "127.0.0.1"
-    port: int = 10092
+    port: int = 8001
     task_suite_name: str = "libero_10"
     tasks: list[int] | None = None
     num_steps_wait: int = 30
@@ -55,6 +55,7 @@ class Args:
     seed: int = 42
     save_video: bool = True
     control_delta: bool = False
+    execute_chunk_len: int = 16
 
 
 class ObservationDeltaBuffer:
@@ -83,15 +84,19 @@ class ObservationDeltaBuffer:
 
 
 class InferenceClient:
-    def __init__(self, *, host: str, port: int) -> None:
+    def __init__(self, *, host: str, port: int, execute_chunk_len: int = 1) -> None:
         self.host = host
         self.port = port
         self.future_horizon = int(LIBERO_MODEL_CONFIG.max_frame)
+        if execute_chunk_len < 1 or execute_chunk_len > self.future_horizon:
+            raise ValueError(f"execute_chunk_len must be in [1, {self.future_horizon}], got {execute_chunk_len}")
+        self.execute_chunk_len = int(execute_chunk_len)
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
         self.extrinsic: np.ndarray | None = None
         self.session_id = ""
         self.action_chunk: list[list[float]] = []
+        self.action_frame_ids: list[int] = []
         self.first_request = True
         self.last_response: dict[str, Any] | None = None
         self.last_action_frame_id: int | None = None
@@ -99,6 +104,7 @@ class InferenceClient:
     def reset_episode(self, *, task_id: int, episode_idx: int, env: Any) -> None:
         self.pending_observations.reset()
         self.action_chunk.clear()
+        self.action_frame_ids.clear()
         self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
         self.session_id = f"libero-task{task_id}-ep{episode_idx}-{uuid.uuid4().hex[:8]}"
         self.first_request = True
@@ -110,9 +116,10 @@ class InferenceClient:
         if not self.action_chunk:
             response = self._call_server(task_description)
             self.last_response = response
-            self.action_chunk = self._validated_action_chunk(response)
-        chunk_index = self.future_horizon - len(self.action_chunk)
-        self.last_action_frame_id = chunk_index + 1
+            action_chunk = self._validated_action_chunk(response)
+            self.action_chunk = action_chunk[: self.execute_chunk_len]
+            self.action_frame_ids = list(range(1, len(self.action_chunk) + 1))
+        self.last_action_frame_id = self.action_frame_ids.pop(0)
         return np.asarray(self.action_chunk.pop(0), dtype=np.float32)
 
     def _call_server(self, task_description: str) -> dict[str, Any]:
@@ -252,6 +259,41 @@ def _draw_text_rgb(image: np.ndarray, text: str, xy: tuple[int, int]) -> None:
     cv2.putText(image, text, xy, font, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
 
 
+def _draw_text_rgb_right(
+    image: np.ndarray,
+    text: str,
+    y: int,
+    *,
+    margin: int = 8,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> None:
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_width, _), _ = cv2.getTextSize(text, font, 0.48, 1)
+    x = max(margin, image.shape[1] - margin - text_width)
+    cv2.putText(image, text, (x, y), font, 0.48, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(image, text, (x, y), font, 0.48, color, 1, cv2.LINE_AA)
+
+
+def _complete_score_for_frame(response: dict[str, Any], frame_id: int | None) -> float | None:
+    if frame_id is None:
+        return None
+    complete_value = response.get("is_complete", response.get("complete"))
+    frame_ids_value = response.get("frame_query_frame_id")
+    if complete_value is None or frame_ids_value is None:
+        return None
+
+    scores = _first_batch(complete_value).astype(np.float32).reshape(-1)
+    frame_ids = _first_batch(frame_ids_value).astype(np.int64).reshape(-1)
+    if scores.shape[0] != frame_ids.shape[0]:
+        return None
+
+    matched_scores = scores[frame_ids == int(frame_id)]
+    matched_scores = matched_scores[np.isfinite(matched_scores)]
+    if matched_scores.size == 0:
+        return None
+    return float(np.max(matched_scores))
+
+
 def _light_color_rgb(color: tuple[int, int, int]) -> tuple[int, int, int]:
     return tuple(int(round(channel * 0.35 + 255 * 0.65)) for channel in color)
 
@@ -341,6 +383,14 @@ def _draw_response_points(
 
     label_frame = "-" if frame_id is None else str(frame_id)
     _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))
+    complete_score = _complete_score_for_frame(response, frame_id)
+    if complete_score is None:
+        complete_text = "-"
+        complete_color = (255, 255, 255)
+    else:
+        complete_text = f"{complete_score:.2f}"
+        complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
+    _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
     return image
 
 
@@ -366,17 +416,26 @@ def _save_video_ffmpeg(frames_rgb: list[np.ndarray], save_path: Path, *, fps: fl
         stderr=subprocess.PIPE,
     )
     assert proc.stdin is not None
-    for frame in frames_rgb:
-        frame = np.asarray(frame, dtype=np.uint8)
-        if frame.shape[:2] != (h, w):
-            raise ValueError(f"video frame shape mismatch: expected {(h, w)}, got {frame.shape[:2]}")
-        if frame.ndim != 3 or frame.shape[2] != 3:
-            raise ValueError(f"video frame must have shape HxWx3, got {frame.shape}")
-        proc.stdin.write(np.ascontiguousarray(frame).tobytes())
-    proc.stdin.close()
+    pipe_broken = False
+    try:
+        for frame in frames_rgb:
+            frame = np.asarray(frame, dtype=np.uint8)
+            if frame.shape[:2] != (h, w):
+                raise ValueError(f"video frame shape mismatch: expected {(h, w)}, got {frame.shape[:2]}")
+            if frame.ndim != 3 or frame.shape[2] != 3:
+                raise ValueError(f"video frame must have shape HxWx3, got {frame.shape}")
+            proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+    except BrokenPipeError:
+        pipe_broken = True
+    finally:
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pipe_broken = True
+
     stderr = proc.stderr.read() if proc.stderr is not None else b""
     proc.wait()
-    if proc.returncode != 0:
+    if pipe_broken or proc.returncode != 0:
         message = stderr.decode("utf-8", errors="replace") if stderr else "unknown ffmpeg error"
         raise RuntimeError(f"ffmpeg failed while saving {save_path}: {message}")
     cs.print(f"saved video to: {save_path} ({len(frames_rgb)} frames, {fps:.1f} fps)")
@@ -435,6 +494,7 @@ def parse_args() -> Args:
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument("--no-save-video", action="store_true")
     parser.add_argument("--control-delta", action="store_true", default=Args.control_delta)
+    parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     ns = parser.parse_args()
     return Args(
         host=ns.host,
@@ -449,6 +509,7 @@ def parse_args() -> Args:
         seed=ns.seed,
         save_video=not ns.no_save_video,
         control_delta=ns.control_delta,
+        execute_chunk_len=ns.execute_chunk_len,
     )
 
 
@@ -472,7 +533,7 @@ def main() -> None:
     video_dir.mkdir(parents=True, exist_ok=True)
     result_path.parent.mkdir(parents=True, exist_ok=True)
 
-    client = InferenceClient(host=args.host, port=args.port)
+    client = InferenceClient(host=args.host, port=args.port, execute_chunk_len=args.execute_chunk_len)
     total_episodes = 0
     total_successes = 0
     total_progress = 0.0

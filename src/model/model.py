@@ -56,12 +56,14 @@ class PointQueryModel(nn.Module):
         max_frame: int = 15,
         attention_pattern: str | None = "interleaved_local_global",
         dropout: float = 0.1,
+        weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
         #: pre-encoder
         self.num_points = num_points
         self.actor_num_points = actor_num_points
         self.max_objects = max_objects
+        self.weights = {} if weights is None else dict(weights)
         self.object_encoder = SetEncoderViT(
             point_dim=point_dim,
             hidden_dim=set_hidden_dim,
@@ -266,7 +268,7 @@ class PointQueryModel(nn.Module):
         if not isinstance(target, dict):
             raise ValueError("batch[target] must be a dict")
 
-        weights = {} if weights is None else weights
+        weights = self.weights if weights is None else weights
         metrics: dict[str, torch.Tensor] = {}
         total: torch.Tensor | None = None
 

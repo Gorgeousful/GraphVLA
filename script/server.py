@@ -59,6 +59,7 @@ class Args:
     task_analyzer_api_key: str | None
     complete_threshold: float = 0.5
     complete_window: int = 3
+    execute_chunk_len: int | None = None
     devices: dict[str, str] = field(default_factory=dict)
 
 
@@ -134,11 +135,13 @@ class TopLevelTaskPlanner:
         task_analyzer_api_key: str | None = None,
         complete_threshold: float = 0.5,
         complete_window: int = 3,
+        execute_chunk_len: int = 1,
     ) -> None:
         self.dataset_dir = Path(dataset_dir)
         self.task_analyzer_api_key = task_analyzer_api_key
         self.complete_threshold = complete_threshold
         self.complete_window = max(1, complete_window)
+        self.execute_chunk_len = max(1, execute_chunk_len)
         self.task_cache: dict[str, dict[str, Any]] = {}
         self.task_analyzer: TaskAnalyzer | None = None
         self._load_taskstructure_cache()
@@ -160,10 +163,14 @@ class TopLevelTaskPlanner:
         if session.task_complete or session.taskstructure is None:
             return False
 
-        for score in self._completion_frame_scores(outputs):
+        scores = self._completion_frame_scores(outputs)
+        for score in scores[: self.execute_chunk_len]:
+            score_text = f"complete_score={score:.4f} threshold={self.complete_threshold:.4f}"
             if score >= self.complete_threshold:
+                cs.print(f"[green]{score_text}[/green]")
                 session.complete_streak += 1
             else:
+                cs.print(score_text)
                 session.complete_streak = 0
 
             if session.complete_streak >= self.complete_window:
@@ -267,6 +274,7 @@ class InputPreprocessor:
         future_horizon: int,
         num_points: int,
         robot_cls: type[Any],
+        dataset_dir: str | Path,
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_horizon = history_horizon
@@ -274,6 +282,7 @@ class InputPreprocessor:
         self.num_points = num_points
         self.robot_cls = robot_cls
         self.devices = dict(devices or {})
+        self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.sam3_model = None
         self.node_locator: NodeLocatorRobo | None = None
         self.robot: Any = None
@@ -371,14 +380,15 @@ class InputPreprocessor:
         depth = output[0] if isinstance(output, tuple) else output
         depth = np.asarray(depth, dtype=np.float32)
         if session.table_mask is None:
-            return depth
+            return self._normalize_field(depth, "depths.depth_rel")
         if session.depth_calibrator is None:
             session.depth_calibrator = RawDepthShiftCalibrator(depth, session.table_mask)
-            return depth
+            return self._normalize_field(depth, "depths.depth_rel")
         try:
-            return session.depth_calibrator.calibrate(depth, session.table_mask)
+            depth = session.depth_calibrator.calibrate(depth, session.table_mask)
         except ValueError:
-            return depth
+            pass
+        return self._normalize_field(depth, "depths.depth_rel")
 
     def _state_to_gripper_uvd(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
@@ -569,6 +579,22 @@ class InputPreprocessor:
             raise RuntimeError(f"NodeLocatorRobo found no points for node={node_name!r}")
         return self._locator_points_to_pixels(points, image.shape[:2])
 
+    @staticmethod
+    def _load_norm_stats(dataset_dir: Path) -> dict[str, Any]:
+        path = dataset_dir / "meta" / "norm_stats_suite.json"
+        with path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return dict(payload.get("norm_stats", payload))
+
+    def _normalize_field(self, value: np.ndarray, field: str) -> np.ndarray:
+        if field not in self.norm_stats:
+            raise KeyError(f"Missing norm stats for field={field!r}")
+        stats = self.norm_stats[field]
+        q01 = np.asarray(stats["q01"], dtype=np.float32)
+        q99 = np.asarray(stats["q99"], dtype=np.float32)
+        value = np.asarray(value, dtype=np.float32)
+        return ((value - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0).astype(np.float32)
+
     def _robot(self) -> Any:
         if self.robot is None:
             self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
@@ -613,7 +639,7 @@ class InputPreprocessor:
         points[:, :2] = self._normalize_uv(uv, height, width)
         points[:, 2:3] = sampled_depth
         points[:, 3:4] = in_bounds
-        points[:, 4:5] = gripper_uvd[:, 2:3]
+        points[:, 4:5] = self._normalize_field(gripper_uvd[:, 2:3], "gripper_d")
         points[:, 5:6] = 1.0
         return points
 
@@ -955,11 +981,11 @@ class InferenceServer:
         inference: InferenceModel,
         embodiment: EmbodimentAdapter,
     ) -> None:
-        self.inference = inference
         self.host = host
         self.port = port
         self.planner = planner
         self.preprocessor = preprocessor
+        self.inference = inference
         self.embodiment = embodiment
         self.sessions: dict[str, InferenceSession] = {}
         self.idle_timeout = 180.0
@@ -1002,6 +1028,11 @@ class InferenceServer:
         session = self._session_for(request)
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
+        response_robobrain_points = None if session.robobrain_points is None else session.robobrain_points.copy()
+        response_robobrain_object_id = None if session.robobrain_object_id is None else session.robobrain_object_id.copy()
+        response_subtask = session.current_subtask
+        response_subtask_index = session.subtask_index
+
         outputs = self.inference.infer(model_input)
         action = self.embodiment.to_action(outputs, model_input, request, session)
         subtask_switched = self.planner.update_after_inference(outputs, session)
@@ -1017,8 +1048,11 @@ class InferenceServer:
             "input_object_id": self.inference.to_json(model_input["input_object_id"]),
             "input_point_id": self.inference.to_json(model_input["input_point_id"]),
             "input_frame_id": self.inference.to_json(model_input["input_frame_id"]),
-            "robobrain_point": self.inference.to_json(session.robobrain_points),
-            "robobrain_object_id": self.inference.to_json(session.robobrain_object_id),
+            "robobrain_point": self.inference.to_json(response_robobrain_points),
+            "robobrain_object_id": self.inference.to_json(response_robobrain_object_id),
+            "subtask": response_subtask,
+            "subtask_index": response_subtask_index,
+            "subtask_switched": subtask_switched,
             "action": action,
         }
 
@@ -1067,7 +1101,7 @@ def parse_args() -> Args:
     parser.add_argument("--example", default="libero", choices=("libero",))
     parser.add_argument("--ckpt-path", required=True, help="Path to a training checkpoint.")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=10092)
+    parser.add_argument("--port", type=int, default=8001)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--bge-path",
@@ -1092,6 +1126,12 @@ def parse_args() -> Args:
         help="Number of consecutive completed frames required before switching subtasks.",
     )
     parser.add_argument(
+        "--execute-chunk-len",
+        type=int,
+        default=None,
+        help="Number of leading predicted frames used for completion streak updates; defaults to future horizon.",
+    )
+    parser.add_argument(
         "--devices",
         default=None,
         help='JSON device map for server modules, e.g. {"inference":"cuda:0","sam3":"cuda:1"}.',
@@ -1102,7 +1142,16 @@ def parse_args() -> Args:
 
 
 def main() -> None:
+    import os
+    if os.environ.get("DEBUG", "0") == "1":
+        import debugpy
+        port = 10092  # 与launch.json中的一致
+        debugpy.listen(("0.0.0.0", port))
+        print(f"🔍 Rank 0 waiting for debugger attach on port {port}...")
+        debugpy.wait_for_client()
+
     args = parse_args()
+    cs.print(args)
     if args.example == "libero":
         from examples.libero.config.data_config import LIBERO_DATA_CONFIG
         from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
@@ -1123,12 +1172,14 @@ def main() -> None:
             task_analyzer_api_key=args.task_analyzer_api_key,
             complete_threshold=args.complete_threshold,
             complete_window=args.complete_window,
+            execute_chunk_len=args.execute_chunk_len or future_horizon,
         ),
         preprocessor=InputPreprocessor(
             history_horizon=history_horizon,
             future_horizon=future_horizon,
-            num_points=int(model_kwargs["num_points"]),
+            num_points=model_kwargs["num_points"],
             robot_cls=GeomRobot,
+            dataset_dir=data_kwargs["dataset_dir"],
             devices=args.devices,
         ),
         inference = InferenceModel(

@@ -37,6 +37,13 @@ class ModelConfig:
             "is_complete": 1
         }
     )
+    weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "actor": 1.0,
+            "object": 1.0,
+            "is_complete": 1.0,
+        }
+    )
 
     num_query_types: int = 0
     num_frame_query_types: int = 0
