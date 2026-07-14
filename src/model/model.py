@@ -57,6 +57,7 @@ class PointQueryModel(nn.Module):
         attention_pattern: str | None = "interleaved_local_global",
         dropout: float = 0.1,
         weights: dict[str, float] | None = None,
+        residual_point_dims: tuple[int, ...] = (0, 1, 2, 4),
     ) -> None:
         super().__init__()
         #: pre-encoder
@@ -64,6 +65,7 @@ class PointQueryModel(nn.Module):
         self.actor_num_points = actor_num_points
         self.max_objects = max_objects
         self.weights = {} if weights is None else dict(weights)
+        self.residual_point_dims = tuple(int(dim) for dim in residual_point_dims)
         self.object_encoder = SetEncoderViT(
             point_dim=point_dim,
             hidden_dim=set_hidden_dim,
@@ -218,6 +220,50 @@ class PointQueryModel(nn.Module):
         decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
         return self.heads(decoded, head_names=head_names)
 
+    def _point_anchors(
+        self,
+        point_feats: torch.Tensor,
+        actor_feats: torch.Tensor,
+        object_id: torch.Tensor,
+        point_id: torch.Tensor,
+    ) -> torch.Tensor:
+        current_objects = point_feats[:, -1]
+        current_actor = actor_feats[:, -1, 0]
+        dim = current_actor.shape[-1]
+
+        actor_index = point_id.clamp(0, current_actor.shape[1] - 1)
+        actor_anchor = current_actor.gather(1, actor_index.unsqueeze(-1).expand(-1, -1, dim))
+
+        object_count, points_per_object = current_objects.shape[1:3]
+        object_index = (object_id - 1).clamp(0, object_count - 1)
+        object_point_index = point_id.clamp(0, points_per_object - 1)
+        flat_index = object_index * points_per_object + object_point_index
+        flat_objects = current_objects.reshape(current_objects.shape[0], object_count * points_per_object, dim)
+        object_anchor = flat_objects.gather(1, flat_index.unsqueeze(-1).expand(-1, -1, dim))
+
+        return torch.where((object_id == 0).unsqueeze(-1), actor_anchor, object_anchor)
+
+    def _apply_future_point_residual(
+        self,
+        raw_point: torch.Tensor,
+        *,
+        point_feats: torch.Tensor,
+        actor_feats: torch.Tensor,
+        object_id: torch.Tensor,
+        point_id: torch.Tensor,
+        frame_id: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.residual_point_dims:
+            return raw_point
+        dims = torch.as_tensor(self.residual_point_dims, device=raw_point.device, dtype=torch.long)
+        anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(dtype=raw_point.dtype)
+        output = raw_point.clone()
+        future_mask = (frame_id > 0).unsqueeze(-1)
+        residual_point = anchors.index_select(-1, dims) + raw_point.index_select(-1, dims)
+        direct_point = raw_point.index_select(-1, dims)
+        output[..., dims] = torch.where(future_mask, residual_point, direct_point).to(dtype=output.dtype)
+        return output
+
     def infer(
         self,
         point_feats: torch.Tensor,
@@ -233,6 +279,7 @@ class PointQueryModel(nn.Module):
         frame_query_frame_id: torch.Tensor | None = None,
         frame_query_type: torch.Tensor | None = None,
         frame_head_names: str | list[str] | tuple[str, ...] | None = None,
+        return_residual: bool = False,
     ) -> dict[str, torch.Tensor]:
         memory = self.encode(
             point_feats=point_feats,
@@ -248,6 +295,18 @@ class PointQueryModel(nn.Module):
             query_type=query_type,
             head_names=head_names,
         )
+        if "point" in outputs:
+            raw_point = outputs["point"]
+            outputs["point"] = self._apply_future_point_residual(
+                raw_point,
+                point_feats=point_feats,
+                actor_feats=actor_feats,
+                object_id=object_id,
+                point_id=point_id,
+                frame_id=frame_id,
+            )
+            if return_residual:
+                outputs["point_residual"] = raw_point
         if frame_query_frame_id is not None:
             outputs.update(
                 self.decode_frame(
@@ -287,24 +346,40 @@ class PointQueryModel(nn.Module):
                 frame_id=batch["frame_id"],
                 head_names="point",
             )
-            point_err = (point_outputs["point"] - target["point"]).abs().mean(dim=-1)
+            point = self._apply_future_point_residual(
+                point_outputs["point"],
+                point_feats=batch["point_feats"],
+                actor_feats=batch["actor_feats"],
+                object_id=batch["object_id"],
+                point_id=batch["point_id"],
+                frame_id=batch["frame_id"],
+            )
+            point_err = (target["point"] - point).abs().mean(dim=-1)
             point_mask = target.get("point_mask")
             if point_mask is None:
                 point_mask = torch.ones_like(point_err, dtype=torch.bool)
             else:
                 point_mask = point_mask.to(device=point_err.device, dtype=torch.bool)
 
-            actor_err = point_err[(batch["object_id"] == 0) & point_mask]
-            actor_loss = actor_err.mean() if actor_err.numel() else point_err.new_zeros(())
-            actor_loss = actor_loss * float(weights.get("actor", weights.get("actor_point", weights.get("point", 1.0))))
-            metrics["loss_actor"] = actor_loss
-            total = actor_loss if total is None else total + actor_loss
-
-            object_err = point_err[(batch["object_id"] > 0) & point_mask]
-            object_loss = object_err.mean() if object_err.numel() else point_err.new_zeros(())
-            object_loss = object_loss * float(weights.get("object", weights.get("object_point", weights.get("point", 1.0))))
-            metrics["loss_object"] = object_loss
-            total = object_loss if total is None else total + object_loss
+            frame_id = batch["frame_id"]
+            loss_masks = {
+                "history_actor": (batch["object_id"] == 0) & (frame_id <= 0) & point_mask,
+                "history_object": (batch["object_id"] > 0) & (frame_id <= 0) & point_mask,
+                "future_actor": (batch["object_id"] == 0) & (frame_id > 0) & point_mask,
+                "future_object": (batch["object_id"] > 0) & (frame_id > 0) & point_mask,
+            }
+            frame_weights = {
+                "history_actor": weights.get("history_weight", 1.0),
+                "history_object": weights.get("history_weight", 1.0),
+                "future_actor": weights.get("future_weight", 1.0),
+                "future_object": weights.get("future_weight", 1.0),
+            }
+            for name, mask in loss_masks.items():
+                err = point_err[mask]
+                loss = err.mean() if err.numel() else point_err.new_zeros(())
+                loss = loss * float(weights.get(name, 1.0)) * float(frame_weights[name])
+                metrics[f"loss_{name}"] = loss
+                total = loss if total is None else total + loss
 
         if "is_complete" in target:
             frame_outputs = self.decode_frame(

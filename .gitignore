@@ -3,5 +3,5 @@ __note__/
 __tmp__/
 __test__/
 *.pt
-examples/*/result/
+examples/*/result*/
 examples/*/eval/output/

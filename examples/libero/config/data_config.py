@@ -68,8 +68,8 @@ LIBERO_DATASET_DIR = Path(
 )
 
 LIBERO_REPACK = {
-    "images.image": "observation.images.image",
-    "state": "observation.state",
+    # "images.image": "observation.images.image",
+    # "state": "observation.state",
     # "images.wrist_image": "observation.images.wrist_image",
     # "action": "action",
     "metadata": {
@@ -90,8 +90,8 @@ LIBERO_REPACK = {
 LIBERO_HISTORY_HORIZON = 15
 LIBERO_FUTURE_HORIZON = 16
 LIBERO_HORIZON = {
-    "observation.images.image": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    # "observation.images.image": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     # "observation.images.wrist_image": list(range(-15, 1)),
     # "action": list(range(16)),
     "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),

@@ -159,11 +159,16 @@ class TopLevelTaskPlanner:
         session.current_subtask = str(subtaskstructure.get("subtask", ""))
         return subtaskstructure
 
-    def update_after_inference(self, outputs: Mapping[str, Any], session: InferenceSession) -> bool:
+    def update_after_inference(
+        self,
+        outputs: Mapping[str, Any],
+        session: InferenceSession,
+        model_input: Mapping[str, Any],
+    ) -> bool:
         if session.task_complete or session.taskstructure is None:
             return False
 
-        scores = self._completion_frame_scores(outputs)
+        scores = self._completion_frame_scores(outputs, model_input)
         for score in scores[: self.execute_chunk_len]:
             score_text = f"complete_score={score:.4f} threshold={self.complete_threshold:.4f}"
             if score >= self.complete_threshold:
@@ -214,11 +219,18 @@ class TopLevelTaskPlanner:
             self.task_cache[language] = taskstructure_to_json(self.task_analyzer.analyze_task(language))
         return self.task_cache[language]
 
-    def _completion_frame_scores(self, outputs: Mapping[str, Any]) -> list[float]:
+    def _completion_frame_scores(self, outputs: Mapping[str, Any], model_input: Mapping[str, Any]) -> list[float]:
         complete_value = outputs.get("is_complete", outputs.get("complete"))
         if complete_value is None:
             return []
-        return list(self._frame_scores(complete_value))
+        scores = list(self._frame_scores(complete_value))
+        frame_ids = np.asarray(model_input.get("frame_query_frame_id", []), dtype=np.int64)
+        if frame_ids.ndim >= 2 and frame_ids.shape[0] == 1:
+            frame_ids = frame_ids[0]
+        frame_ids = frame_ids.reshape(-1)
+        if frame_ids.size != len(scores):
+            return scores
+        return [score for score, frame_id in zip(scores, frame_ids, strict=True) if frame_id > 0]
 
     def _frame_scores(self, value: Any):
         if isinstance(value, torch.Tensor):
@@ -915,7 +927,10 @@ class InferenceModel:
             "frame_query_type": optional_tensor("frame_query_type", torch.long),
             "frame_head_names": input_data.get("frame_head_names"),
         }
-        outputs = self.model.infer(**infer_inputs)
+        outputs = self.model.infer(
+            **infer_inputs,
+            return_residual=bool(input_data.get("return_residual", False)),
+        )
         output_data = {"outputs": outputs, "batch": infer_inputs}
         for transform in self.out_transforms:
             output_data = transform(output_data)
@@ -1035,7 +1050,7 @@ class InferenceServer:
 
         outputs = self.inference.infer(model_input)
         action = self.embodiment.to_action(outputs, model_input, request, session)
-        subtask_switched = self.planner.update_after_inference(outputs, session)
+        subtask_switched = self.planner.update_after_inference(outputs, session, model_input)
         if subtask_switched:
             self.preprocessor.reset_session(session)
         return {

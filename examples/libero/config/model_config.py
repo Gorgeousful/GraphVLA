@@ -39,11 +39,16 @@ class ModelConfig:
     )
     weights: dict[str, float] = field(
         default_factory=lambda: {
-            "actor": 1.0,
-            "object": 1.0,
-            "is_complete": 1.0,
+            "history_weight": 0.5, # history
+            "history_actor": 1.0,
+            "history_object": 1.0,
+            "future_weight": 1.0, # future
+            "future_actor": 1.0,
+            "future_object": 0.1,
+            "is_complete": 0.5, # complete
         }
     )
+    residual_point_dims: tuple[int, ...] = (0, 1, 2, 4) # u,v,d,d_metirc
 
     num_query_types: int = 0
     num_frame_query_types: int = 0

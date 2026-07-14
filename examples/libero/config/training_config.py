@@ -18,7 +18,7 @@ class TrainingConfig:
     # gradient
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = True
-    gradient_clip_norm: float | None = 1.0
+    gradient_clip_norm: float | None = 10.0
 
     # cos
     warmup_steps: int = 1_000
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "test"
+    wandb_name: str | None = "test-0714"
 
 
     def to_kwargs(self) -> dict[str, Any]:
