@@ -31,7 +31,6 @@ from rich.console import Console
 from robosuite.utils.camera_utils import get_camera_extrinsic_matrix, get_camera_intrinsic_matrix
 import websockets
 
-from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 from src.common.geom_utils import rot_transform
 
 cs = Console()
@@ -87,26 +86,24 @@ class InferenceClient:
     def __init__(self, *, host: str, port: int, execute_chunk_len: int = 1) -> None:
         self.host = host
         self.port = port
-        self.future_horizon = int(LIBERO_MODEL_CONFIG.max_frame)
-        if execute_chunk_len < 1 or execute_chunk_len > self.future_horizon:
-            raise ValueError(f"execute_chunk_len must be in [1, {self.future_horizon}], got {execute_chunk_len}")
+        if execute_chunk_len < 1:
+            raise ValueError(f"execute_chunk_len must be positive, got {execute_chunk_len}")
         self.execute_chunk_len = int(execute_chunk_len)
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
         self.extrinsic: np.ndarray | None = None
-        self.session_id = ""
+        self.session_id = f"libero-{uuid.uuid4().hex[:8]}"
         self.action_chunk: list[list[float]] = []
         self.action_frame_ids: list[int] = []
         self.first_request = True
         self.last_response: dict[str, Any] | None = None
         self.last_action_frame_id: int | None = None
 
-    def reset_episode(self, *, task_id: int, episode_idx: int, env: Any) -> None:
+    def reset_episode(self, *, env: Any) -> None:
         self.pending_observations.reset()
         self.action_chunk.clear()
         self.action_frame_ids.clear()
         self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
-        self.session_id = f"libero-task{task_id}-ep{episode_idx}-{uuid.uuid4().hex[:8]}"
         self.first_request = True
         self.last_response = None
         self.last_action_frame_id = None
@@ -116,8 +113,7 @@ class InferenceClient:
         if not self.action_chunk:
             response = self._call_server(task_description)
             self.last_response = response
-            action_chunk = self._validated_action_chunk(response)
-            self.action_chunk = action_chunk[: self.execute_chunk_len]
+            self.action_chunk = self._validated_action_chunk(response)
             self.action_frame_ids = list(range(1, len(self.action_chunk) + 1))
         self.last_action_frame_id = self.action_frame_ids.pop(0)
         return np.asarray(self.action_chunk.pop(0), dtype=np.float32)
@@ -129,6 +125,7 @@ class InferenceClient:
             "benchmark": "libero",
             "session_id": self.session_id,
             "language": task_description,
+            "execute_chunk_len": self.execute_chunk_len,
             **self.pending_observations.to_request_fields(intrinsic=self.intrinsic, extrinsic=self.extrinsic),
         }
         if self.first_request:
@@ -148,8 +145,8 @@ class InferenceClient:
         action = response["action"]
         if not isinstance(action, list) or not action:
             raise ValueError(f"server returned empty or invalid action chunk: {action!r}")
-        if len(action) != self.future_horizon:
-            raise ValueError(f"expected action chunk length {self.future_horizon}, got {len(action)}")
+        if len(action) != self.execute_chunk_len:
+            raise ValueError(f"expected action chunk length {self.execute_chunk_len}, got {len(action)}")
         for index, item in enumerate(action):
             array = np.asarray(item, dtype=np.float32)
             if array.shape != (7,):
@@ -523,7 +520,7 @@ def main() -> None:
     task_suite = benchmark_dict[args.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
     task_ids = args.tasks if args.tasks is not None else list(range(num_tasks_in_suite))
-    for task_order, task_id in enumerate(task_ids, start=1):
+    for task_id in task_ids:
         if task_id < 0 or task_id >= num_tasks_in_suite:
             raise ValueError(f"task id {task_id} out of range for {args.task_suite_name}: 0-{num_tasks_in_suite - 1}")
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
@@ -539,7 +536,7 @@ def main() -> None:
     total_progress = 0.0
     task_results: list[dict[str, Any]] = []
 
-    for task_id in task_ids:
+    for task_order, task_id in enumerate(task_ids, start=1):
         task = task_suite.get_task(task_id)
         initial_states = task_suite.get_task_init_states(task_id)
         env, task_description = _get_libero_env(
@@ -563,7 +560,7 @@ def main() -> None:
                 )
                 env.reset()
                 obs = env.set_init_state(initial_states[episode_idx])
-                client.reset_episode(task_id=task_id, episode_idx=episode_idx, env=env)
+                client.reset_episode(env=env)
                 prediction_images = []
                 tracking_images = []
                 done = False

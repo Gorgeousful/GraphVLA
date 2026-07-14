@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gc
 import json
 import cv2
 from collections.abc import Mapping, Sequence
@@ -41,6 +42,7 @@ REQUIRED_REQUEST_FIELDS = (
     "benchmark",
     "session_id",
     "language",
+    "execute_chunk_len",
     "observation.images.image",
     "observation.state",
     "camera.intrinsics",
@@ -59,7 +61,6 @@ class Args:
     task_analyzer_api_key: str | None
     complete_threshold: float = 0.5
     complete_window: int = 3
-    execute_chunk_len: int | None = None
     devices: dict[str, str] = field(default_factory=dict)
 
 
@@ -69,7 +70,6 @@ class ObservationFrame:
     state: np.ndarray
     intrinsic: np.ndarray
     extrinsic: np.ndarray
-    subtaskstructure: dict[str, Any]
 
 
 @dataclass
@@ -82,11 +82,10 @@ class InferenceSession:
     subtask_index: int = 0
     task_complete: bool = False
     complete_streak: int = 0
-    history: list[ObservationFrame] = field(default_factory=list)
     feature_history: list[dict[str, np.ndarray]] = field(default_factory=list)
-    perception_subtask: str | None = None
     frame_index: int = 0
     object_nodes: list[dict[str, Any]] = field(default_factory=list)
+    active_object_indices: list[int] = field(default_factory=list)
     object_segmenter: Any = None
     table_segmenter: Any = None
     point_tracker: Any = None
@@ -94,7 +93,6 @@ class InferenceSession:
     depth_calibrator: Any = None
     tracked_points: np.ndarray | None = None
     robobrain_points: np.ndarray | None = None
-    robobrain_object_id: np.ndarray | None = None
     table_mask: np.ndarray | None = None
 
     def reset(self, *, benchmark: str, language: str) -> None:
@@ -108,11 +106,10 @@ class InferenceSession:
         self.reset_preprocessor()
 
     def reset_preprocessor(self) -> None:
-        self.history.clear()
         self.feature_history.clear()
-        self.perception_subtask = None
         self.frame_index = 0
         self.object_nodes.clear()
+        self.active_object_indices.clear()
         self.object_segmenter = None
         self.table_segmenter = None
         self.point_tracker = None
@@ -120,7 +117,6 @@ class InferenceSession:
         self.depth_calibrator = None
         self.tracked_points = None
         self.robobrain_points = None
-        self.robobrain_object_id = None
         self.table_mask = None
 
 
@@ -135,13 +131,11 @@ class TopLevelTaskPlanner:
         task_analyzer_api_key: str | None = None,
         complete_threshold: float = 0.5,
         complete_window: int = 3,
-        execute_chunk_len: int = 1,
     ) -> None:
         self.dataset_dir = Path(dataset_dir)
         self.task_analyzer_api_key = task_analyzer_api_key
         self.complete_threshold = complete_threshold
         self.complete_window = max(1, complete_window)
-        self.execute_chunk_len = max(1, execute_chunk_len)
         self.task_cache: dict[str, dict[str, Any]] = {}
         self.task_analyzer: TaskAnalyzer | None = None
         self._load_taskstructure_cache()
@@ -164,12 +158,13 @@ class TopLevelTaskPlanner:
         outputs: Mapping[str, Any],
         session: InferenceSession,
         model_input: Mapping[str, Any],
+        execute_chunk_len: int,
     ) -> bool:
         if session.task_complete or session.taskstructure is None:
             return False
 
         scores = self._completion_frame_scores(outputs, model_input)
-        for score in scores[: self.execute_chunk_len]:
+        for score in scores[:execute_chunk_len]:
             score_text = f"complete_score={score:.4f} threshold={self.complete_threshold:.4f}"
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
@@ -296,11 +291,7 @@ class InputPreprocessor:
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.sam3_model = None
-        self.node_locator: NodeLocatorRobo | None = None
         self.robot: Any = None
-
-    def reset_session(self, session: InferenceSession) -> None:
-        session.reset_preprocessor()
 
     def build(
         self,
@@ -308,20 +299,17 @@ class InputPreprocessor:
         session: InferenceSession,
         subtaskstructure: Mapping[str, Any],
     ) -> dict[str, Any]:
-        frames = self._frames_from_request(request, subtaskstructure)
+        frames = self._frames_from_request(request)
         for frame in frames:
-            self._append_history(session, frame)
             features = self._process_frame(session, frame)
             self._append_feature_history(session, features)
-        return self._build_model_input(self._feature_window(session), subtaskstructure)
+        return self._build_model_input(session, self._feature_window(session), subtaskstructure)
 
     def _device(self, name: str) -> str:
         return self.devices.get(name, self.devices.get("default", "cuda"))
 
     def _process_frame(self, session: InferenceSession, frame: ObservationFrame) -> dict[str, np.ndarray]:
-        subtask = str(frame.subtaskstructure.get("subtask", ""))
-        if session.perception_subtask != subtask:
-            session.perception_subtask = subtask
+        if session.tracked_points is None:
             self._initialize_perception(session, frame)
         else:
             self._update_perception(session, frame)
@@ -339,18 +327,23 @@ class InputPreprocessor:
         return features
 
     def _initialize_perception(self, session: InferenceSession, frame: ObservationFrame) -> None:
-        session.object_nodes = self._object_nodes(frame.subtaskstructure)
+        if session.taskstructure is None:
+            raise RuntimeError("taskstructure is missing before perception initialization")
+        session.object_nodes = self._task_object_nodes(session.taskstructure)
         point_prompts = None
         if session.object_nodes:
-            point_prompts = [
-                self._locate_node_points(self._node_locator(), frame.image, node["name"])
-                for node in session.object_nodes
-            ]
+            node_locator = NodeLocatorRobo(device_map=self._device("node_locator"))
+            try:
+                point_prompts = [
+                    self._locate_node_points(node_locator, frame.image, node["name"])
+                    for node in session.object_nodes
+                ]
+            finally:
+                del node_locator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             session.robobrain_points = np.asarray(point_prompts, dtype=np.float32)
-            session.robobrain_object_id = np.concatenate([
-                np.full(len(points), index + 1, dtype=np.int64)
-                for index, points in enumerate(point_prompts)
-            ])
 
         sam3_device = self._device("sam3")
         if self.sam3_model is None:
@@ -417,10 +410,24 @@ class InputPreprocessor:
         )
         return np.stack([np.asarray(output[key], dtype=np.float32) for key in ("root_uvd", "left_uvd", "right_uvd")])
 
-    def _build_model_input(self, frames: list[dict[str, np.ndarray]], subtaskstructure: Mapping[str, Any]) -> dict[str, Any]:
+    def _build_model_input(
+        self,
+        session: InferenceSession,
+        frames: list[dict[str, np.ndarray]],
+        subtaskstructure: Mapping[str, Any],
+    ) -> dict[str, Any]:
         height, width = frames[-1]["depth"].shape
+        session.active_object_indices = self._subtask_object_indices(session, subtaskstructure)
         object_points = np.stack(
-            [self._object_feats(item["tracks"], item["depth"], height, width) for item in frames],
+            [
+                self._object_feats(
+                    self._active_tracks(item["tracks"], session.active_object_indices),
+                    item["depth"],
+                    height,
+                    width,
+                )
+                for item in frames
+            ],
             axis=0,
         )
         actor_points = np.stack(
@@ -474,7 +481,6 @@ class InputPreprocessor:
     def _frames_from_request(
         self,
         request: Mapping[str, Any],
-        subtaskstructure: Mapping[str, Any],
     ) -> list[ObservationFrame]:
         images = self._as_frame_sequence(
             self._array(request["observation.images.image"], name="observation.images.image", dtype=np.uint8),
@@ -509,7 +515,6 @@ class InputPreprocessor:
                 state=state,
                 intrinsic=intrinsic,
                 extrinsic=extrinsic,
-                subtaskstructure=dict(subtaskstructure),
             )
             for image, state, intrinsic, extrinsic in zip(images, states, intrinsics, extrinsics, strict=True)
         ]
@@ -548,24 +553,11 @@ class InputPreprocessor:
             return frames * target_len
         raise ValueError(f"{name} length {len(frames)} does not match history chunk length {target_len}")
 
-    def _append_history(self, session: InferenceSession, frame: ObservationFrame) -> None:
-        session.history.append(frame)
-        max_history = self.history_horizon + 1
-        if len(session.history) > max_history:
-            del session.history[: len(session.history) - max_history]
-
     def _append_feature_history(self, session: InferenceSession, features: dict[str, np.ndarray]) -> None:
         session.feature_history.append(features)
         max_history = self.history_horizon + 1
         if len(session.feature_history) > max_history:
             del session.feature_history[: len(session.feature_history) - max_history]
-
-    def _history_window(self, session: InferenceSession) -> list[ObservationFrame]:
-        if not session.history:
-            raise RuntimeError("history is empty")
-        target_len = self.history_horizon + 1
-        pad_count = max(0, target_len - len(session.history))
-        return [session.history[0]] * pad_count + session.history[-target_len:]
 
     def _feature_window(self, session: InferenceSession) -> list[dict[str, np.ndarray]]:
         if not session.feature_history:
@@ -573,11 +565,6 @@ class InputPreprocessor:
         target_len = self.history_horizon + 1
         pad_count = max(0, target_len - len(session.feature_history))
         return [session.feature_history[0]] * pad_count + session.feature_history[-target_len:]
-
-    def _node_locator(self) -> NodeLocatorRobo:
-        if self.node_locator is None:
-            self.node_locator = NodeLocatorRobo(device_map=self._device("node_locator"))
-        return self.node_locator
 
     def _locate_node_points(
         self,
@@ -621,6 +608,40 @@ class InputPreprocessor:
             if bool(node.get("need_object", False)) and role != "actor":
                 nodes.append(dict(node))
         return nodes
+
+    def _task_object_nodes(self, taskstructure: Mapping[str, Any]) -> list[dict[str, Any]]:
+        nodes = []
+        seen_names = set()
+        for subtask in taskstructure.get("subtasks", []):
+            if not isinstance(subtask, Mapping):
+                continue
+            for node in self._object_nodes(subtask):
+                name = str(node.get("name", ""))
+                if not name or name in seen_names:
+                    continue
+                seen_names.add(name)
+                nodes.append(node)
+        return nodes
+
+    def _subtask_object_indices(
+        self,
+        session: InferenceSession,
+        subtaskstructure: Mapping[str, Any],
+    ) -> list[int]:
+        by_name = {str(node.get("name", "")): index for index, node in enumerate(session.object_nodes)}
+        indices = []
+        for node in self._object_nodes(subtaskstructure):
+            name = str(node.get("name", ""))
+            if name in by_name:
+                indices.append(by_name[name])
+        return indices[:2]
+
+    @staticmethod
+    def _active_tracks(tracks: np.ndarray, active_indices: list[int]) -> np.ndarray:
+        if not active_indices:
+            return tracks[:0]
+        valid_indices = [index for index in active_indices if 0 <= index < tracks.shape[0]]
+        return tracks[valid_indices]
 
     def _object_roles(self, subtaskstructure: Mapping[str, Any], *, expected_count: int) -> list[str]:
         roles = []
@@ -1041,18 +1062,21 @@ class InferenceServer:
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
         self._validate_request(request)
         session = self._session_for(request)
+        execute_chunk_len = int(request["execute_chunk_len"])
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
-        response_robobrain_points = None if session.robobrain_points is None else session.robobrain_points.copy()
-        response_robobrain_object_id = None if session.robobrain_object_id is None else session.robobrain_object_id.copy()
+        response_robobrain_points, response_robobrain_object_id = self._active_robobrain_response(session)
         response_subtask = session.current_subtask
         response_subtask_index = session.subtask_index
 
         outputs = self.inference.infer(model_input)
         action = self.embodiment.to_action(outputs, model_input, request, session)
-        subtask_switched = self.planner.update_after_inference(outputs, session, model_input)
-        if subtask_switched:
-            self.preprocessor.reset_session(session)
+        subtask_switched = self.planner.update_after_inference(
+            outputs,
+            session,
+            model_input,
+            execute_chunk_len,
+        )
         return {
             **outputs,
             "object_id": self.inference.to_json(model_input["object_id"]),
@@ -1068,8 +1092,25 @@ class InferenceServer:
             "subtask": response_subtask,
             "subtask_index": response_subtask_index,
             "subtask_switched": subtask_switched,
-            "action": action,
+            "action": action[:execute_chunk_len],
         }
+
+    @staticmethod
+    def _active_robobrain_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if session.robobrain_points is None or not session.active_object_indices:
+            return None, None
+        points_by_object = np.asarray(session.robobrain_points, dtype=np.float32)
+        point_chunks = []
+        id_chunks = []
+        for local_id, object_index in enumerate(session.active_object_indices, start=1):
+            if object_index < 0 or object_index >= len(points_by_object):
+                continue
+            points = points_by_object[object_index]
+            point_chunks.append(points)
+            id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
+        if not point_chunks:
+            return None, None
+        return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
 
     def _validate_request(self, request: Mapping[str, Any]) -> None:
         missing = [key for key in REQUIRED_REQUEST_FIELDS if key not in request]
@@ -1077,6 +1118,13 @@ class InferenceServer:
             raise KeyError(f"Missing required request fields: {missing}")
         if request["benchmark"] != "libero":
             raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
+        execute_chunk_len = request["execute_chunk_len"]
+        if isinstance(execute_chunk_len, bool) or not isinstance(execute_chunk_len, int):
+            raise TypeError("execute_chunk_len must be an integer")
+        if not 1 <= execute_chunk_len <= self.embodiment.future_horizon:
+            raise ValueError(
+                f"execute_chunk_len must be in [1, {self.embodiment.future_horizon}], got {execute_chunk_len}"
+            )
 
     def _session_for(self, request: Mapping[str, Any]) -> InferenceSession:
         session_id = str(request["session_id"])
@@ -1141,12 +1189,6 @@ def parse_args() -> Args:
         help="Number of consecutive completed frames required before switching subtasks.",
     )
     parser.add_argument(
-        "--execute-chunk-len",
-        type=int,
-        default=None,
-        help="Number of leading predicted frames used for completion streak updates; defaults to future horizon.",
-    )
-    parser.add_argument(
         "--devices",
         default=None,
         help='JSON device map for server modules, e.g. {"inference":"cuda:0","sam3":"cuda:1"}.',
@@ -1187,7 +1229,6 @@ def main() -> None:
             task_analyzer_api_key=args.task_analyzer_api_key,
             complete_threshold=args.complete_threshold,
             complete_window=args.complete_window,
-            execute_chunk_len=args.execute_chunk_len or future_horizon,
         ),
         preprocessor=InputPreprocessor(
             history_horizon=history_horizon,

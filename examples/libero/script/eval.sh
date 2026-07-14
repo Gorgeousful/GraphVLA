@@ -6,7 +6,6 @@ python examples/libero/test/client_offline.py \
 python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/checkpoints/step_30000.pt \
---execute-chunk-len 1 \
 --complete-window 100 \
 --devices '{"inference":"cuda:0","node_locator":"cuda:0","sam3":"cuda:1","point_tracker":"cuda:1","depth_predictor":"cuda:1"}'
 
