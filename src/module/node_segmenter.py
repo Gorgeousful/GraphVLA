@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torchvision.transforms.functional as TF
 from PIL import Image
-from sam3.model_builder import build_sam3_video_model
+from sam3.model_builder import build_sam3_stream_model
 from rich.console import Console
 cs = Console()
 
@@ -25,7 +25,7 @@ class NodeSegmenter:
         self.model = model
         if self.model is None:
             with self._device_context():
-                self.model = build_sam3_video_model(
+                self.model = build_sam3_stream_model(
                     checkpoint_path=model_path,
                     load_from_HF=False,
                     device=device,
@@ -89,6 +89,7 @@ class NodeSegmenter:
         return result
 
     def _reset_point(self, frame_rgb, points):
+        self.prompt_state = None
         h, w = frame_rgb.shape[:2]
         tracker = self.model.tracker
         inference_state = tracker.init_state(
@@ -157,59 +158,48 @@ class NodeSegmenter:
 
         return self._extract_point_masks()
 
-    def _init_video_state(self, frames: list[np.ndarray]):
-        if not frames:
-            raise ValueError("frames must not be empty")
-        height, width = frames[0].shape[:2]
-        images = [self._preprocess(frame) for frame in frames]
-        inference_state = {
-            "image_size": self.model.image_size,
-            "num_frames": len(images),
-            "orig_height": height,
-            "orig_width": width,
-            "constants": {},
-        }
-        self.model._construct_initial_input_batch(inference_state, images)
-        inference_state["tracker_inference_states"] = []
-        inference_state["tracker_metadata"] = {}
-        inference_state["feature_cache"] = {}
-        inference_state["cached_frame_outputs"] = {}
-        inference_state["action_history"] = []
-        inference_state["is_image_only"] = len(images) == 1
-        return inference_state
+    def _reset_prompt(self, frame_rgb, prompt):
+        self.point_state = None
+        self.prompt_state = self.model.init_stream_state()
+        frame_idx = self.model.add_frame(self.prompt_state, frame_rgb)
+        with torch.inference_mode():
+            _, outputs = self.model.add_prompt(
+                self.prompt_state,
+                frame_idx=frame_idx,
+                text_str=str(prompt),
+            )
+        return self._extract_output_masks(outputs, frame_rgb.shape[:2])
+
+    def _update_prompt(self, frame_rgb):
+        if self.prompt_state is None:
+            raise RuntimeError("Prompt tracker is not initialized; call reset(..., prompt=...) first")
+
+        frame_idx = self.model.add_frame(self.prompt_state, frame_rgb)
+        with torch.inference_mode():
+            outputs = self.model.run_single_frame_inference(self.prompt_state, frame_idx=frame_idx)
+        return self._extract_output_masks(outputs, frame_rgb.shape[:2])
 
     def segment_prompt_video(self, frames, prompt: str) -> list[list[np.ndarray]]:
         with self._device_context():
             frames = [np.asarray(frame) for frame in frames]
-            inference_state = self._init_video_state(frames)
-            image_size = frames[0].shape[:2]
-
-            with torch.inference_mode():
-                self.model.add_prompt(inference_state, frame_idx=0, text_str=str(prompt))
-                frame_masks = [None] * len(frames)
-                with open(os.devnull, "w") as devnull, contextlib.redirect_stderr(devnull):
-                    for frame_idx, outputs in self.model.propagate_in_video(
-                        inference_state,
-                        start_frame_idx=0,
-                        max_frame_num_to_track=len(frames),
-                        reverse=False,
-                    ):
-                        frame_masks[frame_idx] = self._extract_output_masks(outputs, image_size)
-
-            self.prompt_state = inference_state
-            empty = []
-            return [masks if masks is not None else empty for masks in frame_masks]
+            if not frames:
+                raise ValueError("frames must not be empty")
+            frame_masks = [self._reset_prompt(frames[0], prompt)]
+            frame_masks.extend(self._update_prompt(frame) for frame in frames[1:])
+            return frame_masks
 
     def reset(self, frame_rgb, points=None, prompt=None):
         with self._device_context():
             if points is not None:
                 return self._reset_point(frame_rgb, points)
             if prompt is not None:
-                return self.segment_prompt_video([frame_rgb], prompt)[0]
+                return self._reset_prompt(frame_rgb, prompt)
             raise ValueError("either points or prompt is required")
 
     def update(self, frame_rgb):
         with self._device_context():
+            if self.prompt_state is not None:
+                return self._update_prompt(frame_rgb)
             return self._update_point(frame_rgb)
 
     def predict(self, frame_rgb, points=None, prompt=None, anchor_frame=True):

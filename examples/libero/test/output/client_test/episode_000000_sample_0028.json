@@ -1,0 +1,704 @@
+{
+  "global_index": 28,
+  "episode_index": 0,
+  "sample_index": 28,
+  "task_index": 0,
+  "prompt": "put the white mug on the plate and put the chocolate pudding to the right of the plate",
+  "subtask": "put the white mug on the plate",
+  "subtask_index": 0,
+  "close_threshold": 0.04,
+  "diagnostics": [
+    {
+      "frame_id": 1,
+      "pred_gripper": 0.009305,
+      "gt_gripper": 0.021948,
+      "gripper_abs_error": 0.012642,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          87.0,
+          86.0,
+          0.730469
+        ],
+        "left": [
+          88.0,
+          120.0,
+          0.804688
+        ],
+        "right": [
+          91.0,
+          119.5,
+          0.800781
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.931465,
+          81.640182,
+          0.734116
+        ],
+        "left": [
+          86.53907,
+          116.727486,
+          0.802137
+        ],
+        "right": [
+          94.984116,
+          116.952484,
+          0.802709
+        ]
+      }
+    },
+    {
+      "frame_id": 2,
+      "pred_gripper": 0.008081,
+      "gt_gripper": 0.039194,
+      "gripper_abs_error": 0.031112,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.0,
+          86.0,
+          0.730469
+        ],
+        "left": [
+          87.5,
+          120.0,
+          0.804688
+        ],
+        "right": [
+          90.0,
+          120.0,
+          0.800781
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.226814,
+          79.826881,
+          0.73774
+        ],
+        "left": [
+          83.23674,
+          114.670074,
+          0.805757
+        ],
+        "right": [
+          98.267136,
+          115.178879,
+          0.806875
+        ]
+      }
+    },
+    {
+      "frame_id": 3,
+      "pred_gripper": 0.006061,
+      "gt_gripper": 0.058323,
+      "gripper_abs_error": 0.052262,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.5,
+          86.0,
+          0.734375
+        ],
+        "left": [
+          89.0,
+          119.5,
+          0.804688
+        ],
+        "right": [
+          90.5,
+          119.0,
+          0.800781
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.276634,
+          78.539238,
+          0.743359
+        ],
+        "left": [
+          79.550957,
+          113.006508,
+          0.81131
+        ],
+        "right": [
+          101.769264,
+          113.839859,
+          0.813027
+        ]
+      }
+    },
+    {
+      "frame_id": 4,
+      "pred_gripper": 0.009435,
+      "gt_gripper": 0.071655,
+      "gripper_abs_error": 0.06222,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          85.5,
+          85.0,
+          0.738281
+        ],
+        "left": [
+          87.5,
+          119.5,
+          0.8125
+        ],
+        "right": [
+          89.0,
+          120.0,
+          0.804688
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.964355,
+          78.103447,
+          0.751352
+        ],
+        "left": [
+          76.801636,
+          112.094879,
+          0.819295
+        ],
+        "right": [
+          103.83226,
+          113.15004,
+          0.821414
+        ]
+      }
+    },
+    {
+      "frame_id": 5,
+      "pred_gripper": 0.01189,
+      "gt_gripper": 0.076012,
+      "gripper_abs_error": 0.064123,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.5,
+          85.0,
+          0.742188
+        ],
+        "left": [
+          89.0,
+          119.0,
+          0.816406
+        ],
+        "right": [
+          89.0,
+          119.0,
+          0.804688
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.460274,
+          79.149048,
+          0.762154
+        ],
+        "left": [
+          75.667198,
+          112.55645,
+          0.83008
+        ],
+        "right": [
+          103.969185,
+          113.68132,
+          0.832316
+        ]
+      }
+    },
+    {
+      "frame_id": 6,
+      "pred_gripper": 0.004194,
+      "gt_gripper": 0.077378,
+      "gripper_abs_error": 0.073183,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          85.0,
+          85.0,
+          0.75
+        ],
+        "left": [
+          88.0,
+          119.5,
+          0.820312
+        ],
+        "right": [
+          88.0,
+          119.0,
+          0.816406
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.177879,
+          81.4804,
+          0.775655
+        ],
+        "left": [
+          75.421806,
+          114.157463,
+          0.843655
+        ],
+        "right": [
+          103.769257,
+          115.250771,
+          0.84585
+        ]
+      }
+    },
+    {
+      "frame_id": 7,
+      "pred_gripper": 0.006255,
+      "gt_gripper": 0.077805,
+      "gripper_abs_error": 0.07155,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          85.5,
+          85.0,
+          0.75
+        ],
+        "left": [
+          89.0,
+          119.5,
+          0.820312
+        ],
+        "right": [
+          87.0,
+          119.5,
+          0.816406
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.266693,
+          84.425247,
+          0.790301
+        ],
+        "left": [
+          75.746269,
+          116.341347,
+          0.858367
+        ],
+        "right": [
+          103.761871,
+          117.357185,
+          0.86045
+        ]
+      }
+    },
+    {
+      "frame_id": 8,
+      "pred_gripper": 0.009311,
+      "gt_gripper": 0.077994,
+      "gripper_abs_error": 0.068683,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.0,
+          83.5,
+          0.75
+        ],
+        "left": [
+          90.0,
+          119.5,
+          0.820312
+        ],
+        "right": [
+          88.0,
+          118.5,
+          0.8125
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          88.73777,
+          87.401108,
+          0.804317
+        ],
+        "left": [
+          76.40123,
+          118.607346,
+          0.872358
+        ],
+        "right": [
+          104.034119,
+          119.565895,
+          0.874394
+        ]
+      }
+    },
+    {
+      "frame_id": 9,
+      "pred_gripper": 0.006761,
+      "gt_gripper": 0.073921,
+      "gripper_abs_error": 0.06716,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.0,
+          84.0,
+          0.75
+        ],
+        "left": [
+          89.5,
+          120.0,
+          0.820312
+        ],
+        "right": [
+          87.5,
+          119.0,
+          0.816406
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.343185,
+          89.858437,
+          0.815787
+        ],
+        "left": [
+          77.81546,
+          120.517906,
+          0.883779
+        ],
+        "right": [
+          103.66687,
+          121.411377,
+          0.885749
+        ]
+      }
+    },
+    {
+      "frame_id": 10,
+      "pred_gripper": 0.007153,
+      "gt_gripper": 0.059566,
+      "gripper_abs_error": 0.052414,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          86.0,
+          83.0,
+          0.746094
+        ],
+        "left": [
+          91.0,
+          119.0,
+          0.8125
+        ],
+        "right": [
+          88.5,
+          118.0,
+          0.8125
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.758018,
+          90.655403,
+          0.821039
+        ],
+        "left": [
+          80.714462,
+          121.168968,
+          0.889116
+        ],
+        "right": [
+          101.421585,
+          121.891769,
+          0.8908
+        ]
+      }
+    },
+    {
+      "frame_id": 11,
+      "pred_gripper": 0.009264,
+      "gt_gripper": 0.042563,
+      "gripper_abs_error": 0.033299,
+      "pred_close": true,
+      "gt_close": false,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          87.0,
+          82.0,
+          0.746094
+        ],
+        "left": [
+          92.0,
+          119.0,
+          0.8125
+        ],
+        "right": [
+          89.0,
+          117.5,
+          0.808594
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.882729,
+          90.59211,
+          0.821323
+        ],
+        "left": [
+          83.712891,
+          121.092247,
+          0.889918
+        ],
+        "right": [
+          98.494377,
+          121.62825,
+          0.891228
+        ]
+      }
+    },
+    {
+      "frame_id": 12,
+      "pred_gripper": 0.010942,
+      "gt_gripper": 0.022757,
+      "gripper_abs_error": 0.011815,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          88.0,
+          83.0,
+          0.746094
+        ],
+        "left": [
+          93.5,
+          121.0,
+          0.8125
+        ],
+        "right": [
+          91.0,
+          119.0,
+          0.804688
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.83754,
+          89.95137,
+          0.818626
+        ],
+        "left": [
+          86.958061,
+          120.444527,
+          0.888323
+        ],
+        "right": [
+          94.86779,
+          120.759529,
+          0.889113
+        ]
+      }
+    },
+    {
+      "frame_id": 13,
+      "pred_gripper": 0.008767,
+      "gt_gripper": 0.008732,
+      "gripper_abs_error": 3.5e-05,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          89.0,
+          82.5,
+          0.742188
+        ],
+        "left": [
+          95.0,
+          120.0,
+          0.804688
+        ],
+        "right": [
+          92.0,
+          119.0,
+          0.800781
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.849945,
+          88.635468,
+          0.813558
+        ],
+        "left": [
+          89.235107,
+          119.111458,
+          0.8847
+        ],
+        "right": [
+          92.268387,
+          119.24575,
+          0.885042
+        ]
+      }
+    },
+    {
+      "frame_id": 14,
+      "pred_gripper": 0.008907,
+      "gt_gripper": 0.00569,
+      "gripper_abs_error": 0.003217,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          90.0,
+          83.0,
+          0.746094
+        ],
+        "left": [
+          96.0,
+          120.5,
+          0.804688
+        ],
+        "right": [
+          93.5,
+          118.5,
+          0.800781
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.808334,
+          86.631264,
+          0.806388
+        ],
+        "left": [
+          89.513329,
+          117.057053,
+          0.879029
+        ],
+        "right": [
+          91.494225,
+          117.155891,
+          0.879281
+        ]
+      }
+    },
+    {
+      "frame_id": 15,
+      "pred_gripper": 0.009807,
+      "gt_gripper": 0.005718,
+      "gripper_abs_error": 0.004089,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          90.5,
+          82.5,
+          0.734375
+        ],
+        "left": [
+          97.0,
+          121.5,
+          0.796875
+        ],
+        "right": [
+          95.5,
+          119.5,
+          0.789062
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.698647,
+          83.892441,
+          0.796791
+        ],
+        "left": [
+          89.101028,
+          114.359306,
+          0.870877
+        ],
+        "right": [
+          91.110703,
+          114.47525,
+          0.871168
+        ]
+      }
+    },
+    {
+      "frame_id": 16,
+      "pred_gripper": 0.010289,
+      "gt_gripper": 0.00572,
+      "gripper_abs_error": 0.004568,
+      "pred_close": true,
+      "gt_close": true,
+      "action_gripper": 1.0,
+      "pred_uvd": {
+        "root": [
+          92.0,
+          83.0,
+          0.734375
+        ],
+        "left": [
+          98.5,
+          121.0,
+          0.796875
+        ],
+        "right": [
+          96.5,
+          119.0,
+          0.789062
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.570045,
+          80.461197,
+          0.785065
+        ],
+        "left": [
+          88.595596,
+          111.140472,
+          0.860419
+        ],
+        "right": [
+          90.630669,
+          111.277481,
+          0.860753
+        ]
+      }
+    }
+  ],
+  "visualizations": {
+    "prediction": "/data0/luokang/research/GraphVLA/examples/libero/test/output/client_test/episode_000000_sample_0028_prediction.png",
+    "tracking": "/data0/luokang/research/GraphVLA/examples/libero/test/output/client_test/episode_000000_sample_0028_tracking.png"
+  }
+}

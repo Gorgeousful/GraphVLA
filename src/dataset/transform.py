@@ -810,7 +810,9 @@ class CustomTransform(TransformFn):
         if subtask_id_value is None:
             raise KeyError("subtask_id")
 
-        subtask_index = self._to_int(subtask_id_value) - 1
+        subtask_ids = torch.as_tensor(subtask_id_value).reshape(-1)
+        current_index = min(int(data.get("history_horizon", 0)), subtask_ids.numel() - 1)
+        subtask_index = self._to_int(subtask_ids[current_index]) - 1
         subtasks = self.extra[task]
         data["subtaskstructure"] = subtasks[subtask_index]
 

@@ -44,17 +44,18 @@ class ModelConfig:
             "history_object": 1.0,
             "future_weight": 1.0, # future
             "future_actor": 1.0,
-            "future_object": 0.1,
+            "future_object": 0.0,
             "is_complete": 0.5, # complete
         }
     )
-    residual_point_dims: tuple[int, ...] = (0, 1, 2, 4) # u,v,d,d_metirc
+    use_future_point_residual: bool = True
+    residual_point_dims: tuple[int, ...] = (0, 1, 2, 4) # u,v,d,d_metric
 
     num_query_types: int = 0
     num_frame_query_types: int = 0
     max_objects: int = 3
     min_frame: int = -15
-    max_frame: int = 16
+    max_frame: int = 8
     attention_pattern: str | None = "interleaved_local_global"
     dropout: float = 0.1
      

@@ -57,6 +57,7 @@ class PointQueryModel(nn.Module):
         attention_pattern: str | None = "interleaved_local_global",
         dropout: float = 0.1,
         weights: dict[str, float] | None = None,
+        use_future_point_residual: bool = False,
         residual_point_dims: tuple[int, ...] = (0, 1, 2, 4),
     ) -> None:
         super().__init__()
@@ -65,6 +66,7 @@ class PointQueryModel(nn.Module):
         self.actor_num_points = actor_num_points
         self.max_objects = max_objects
         self.weights = {} if weights is None else dict(weights)
+        self.use_future_point_residual = bool(use_future_point_residual)
         self.residual_point_dims = tuple(int(dim) for dim in residual_point_dims)
         self.object_encoder = SetEncoderViT(
             point_dim=point_dim,
@@ -253,7 +255,7 @@ class PointQueryModel(nn.Module):
         point_id: torch.Tensor,
         frame_id: torch.Tensor,
     ) -> torch.Tensor:
-        if not self.residual_point_dims:
+        if not self.use_future_point_residual or not self.residual_point_dims:
             return raw_point
         dims = torch.as_tensor(self.residual_point_dims, device=raw_point.device, dtype=torch.long)
         anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(dtype=raw_point.dtype)

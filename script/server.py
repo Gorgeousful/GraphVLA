@@ -170,7 +170,7 @@ class TopLevelTaskPlanner:
             score_text = (
                 f"complete_score={score:.4f} "
                 f"gripper_width={gripper_widths[index]:.4f} "
-                f"gripper_action={int(actions[index][6])}"
+                f"gripper_action={float(actions[index][6]):.4f}"
             )
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
@@ -193,6 +193,7 @@ class TopLevelTaskPlanner:
         session.subtask_index += 1
         next_subtask = subtasks[session.subtask_index]
         session.current_subtask = str(next_subtask.get("subtask", ""))
+        session.feature_history.clear()
         return True
 
     def _load_taskstructure_cache(self) -> None:
@@ -373,18 +374,15 @@ class InputPreprocessor:
         else:
             session.tracked_points = np.zeros((0, self.num_points, 3), dtype=np.float32)
 
-        table_prompt_masks = session.table_segmenter.segment_prompt_video([frame.image], prompt="table")[0]
-        table_mask = self._fill_mask_holes(self._largest_mask(table_prompt_masks, frame.image.shape[:2]))
-        table_points = sample_points_from_mask(table_mask, num_points=self.num_points).astype(np.float32)
-        tracked_table_masks = session.table_segmenter.predict(frame.image, points=[table_points], anchor_frame=True)
-        session.table_mask = self._fill_mask_holes(self._largest_mask(tracked_table_masks, frame.image.shape[:2]))
+        table_masks = session.table_segmenter.predict(frame.image, prompt="table", anchor_frame=True)
+        session.table_mask = self._largest_mask(table_masks, frame.image.shape[:2])
 
     def _update_perception(self, session: InferenceSession, frame: ObservationFrame) -> None:
         if session.object_segmenter is not None and session.object_nodes:
             session.object_segmenter.predict(frame.image, anchor_frame=False)
         if session.table_segmenter is not None:
             table_masks = session.table_segmenter.predict(frame.image, anchor_frame=False)
-            session.table_mask = self._fill_mask_holes(self._largest_mask(table_masks, frame.image.shape[:2]))
+            session.table_mask = self._largest_mask(table_masks, frame.image.shape[:2])
         if session.point_tracker is not None and session.object_nodes:
             session.tracked_points = self._pack_tracks(session.point_tracker.track(frame.image, anchor_frame=False))
 
@@ -795,7 +793,7 @@ class EmbodimentAdapter:
         self.future_horizon = future_horizon
         self.robot_cls = robot_cls
         self.robot: Any = None
-        self.libero_gripper_open_threshold = 0.04
+        self.libero_gripper_max_width = 0.08
 
     def to_action(
         self,
@@ -865,10 +863,10 @@ class EmbodimentAdapter:
             dtype=np.float64,
         )
         action_pose = pose @ local_rotation
-        opening_width = float(action[6])
+        opening_width = float(np.clip(action[6], 0.0, self.libero_gripper_max_width))
         action[:3] = action_pose[:3, 3]
         action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
-        action[6] = -1.0 if opening_width >= self.libero_gripper_open_threshold else 1.0
+        action[6] = 1.0 - 2.0 * opening_width / self.libero_gripper_max_width
         return action
 
     @staticmethod
