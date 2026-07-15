@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import random
 import sys
+import time
 import warnings
 from collections.abc import Mapping
 from contextlib import nullcontext
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +125,8 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     accum_steps = max(1, training_config.gradient_accumulation_steps)
     micro_step = step * accum_steps
     data_epoch, batch_offset = dataloader.resume_position(micro_step)
+    training_start_step = step
+    training_start_time = time.perf_counter()
     while step < training_config.max_steps:
         for batch in dataloader.iter_epoch(data_epoch, skip_batches=batch_offset):
             batch_offset = 0
@@ -151,8 +155,15 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
                 metrics = {**metrics, "grad_norm": grad_norm.detach()}
                 logs = distributed.reduce_metrics(metrics)
                 if distributed.is_main_process:
+                    elapsed_seconds = time.perf_counter() - training_start_time
+                    completed_steps = step - training_start_step
+                    remaining_seconds = (
+                        elapsed_seconds / completed_steps * (training_config.max_steps - step)
+                    )
                     log_text = " ".join(f"{key}={value:.4f}" for key, value in sorted(logs.items()))
-                    cs.print(f"step={step} lr={lr:.3e} {log_text}")
+                    elapsed = timedelta(seconds=int(elapsed_seconds))
+                    eta = timedelta(seconds=int(remaining_seconds))
+                    cs.print(f"step={step} lr={lr:.3e} elapsed={elapsed} eta={eta} {log_text}")
                     logger.log(step=step, metrics=logs, lr=lr)
 
             if step % training_config.save_interval == 0:
