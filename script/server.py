@@ -159,13 +159,19 @@ class TopLevelTaskPlanner:
         session: InferenceSession,
         model_input: Mapping[str, Any],
         execute_chunk_len: int,
+        gripper_widths: Sequence[float],
+        actions: Sequence[Sequence[float]],
     ) -> bool:
         if session.task_complete or session.taskstructure is None:
             return False
 
         scores = self._completion_frame_scores(outputs, model_input)
-        for score in scores[:execute_chunk_len]:
-            score_text = f"complete_score={score:.4f} threshold={self.complete_threshold:.4f}"
+        for index, score in enumerate(scores[:execute_chunk_len]):
+            score_text = (
+                f"complete_score={score:.4f} "
+                f"gripper_width={gripper_widths[index]:.4f} "
+                f"gripper_action={int(actions[index][6])}"
+            )
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
                 session.complete_streak += 1
@@ -334,10 +340,14 @@ class InputPreprocessor:
         if session.object_nodes:
             node_locator = NodeLocatorRobo(device_map=self._device("node_locator"))
             try:
-                point_prompts = [
-                    self._locate_node_points(node_locator, frame.image, node["name"])
-                    for node in session.object_nodes
-                ]
+                point_prompts = []
+                for node in session.object_nodes:
+                    points = self._locate_node_points(node_locator, frame.image, node["name"])
+                    cs.print(
+                        f"robobrain node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
+                        markup=False,
+                    )
+                    point_prompts.append(points)
             finally:
                 del node_locator
                 gc.collect()
@@ -793,7 +803,7 @@ class EmbodimentAdapter:
         model_input: Mapping[str, Any],
         request: Mapping[str, Any],
         session: InferenceSession,
-    ) -> list[list[float]]:
+    ) -> tuple[list[list[float]], list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
         if "point" not in outputs:
@@ -807,6 +817,7 @@ class EmbodimentAdapter:
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
 
         actions = []
+        gripper_widths = []
         for future_frame_id in range(1, self.future_horizon + 1):
             mask = (object_id == 0) & (frame_id == future_frame_id)
             actor_points = points[mask]
@@ -815,10 +826,11 @@ class EmbodimentAdapter:
             missing = [index for index in (0, 1, 2) if index not in by_id]
             if missing:
                 raise ValueError(f"Missing actor point ids {missing} for future_frame_id={future_frame_id}")
+            # Actor points are [u, v, depth_rel, visibility, gripper_d, ...].
             uvd_dict = {
-                "root_uvd": by_id[0][:3],
-                "left_uvd": by_id[1][:3],
-                "right_uvd": by_id[2][:3],
+                "root_uvd": by_id[0][[0, 1, 4]],
+                "left_uvd": by_id[1][[0, 1, 4]],
+                "right_uvd": by_id[2][[0, 1, 4]],
             }
             self._validate_uvd(uvd_dict, future_frame_id=future_frame_id)
             action = self._robot().project_uvd_to_gripper(
@@ -826,11 +838,12 @@ class EmbodimentAdapter:
                 intrinsic=intrinsic,
                 extrinsic=extrinsic,
             )
+            gripper_widths.append(float(action[6]))
             actions.append(self._to_libero_action(action).astype(np.float32).tolist())
 
         if len(actions) != self.future_horizon:
             raise RuntimeError(f"Expected {self.future_horizon} actions, got {len(actions)}")
-        return actions
+        return actions, gripper_widths
 
     def _robot(self) -> Any:
         if self.robot is None:
@@ -1070,12 +1083,14 @@ class InferenceServer:
         response_subtask_index = session.subtask_index
 
         outputs = self.inference.infer(model_input)
-        action = self.embodiment.to_action(outputs, model_input, request, session)
+        actions, gripper_widths = self.embodiment.to_action(outputs, model_input, request, session)
         subtask_switched = self.planner.update_after_inference(
             outputs,
             session,
             model_input,
             execute_chunk_len,
+            gripper_widths,
+            actions,
         )
         return {
             **outputs,
@@ -1092,7 +1107,7 @@ class InferenceServer:
             "subtask": response_subtask,
             "subtask_index": response_subtask_index,
             "subtask_switched": subtask_switched,
-            "action": action[:execute_chunk_len],
+            "action": actions[:execute_chunk_len],
         }
 
     @staticmethod

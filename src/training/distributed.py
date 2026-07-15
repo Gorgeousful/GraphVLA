@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -46,6 +47,13 @@ class TrainingDistributed:
             torch.distributed.barrier(device_ids=[self.device.index])
         else:
             torch.distributed.barrier()
+
+    def gather_object(self, value: Any) -> list[Any] | None:
+        if not self.enabled:
+            return [value]
+        gathered = [None] * self.world_size if self.is_main_process else None
+        torch.distributed.gather_object(value, gathered, dst=0)
+        return gathered
 
     def wrap_model(self, model: nn.Module, device: torch.device) -> nn.Module:
         if not self.enabled:

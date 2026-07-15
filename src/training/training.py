@@ -93,6 +93,9 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         keep_period=training_config.keep_period,
         is_main_process=distributed.is_main_process,
         barrier=distributed.barrier,
+        rank=distributed.rank,
+        world_size=distributed.world_size,
+        gather_object=distributed.gather_object,
     )
     if distributed.is_main_process: 
         cs.print("Checkpoint Manager init!")
@@ -116,7 +119,7 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         cs.print("Model and Optimizer init!")
 
 
-    step = checkpoint.load_latest(model, train_optimizer, device) if training_config.resume else 0
+    step = checkpoint.load_latest(model, train_optimizer, device, seed=training_config.seed) if training_config.resume else 0
     accum_steps = max(1, training_config.gradient_accumulation_steps)
     micro_step = step * accum_steps
     data_epoch, batch_offset = dataloader.resume_position(micro_step)
@@ -152,7 +155,7 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
                     cs.print(f"step={step} lr={lr:.3e} {log_text}")
                     logger.log(step=step, metrics=logs, lr=lr)
 
-            if step % training_config.save_interval == 0 and distributed.is_main_process:
+            if step % training_config.save_interval == 0:
                 path = checkpoint.save(
                     model,
                     train_optimizer,
@@ -161,7 +164,8 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
                     model_config=model_config,
                     training_config=training_config,
                 )
-                cs.print(f"[green]saved checkpoint {path}[/green]")
+                if distributed.is_main_process:
+                    cs.print(f"[green]saved checkpoint {path}[/green]")
 
             if step >= training_config.max_steps:
                 break

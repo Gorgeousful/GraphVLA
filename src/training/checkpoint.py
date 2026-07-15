@@ -26,6 +26,9 @@ class TrainingCheckpoint:
         keep_period: int,
         is_main_process: bool = True,
         barrier: Any | None = None,
+        rank: int = 0,
+        world_size: int = 1,
+        gather_object: Any | None = None,
     ) -> None:
         self.root = Path(save_dir) if save_dir is not None else Path("result")
         self.ckpt_dir = self.root / "checkpoints"
@@ -33,6 +36,9 @@ class TrainingCheckpoint:
         self.keep_period = keep_period
         self.is_main_process = is_main_process
         self.barrier = barrier
+        self.rank = rank
+        self.world_size = world_size
+        self.gather_object = gather_object
         if self.is_main_process:
             self.prepare_dir(resume=resume)
         if self.barrier is not None:
@@ -76,15 +82,35 @@ class TrainingCheckpoint:
                 f"missing={len(incompatible.missing_keys)} unexpected={len(incompatible.unexpected_keys)}"
             )
 
-    def load_latest(self, model: torch.nn.Module, optimizer: Any, device: torch.device) -> int:
+    def load_latest(self, model: torch.nn.Module, optimizer: Any, device: torch.device, *, seed: int) -> int:
         path = self.latest_checkpoint()
         if path is None:
             return 0
         state = torch.load(path, map_location=device, weights_only=False)
         self.model_for_state(model).load_state_dict(state["model"])
         optimizer.load_state_dict(state["optimizer"])
-        self.restore_rng_state(state.get("rng"))
         step = int(state.get("step", self.step_from_path(path) or 0))
+        resume = state.get("resume")
+        rng_by_rank = resume.get("rng_by_rank") if isinstance(resume, Mapping) else None
+        saved_world_size = resume.get("world_size") if isinstance(resume, Mapping) else None
+        rank_rng = rng_by_rank[self.rank] if isinstance(rng_by_rank, list) and self.rank < len(rng_by_rank) else None
+        can_restore_rng = (
+            saved_world_size == self.world_size
+            and isinstance(rank_rng, Mapping)
+            and all(key in rank_rng for key in ("python", "numpy", "torch_cpu"))
+        )
+        if can_restore_rng:
+            self.restore_rng_state(rank_rng, device)
+        else:
+            self.seed_rng(seed + step + self.rank, device)
+            if self.is_main_process:
+                if not isinstance(resume, Mapping):
+                    reason = "legacy checkpoint"
+                elif saved_world_size != self.world_size:
+                    reason = f"world_size changed from {saved_world_size} to {self.world_size}"
+                else:
+                    reason = "checkpoint resume metadata is incomplete"
+                cs.print(f"[yellow]{reason}; rebuilt RNG state for elastic resume[/yellow]")
         if self.is_main_process:
             cs.print(f"[green]resumed from {path} at step {step}[/green]")
         return step
@@ -98,7 +124,15 @@ class TrainingCheckpoint:
         data_config: Any,
         model_config: Any,
         training_config: Any,
-    ) -> Path:
+    ) -> Path | None:
+        local_rng = self.rng_state()
+        rng_by_rank = self.gather_object(local_rng) if self.gather_object is not None else [local_rng]
+        path: Path | None = None
+        if not self.is_main_process:
+            if self.barrier is not None:
+                self.barrier()
+            return None
+
         configs = {
             "data": self.config_to_state(data_config),
             "model": self.config_to_state(model_config),
@@ -110,10 +144,15 @@ class TrainingCheckpoint:
             "step": step,
             "model": self.model_for_state(model).state_dict(),
             "optimizer": optimizer.state_dict(),
-            "rng": self.rng_state(),
+            "resume": {
+                "world_size": self.world_size,
+                "rng_by_rank": rng_by_rank,
+            },
         }
         torch.save(state, path)
         self.cleanup(current_step=step)
+        if self.barrier is not None:
+            self.barrier()
         return path
 
     def cleanup(self, *, current_step: int) -> None:
@@ -193,25 +232,26 @@ class TrainingCheckpoint:
         state: dict[str, Any] = {
             "python": random.getstate(),
             "numpy": np.random.get_state(),
-            "torch": torch.get_rng_state(),
+            "torch_cpu": torch.get_rng_state(),
+            "torch_cuda": None,
         }
         if torch.cuda.is_available():
-            state["cuda"] = torch.cuda.get_rng_state_all()
+            state["torch_cuda"] = torch.cuda.get_rng_state()
         return state
 
     @staticmethod
-    def restore_rng_state(state: Mapping[str, Any] | None) -> None:
-        if not state:
-            return
-        if "python" in state:
-            random.setstate(state["python"])
-        if "numpy" in state:
-            np.random.set_state(state["numpy"])
-        if "torch" in state:
-            torch_state = state["torch"]
-            if isinstance(torch_state, torch.Tensor):
-                torch_state = torch_state.cpu()
-            torch.set_rng_state(torch_state)
-        if "cuda" in state and torch.cuda.is_available():
-            cuda_state = [item.cpu() if isinstance(item, torch.Tensor) else item for item in state["cuda"]]
-            torch.cuda.set_rng_state_all(cuda_state)
+    def restore_rng_state(state: Mapping[str, Any], device: torch.device) -> None:
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        torch.set_rng_state(state["torch_cpu"].cpu())
+        cuda_state = state.get("torch_cuda")
+        if cuda_state is not None and device.type == "cuda":
+            torch.cuda.set_rng_state(cuda_state.cpu(), device=device)
+
+    @staticmethod
+    def seed_rng(seed: int, device: torch.device) -> None:
+        random.seed(seed)
+        np.random.seed(seed % (2**32))
+        torch.manual_seed(seed)
+        if device.type == "cuda":
+            torch.cuda.manual_seed(seed)
