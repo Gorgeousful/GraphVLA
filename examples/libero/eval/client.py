@@ -55,6 +55,7 @@ class Args:
     save_video: bool = True
     control_delta: bool = False
     execute_chunk_len: int = 16
+    future_object: bool = True
 
 
 class ObservationDeltaBuffer:
@@ -301,6 +302,7 @@ def _draw_response_points(
     frame_id: int | None,
     *,
     mode: str,
+    future_object: bool = True,
 ) -> np.ndarray:
     image = np.ascontiguousarray(image_rgb.copy())
     if response is None:
@@ -365,6 +367,8 @@ def _draw_response_points(
         point_frame_id = _first_batch(response["frame_id"]).astype(np.int64)
         if points.ndim == 2 and object_id.ndim == 1 and point_frame_id.ndim == 1:
             mask = point_frame_id == int(frame_id)
+            if not future_object and frame_id > 0:
+                mask &= object_id == 0
             for actor_layer in (False, True):
                 for point, obj_id in zip(points[mask], object_id[mask]):
                     is_actor = int(obj_id) == 0
@@ -492,6 +496,12 @@ def parse_args() -> Args:
     parser.add_argument("--no-save-video", action="store_true")
     parser.add_argument("--control-delta", action="store_true", default=Args.control_delta)
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
+    parser.add_argument(
+        "--future-object",
+        choices=("true", "false"),
+        default=str(Args.future_object).lower(),
+        help="Whether to draw predicted future object points.",
+    )
     ns = parser.parse_args()
     return Args(
         host=ns.host,
@@ -507,6 +517,7 @@ def parse_args() -> Args:
         save_video=not ns.no_save_video,
         control_delta=ns.control_delta,
         execute_chunk_len=ns.execute_chunk_len,
+        future_object=ns.future_object == "true",
     )
 
 
@@ -589,6 +600,7 @@ def main() -> None:
                             client.last_response,
                             client.last_action_frame_id,
                             mode="prediction",
+                            future_object=args.future_object,
                         )
                     )
                     tracking_images.append(

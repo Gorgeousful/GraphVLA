@@ -216,6 +216,7 @@ def draw_point_grid(
     label: str,
     point_id: np.ndarray | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
+    future_object: bool = True,
 ) -> None:
     rgb_frames = _images_to_server_rgb(images)
     height, width = rgb_frames.shape[1:3]
@@ -242,6 +243,8 @@ def draw_point_grid(
             tile[:] = cv2.cvtColor(rgb_frames[image_index], cv2.COLOR_RGB2BGR)
 
         mask = point_frame_id == vis_frame_id
+        if not future_object and vis_frame_id > 0:
+            mask &= object_id == 0
         frame_points = points[mask]
         frame_objects = object_id[mask]
         frame_point_ids = point_id[mask] if point_id is not None else None
@@ -353,6 +356,7 @@ def run_sample(
         frame_ids=list(range(1, args.future_horizon + 1)),
         history_horizon=args.history_horizon,
         label="prediction",
+        future_object=args.future_object,
     )
     draw_point_grid(
         output_path=tracking_path,
@@ -410,7 +414,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-name", default="agentview")
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--future-object",
+        choices=("true", "false"),
+        default="true",
+        help="Whether to draw predicted future object points.",
+    )
     args = parser.parse_args()
+    args.future_object = args.future_object == "true"
     if args.num_samples < 1 or args.sample_stride < 1:
         parser.error("--num-samples and --sample-stride must be positive")
     if not 1 <= args.execute_chunk_len <= args.future_horizon:
