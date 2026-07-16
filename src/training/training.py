@@ -9,6 +9,7 @@ import time
 import warnings
 from collections.abc import Mapping
 from contextlib import nullcontext
+from copy import copy
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,12 @@ def amp_context(device: torch.device, enabled: bool):
 
 
 def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn.Module:
+    training_config = copy(training_config)
+    if training_config.save_dir is not None:
+        if not training_config.wandb_name:
+            raise ValueError("wandb_name is required when save_dir is set")
+        training_config.save_dir = Path(training_config.save_dir) / training_config.wandb_name
+
     distributed = TrainingDistributed(
         enabled=getattr(training_config, "use_ddp", True),
         backend=getattr(training_config, "distributed_backend", "nccl"),
