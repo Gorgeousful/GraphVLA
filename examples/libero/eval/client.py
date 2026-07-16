@@ -39,6 +39,9 @@ LIBERO_DELTA_DUMMY_ACTION = np.asarray([0.0] * 6 + [-1.0], dtype=np.float32)
 LIBERO_ENV_RESOLUTION = 256
 LIBERO_CAMERA_NAME = "agentview"
 
+ROOT = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = ROOT / "output"
+
 
 @dataclasses.dataclass
 class Args:
@@ -49,8 +52,8 @@ class Args:
     num_steps_wait: int = 30
     num_trials_per_task: int = 5
     max_steps: int | None = None
-    video_out_path: str = "examples/libero/eval/output/videos"
-    result_out_path: str = "examples/libero/eval/output/result.json"
+    video_out_path: str | Path = DEFAULT_OUTPUT_DIR / "videos"
+    result_out_path: str | Path = DEFAULT_OUTPUT_DIR / "result.json"
     seed: int = 42
     save_video: bool = True
     control_delta: bool = False

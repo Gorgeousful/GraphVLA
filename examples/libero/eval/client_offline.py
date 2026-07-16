@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,11 +15,8 @@ import torch
 import websockets
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "examples/libero/test/output/client_test"
+ROOT = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = ROOT / "output_offline"
 ACTOR_NAMES = ("root", "left", "right")
 
 
