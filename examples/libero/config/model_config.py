@@ -48,7 +48,7 @@ class ModelConfig:
             "is_complete": 0.5, # complete
         }
     )
-    use_future_point_residual: bool = True
+    use_future_point_residual: bool = False
     residual_point_dims: tuple[int, ...] = (0, 1, 2, 4) # u,v,d,d_metric
 
     num_query_types: int = 0

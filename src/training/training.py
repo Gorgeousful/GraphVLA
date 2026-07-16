@@ -164,13 +164,12 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
                 if distributed.is_main_process:
                     elapsed_seconds = time.perf_counter() - training_start_time
                     completed_steps = step - training_start_step
-                    remaining_seconds = (
-                        elapsed_seconds / completed_steps * (training_config.max_steps - step)
-                    )
-                    log_text = " ".join(f"{key}={value:.4f}" for key, value in sorted(logs.items()))
+                    remaining_seconds = elapsed_seconds / completed_steps * (training_config.max_steps - step)
                     elapsed = timedelta(seconds=int(elapsed_seconds))
                     eta = timedelta(seconds=int(remaining_seconds))
-                    cs.print(f"step={step} lr={lr:.3e} elapsed={elapsed} eta={eta} {log_text}")
+                    log_text = " ".join(f"{key}={value:.4f}" for key, value in sorted(logs.items()))
+                    cs.rule()
+                    cs.print(f"step={step} lr={lr:.3e} elapsed={elapsed} eta={eta}\n{log_text}")
                     logger.log(step=step, metrics=logs, lr=lr)
 
             if step % training_config.save_interval == 0:
