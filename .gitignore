@@ -3,5 +3,10 @@ __note__/
 __tmp__/
 __test__/
 *.pt
-examples/*/result*/
+examples/*/result/
 examples/*/eval/output/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
