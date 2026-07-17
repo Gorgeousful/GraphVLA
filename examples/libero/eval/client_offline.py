@@ -43,14 +43,17 @@ def build_observation_request(
     history_horizon: int,
     execute_chunk_len: int,
     session_id: str,
+    observation_count: int | None = None,
 ) -> dict[str, Any]:
-    history_count = history_horizon + 1
-    server_images = _images_to_server_rgb(images)[:history_count]
+    request_count = history_horizon + 1 if observation_count is None else observation_count
+    if request_count < 1:
+        raise ValueError(f"observation_count must be positive, got {request_count}")
+    server_images = _images_to_server_rgb(images)[:request_count]
     state_array = states.detach().cpu().numpy() if isinstance(states, torch.Tensor) else np.asarray(states)
-    state_array = state_array[:history_count]
-    if len(server_images) != history_count or len(state_array) != history_count:
+    state_array = state_array[:request_count]
+    if len(server_images) != request_count or len(state_array) != request_count:
         raise ValueError(
-            f"offline sample must contain {history_count} history frames, "
+            f"offline request must contain {request_count} observation frames, "
             f"got images={len(server_images)} states={len(state_array)}"
         )
     intrinsic_list = np.asarray(intrinsic, dtype=np.float64).tolist()
@@ -62,8 +65,8 @@ def build_observation_request(
         "execute_chunk_len": execute_chunk_len,
         "observation.images.image": server_images.tolist(),
         "observation.state": state_array.tolist(),
-        "camera.intrinsics": [intrinsic_list] * history_count,
-        "camera.extrinsics": [extrinsic_list] * history_count,
+        "camera.intrinsics": [intrinsic_list] * request_count,
+        "camera.extrinsics": [extrinsic_list] * request_count,
         "reset": True,
     }
 
@@ -165,6 +168,28 @@ def websocket_json(uri: str, request: dict[str, Any], timeout: float) -> dict[st
     return asyncio.run(_websocket_json_async(uri, request, timeout))
 
 
+def save_model_input_capture(output_path: Path, model_input: dict[str, Any]) -> None:
+    arrays: dict[str, np.ndarray] = {}
+    metadata: dict[str, Any] = {"arrays": {}, "non_array": {}}
+    for key, value in model_input.items():
+        if value is None or isinstance(value, str | dict):
+            metadata["non_array"][key] = value
+            continue
+        array = np.asarray(value)
+        if array.dtype == object:
+            metadata["non_array"][key] = value
+            continue
+        arrays[key] = array
+        metadata["arrays"][key] = {"shape": list(array.shape), "dtype": str(array.dtype)}
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(output_path, **arrays)
+    output_path.with_suffix(".json").write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def _scalar_int(value: Any) -> int:
     if isinstance(value, torch.Tensor):
         return int(value.reshape(-1)[0].item())
@@ -177,6 +202,33 @@ def load_camera(dataset_dir: Path, task_index: int, camera_name: str) -> tuple[n
     record = next(item for item in records if int(item["task_index"]) == task_index)
     camera = record["cameras"][camera_name]
     return np.asarray(camera["intrinsic"], dtype=np.float64), np.asarray(camera["extrinsic"], dtype=np.float64)
+
+
+def make_single_frame_dataset(dataset_dir: Path) -> Any:
+    from src.dataset.dataset import make_lerobot_dataset
+
+    return make_lerobot_dataset(dataset_dir, video_backend="pyav")
+
+
+def load_episode_observation_prefix(
+    dataset: Any,
+    episode_indices: list[int],
+    local_index: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    if not 0 <= local_index < len(episode_indices):
+        raise ValueError(
+            f"local_index={local_index} is outside episode with {len(episode_indices)} samples"
+        )
+    rows = [dataset[index] for index in episode_indices[: local_index + 1]]
+    images = np.stack([
+        value.detach().cpu().numpy() if isinstance(value, torch.Tensor) else np.asarray(value)
+        for value in (row["observation.images.image"] for row in rows)
+    ])
+    states = np.stack([
+        value.detach().cpu().numpy() if isinstance(value, torch.Tensor) else np.asarray(value)
+        for value in (row["observation.state"] for row in rows)
+    ])
+    return images, states
 
 
 def make_offline_dataset(dataset_dir: Path, history_horizon: int, future_horizon: int) -> Any:
@@ -298,19 +350,39 @@ def run_sample(
     server_uri: str,
     args: argparse.Namespace,
     robot: Any,
+    observation_dataset: Any | None,
+    episode_indices: list[int],
 ) -> dict[str, Any]:
     task_index = _scalar_int(sample["task_index"])
     intrinsic, extrinsic = load_camera(dataset_dir, task_index, args.camera_name)
+    if args.warmup_from_episode_start:
+        if observation_dataset is None:
+            raise ValueError("observation_dataset is required for episode warm-up")
+        request_images, request_states = load_episode_observation_prefix(
+            observation_dataset,
+            episode_indices,
+            local_index,
+        )
+        observation_start_frame = 0
+        observation_count = local_index + 1
+    else:
+        request_images = sample["observation.images.image"]
+        request_states = sample["observation.state"]
+        observation_start_frame = max(0, local_index - args.history_horizon)
+        observation_count = None
     request = build_observation_request(
-        images=sample["observation.images.image"],
-        states=sample["observation.state"],
+        images=request_images,
+        states=request_states,
         prompt=tasks[task_index],
         intrinsic=intrinsic,
         extrinsic=extrinsic,
         history_horizon=args.history_horizon,
+        observation_count=observation_count,
         execute_chunk_len=args.execute_chunk_len,
         session_id=f"offline-ep{args.episode_index}-sample{local_index}",
     )
+    if args.model_input_output is not None:
+        request["return_model_input"] = True
     response = websocket_json(server_uri, request, timeout=args.timeout)
     if "error" in response:
         raise RuntimeError(response["error"])
@@ -328,6 +400,15 @@ def run_sample(
     missing = [key for key in required_response_fields if key not in response]
     if missing:
         raise KeyError(f"server response missing fields: {missing}")
+    if args.model_input_output is not None:
+        if "model_input" not in response:
+            raise KeyError("server response missing model_input for capture request")
+        capture_path = args.model_input_output
+        if args.num_samples > 1:
+            capture_path = capture_path.with_name(
+                f"{capture_path.stem}_sample_{local_index:04d}{capture_path.suffix}"
+            )
+        save_model_input_capture(capture_path, response["model_input"])
 
     diagnostics = build_actor_diagnostics(
         response=response,
@@ -374,6 +455,13 @@ def run_sample(
         "subtask": response.get("subtask"),
         "subtask_index": response.get("subtask_index"),
         "close_threshold": args.close_threshold,
+        "warmup_from_episode_start": args.warmup_from_episode_start,
+        "server_anchor_frame": observation_start_frame,
+        "server_observation_frame_range": [observation_start_frame, local_index],
+        "model_history_frame_range": [
+            max(0, local_index - args.history_horizon),
+            local_index,
+        ],
         "diagnostics": diagnostics,
         "visualizations": {
             "prediction": str(prediction_path),
@@ -403,6 +491,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-index", type=int, default=0, help="Frame-local index inside the selected episode.")
     parser.add_argument("--num-samples", type=int, default=1)
     parser.add_argument("--sample-stride", type=int, default=32)
+    parser.add_argument(
+        "--warmup-from-episode-start",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Warm up server temporal state with every episode frame from frame 0 to the "
+            "selected sample; disable to send only the fixed history window."
+        ),
+    )
     parser.add_argument("--history-horizon", type=int, default=LIBERO_HISTORY_HORIZON)
     parser.add_argument("--future-horizon", type=int, default=LIBERO_FUTURE_HORIZON)
     parser.add_argument("--execute-chunk-len", type=int, default=LIBERO_FUTURE_HORIZON)
@@ -410,6 +507,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-name", default="agentview")
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--model-input-output",
+        type=Path,
+        default=None,
+        help="Optional .npz path for the exact tensor inputs entering PointQueryModel.infer.",
+    )
     parser.add_argument(
         "--future-object",
         choices=("true", "false"),
@@ -431,6 +534,11 @@ def main() -> None:
 
     args = parse_args()
     dataset = make_offline_dataset(args.dataset_dir, args.history_horizon, args.future_horizon)
+    observation_dataset = (
+        make_single_frame_dataset(args.dataset_dir)
+        if args.warmup_from_episode_start
+        else None
+    )
     episode_values = dataset.hf_dataset["episode_index"]
     episode_indices = [index for index, value in enumerate(episode_values) if int(value) == args.episode_index]
     if not episode_indices:
@@ -458,6 +566,8 @@ def main() -> None:
             server_uri=server_uri,
             args=args,
             robot=robot,
+            observation_dataset=observation_dataset,
+            episode_indices=episode_indices,
         )
 
 

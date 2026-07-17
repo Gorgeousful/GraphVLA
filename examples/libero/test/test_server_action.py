@@ -13,14 +13,15 @@ from script.server import EmbodimentAdapter
     [
         (-0.01, 1.0),
         (0.00, 1.0),
-        (0.02, 0.5),
-        (0.04, 0.0),
-        (0.06, -0.5),
+        (0.02, 1.0),
+        (0.039, 1.0),
+        (0.04, -1.0),
+        (0.06, -1.0),
         (0.08, -1.0),
         (0.10, -1.0),
     ],
 )
-def test_to_action_maps_gripper_width_continuously(opening_width: float, expected_action: float) -> None:
+def test_to_action_binarizes_gripper_width(opening_width: float, expected_action: float) -> None:
     class Robot:
         def project_uvd_to_gripper(self, *_: object, **__: object) -> np.ndarray:
             return np.asarray([0.0] * 6 + [opening_width], dtype=np.float64)

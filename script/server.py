@@ -794,6 +794,7 @@ class EmbodimentAdapter:
         self.robot_cls = robot_cls
         self.robot: Any = None
         self.libero_gripper_max_width = 0.08
+        self.libero_gripper_close_threshold = 0.04
 
     def to_action(
         self,
@@ -866,7 +867,7 @@ class EmbodimentAdapter:
         opening_width = float(np.clip(action[6], 0.0, self.libero_gripper_max_width))
         action[:3] = action_pose[:3, 3]
         action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
-        action[6] = 1.0 - 2.0 * opening_width / self.libero_gripper_max_width
+        action[6] = 1.0 if opening_width < self.libero_gripper_close_threshold else -1.0
         return action
 
     @staticmethod
@@ -921,7 +922,12 @@ class InferenceModel:
         self.model.eval()
 
     @torch.inference_mode()
-    def infer(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
+    def infer(
+        self,
+        input_data: Mapping[str, Any],
+        *,
+        return_model_input: bool = False,
+    ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
 
@@ -966,7 +972,10 @@ class InferenceModel:
         output_data = {"outputs": outputs, "batch": infer_inputs}
         for transform in self.out_transforms:
             output_data = transform(output_data)
-        return self.to_json(output_data["outputs"])
+        json_outputs = self.to_json(output_data["outputs"])
+        if not return_model_input:
+            return json_outputs
+        return json_outputs, self.to_json(infer_inputs)
 
     def encode_condition(self, value: Any) -> torch.Tensor:
         if isinstance(value, Mapping):
@@ -1080,7 +1089,15 @@ class InferenceServer:
         response_subtask = session.current_subtask
         response_subtask_index = session.subtask_index
 
-        outputs = self.inference.infer(model_input)
+        return_model_input = bool(request.get("return_model_input", False))
+        inference_result = self.inference.infer(model_input, return_model_input=return_model_input)
+        if return_model_input:
+            outputs, captured_model_input = inference_result
+            captured_model_input["object_condition_texts"] = model_input.get("object_condition_texts")
+            captured_model_input["actor_condition_text"] = model_input.get("actor_condition_text")
+        else:
+            outputs = inference_result
+            captured_model_input = None
         actions, gripper_widths = self.embodiment.to_action(outputs, model_input, request, session)
         subtask_switched = self.planner.update_after_inference(
             outputs,
@@ -1090,7 +1107,7 @@ class InferenceServer:
             gripper_widths,
             actions,
         )
-        return {
+        response = {
             **outputs,
             "object_id": self.inference.to_json(model_input["object_id"]),
             "point_id": self.inference.to_json(model_input["point_id"]),
@@ -1107,6 +1124,9 @@ class InferenceServer:
             "subtask_switched": subtask_switched,
             "action": actions[:execute_chunk_len],
         }
+        if captured_model_input is not None:
+            response["model_input"] = captured_model_input
+        return response
 
     @staticmethod
     def _active_robobrain_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:

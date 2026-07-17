@@ -794,6 +794,7 @@ class EmbodimentAdapter:
         self.robot_cls = robot_cls
         self.robot: Any = None
         self.libero_gripper_max_width = 0.08
+        self.libero_gripper_close_threshold = 0.04
 
     def to_action(
         self,
@@ -863,10 +864,10 @@ class EmbodimentAdapter:
             dtype=np.float64,
         )
         action_pose = pose @ local_rotation
-        opening_width = float(action[6])
+        opening_width = float(np.clip(action[6], 0.0, self.libero_gripper_max_width))
         action[:3] = action_pose[:3, 3]
         action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
-        action[6] = -1.0 if opening_width >= self.libero_gripper_open_threshold else 1.0
+        action[6] = 1.0 if opening_width < self.libero_gripper_close_threshold else -1.0
         return action
 
     @staticmethod

@@ -1,0 +1,91 @@
+{
+  "arrays": {
+    "point_feats": {
+      "shape": [
+        1,
+        16,
+        2,
+        32,
+        6
+      ],
+      "dtype": "float64"
+    },
+    "actor_feats": {
+      "shape": [
+        1,
+        16,
+        1,
+        3,
+        6
+      ],
+      "dtype": "float64"
+    },
+    "object_id": {
+      "shape": [
+        1,
+        1608
+      ],
+      "dtype": "int64"
+    },
+    "point_id": {
+      "shape": [
+        1,
+        1608
+      ],
+      "dtype": "int64"
+    },
+    "frame_id": {
+      "shape": [
+        1,
+        1608
+      ],
+      "dtype": "int64"
+    },
+    "object_condition": {
+      "shape": [
+        1,
+        2,
+        1152
+      ],
+      "dtype": "float64"
+    },
+    "actor_condition": {
+      "shape": [
+        1,
+        1,
+        1152
+      ],
+      "dtype": "float64"
+    },
+    "frame_query_frame_id": {
+      "shape": [
+        1,
+        24
+      ],
+      "dtype": "int64"
+    }
+  },
+  "non_array": {
+    "query_type": null,
+    "head_names": "point",
+    "frame_query_type": null,
+    "frame_head_names": "is_complete",
+    "object_condition_texts": [
+      {
+        "role": "patient",
+        "action_type": "put",
+        "action_degree": "on"
+      },
+      {
+        "role": "target",
+        "action_type": "put",
+        "action_degree": "on"
+      }
+    ],
+    "actor_condition_text": {
+      "role": "actor",
+      "action_type": "put",
+      "action_degree": "on"
+    }
+  }
+}

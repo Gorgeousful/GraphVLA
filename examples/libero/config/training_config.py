@@ -17,7 +17,7 @@ class TrainingConfig:
 
     # gradient
     gradient_accumulation_steps: int = 1
-    gradient_checkpointing: bool = True
+    gradient_checkpointing: bool = True # False
     gradient_clip_norm: float | None = 10.0
 
     # cos

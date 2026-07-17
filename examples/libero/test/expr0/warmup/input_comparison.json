@@ -1,0 +1,284 @@
+{
+  "fields": {
+    "point_feats": {
+      "server_shape": [
+        1,
+        16,
+        2,
+        32,
+        6
+      ],
+      "gt_shape": [
+        1,
+        16,
+        2,
+        32,
+        6
+      ],
+      "shape_equal": true,
+      "mae": 0.06380304843575384,
+      "rmse": 0.16722923499808579,
+      "max_abs": 1.0
+    },
+    "actor_feats": {
+      "server_shape": [
+        1,
+        16,
+        1,
+        3,
+        6
+      ],
+      "gt_shape": [
+        1,
+        16,
+        1,
+        3,
+        6
+      ],
+      "shape_equal": true,
+      "mae": 5.101578103171455e-07,
+      "rmse": 1.6005824880165715e-06,
+      "max_abs": 8.225440979003906e-06
+    },
+    "object_condition": {
+      "server_shape": [
+        1,
+        2,
+        1152
+      ],
+      "gt_shape": [
+        1,
+        2,
+        1152
+      ],
+      "shape_equal": true,
+      "mae": 0.0001930360459954588,
+      "rmse": 0.00024241163805717282,
+      "max_abs": 0.0008616261184215546
+    },
+    "actor_condition": {
+      "server_shape": [
+        1,
+        1,
+        1152
+      ],
+      "gt_shape": [
+        1,
+        1,
+        1152
+      ],
+      "shape_equal": true,
+      "mae": 0.0002192807241385708,
+      "rmse": 0.00027616538255170937,
+      "max_abs": 0.001082688570022583
+    },
+    "object_id": {
+      "server_shape": [
+        1,
+        1608
+      ],
+      "gt_shape": [
+        1,
+        1608
+      ],
+      "shape_equal": true,
+      "exact_equal": true,
+      "mismatch_count": 0
+    },
+    "point_id": {
+      "server_shape": [
+        1,
+        1608
+      ],
+      "gt_shape": [
+        1,
+        1608
+      ],
+      "shape_equal": true,
+      "exact_equal": true,
+      "mismatch_count": 0
+    },
+    "frame_id": {
+      "server_shape": [
+        1,
+        1608
+      ],
+      "gt_shape": [
+        1,
+        1608
+      ],
+      "shape_equal": true,
+      "exact_equal": true,
+      "mismatch_count": 0
+    },
+    "frame_query_frame_id": {
+      "server_shape": [
+        1,
+        24
+      ],
+      "gt_shape": [
+        1,
+        24
+      ],
+      "shape_equal": true,
+      "exact_equal": true,
+      "mismatch_count": 0
+    }
+  },
+  "object_point_features": {
+    "patient/mug": {
+      "aligned_per_dimension": {
+        "u_norm": {
+          "mae": 0.09622880548704416,
+          "rmse": 0.11749133542545107,
+          "max_abs": 0.24159163236618042
+        },
+        "v_norm": {
+          "mae": 0.1145570765947923,
+          "rmse": 0.13689358565277668,
+          "max_abs": 0.32976239919662476
+        },
+        "depth_norm": {
+          "mae": 0.06988543458282948,
+          "rmse": 0.09760372077493164,
+          "max_abs": 0.4071669578552246
+        },
+        "visible": {
+          "mae": 0.24609375,
+          "rmse": 0.49607837082461076,
+          "max_abs": 1.0
+        },
+        "metric": {
+          "mae": 0.0,
+          "rmse": 0.0,
+          "max_abs": 0.0
+        },
+        "metric_mask": {
+          "mae": 0.0,
+          "rmse": 0.0,
+          "max_abs": 0.0
+        }
+      },
+      "unordered_uv_chamfer_norm_mean": 0.02605791668004348,
+      "unordered_uv_chamfer_px_mean": 3.3354133350455655,
+      "centroid_uv_error_px_mean": 2.1791018287834896,
+      "centroid_uv_error_px_per_frame": [
+        2.194806,
+        2.192737,
+        2.185266,
+        2.187073,
+        2.200671,
+        2.23139,
+        2.240726,
+        2.217413,
+        2.159198,
+        2.233279,
+        2.216513,
+        2.17019,
+        2.008243,
+        2.152599,
+        2.101384,
+        2.174142
+      ]
+    },
+    "target/plate": {
+      "aligned_per_dimension": {
+        "u_norm": {
+          "mae": 0.1328439866192639,
+          "rmse": 0.18074607058972064,
+          "max_abs": 0.3892824649810791
+        },
+        "v_norm": {
+          "mae": 0.0663261457812041,
+          "rmse": 0.10460710538578381,
+          "max_abs": 0.31227290630340576
+        },
+        "depth_norm": {
+          "mae": 0.03970138216391206,
+          "rmse": 0.06173582366570013,
+          "max_abs": 0.19005733728408813
+        },
+        "visible": {
+          "mae": 0.0,
+          "rmse": 0.0,
+          "max_abs": 0.0
+        },
+        "metric": {
+          "mae": 0.0,
+          "rmse": 0.0,
+          "max_abs": 0.0
+        },
+        "metric_mask": {
+          "mae": 0.0,
+          "rmse": 0.0,
+          "max_abs": 0.0
+        }
+      },
+      "unordered_uv_chamfer_norm_mean": 0.02665761456427422,
+      "unordered_uv_chamfer_px_mean": 3.4121746642271003,
+      "centroid_uv_error_px_mean": 0.7723647079951239,
+      "centroid_uv_error_px_per_frame": [
+        0.786767,
+        0.773675,
+        0.765243,
+        0.763998,
+        0.766609,
+        0.768736,
+        0.766007,
+        0.764614,
+        0.778855,
+        0.773866,
+        0.771269,
+        0.773993,
+        0.775534,
+        0.774598,
+        0.777833,
+        0.776238
+      ]
+    }
+  },
+  "actor_features": {
+    "overall": {
+      "mae": 5.101578103171455e-07,
+      "rmse": 1.6005824880165715e-06,
+      "max_abs": 8.225440979003906e-06
+    },
+    "aligned_per_dimension": {
+      "u_norm": {
+        "mae": 1.241763432820638e-09,
+        "rmse": 8.603189426505949e-09,
+        "max_abs": 5.960464477539063e-08
+      },
+      "v_norm": {
+        "mae": 0.0,
+        "rmse": 0.0,
+        "max_abs": 0.0
+      },
+      "depth_norm": {
+        "mae": 3.0597050984700522e-06,
+        "rmse": 3.920600947661417e-06,
+        "max_abs": 8.225440979003906e-06
+      },
+      "visible": {
+        "mae": 0.0,
+        "rmse": 0.0,
+        "max_abs": 0.0
+      },
+      "gripper_metric": {
+        "mae": 0.0,
+        "rmse": 0.0,
+        "max_abs": 0.0
+      },
+      "metric_mask": {
+        "mae": 0.0,
+        "rmse": 0.0,
+        "max_abs": 0.0
+      }
+    }
+  },
+  "episode_index": 0,
+  "sample_index": 28,
+  "global_index": 28,
+  "server_capture": "examples/libero/test/expr0/warmup/server_model_input.npz",
+  "dataset_gt": "examples/libero/test/expr0/warmup/dataset_gt_model_input.npz"
+}
