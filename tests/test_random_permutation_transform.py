@@ -41,7 +41,7 @@ def test_random_permutation_keeps_object_trajectories_and_targets_aligned() -> N
 
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(0)
-        output = CustomTransform(mode="random_permutation")(data)
+        output = CustomTransform(mode="random_object_permutation")(data)
 
     permutation_1 = output["point_feats"][0, 0, :, 0].long()
     permutation_2 = (output["point_feats"][0, 1, :, 0] - 100).long()

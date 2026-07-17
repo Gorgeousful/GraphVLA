@@ -11,13 +11,13 @@ from pathlib import Path
 @dataclass
 class TrainingConfig:
     # common
-    resume: bool = False
+    resume: bool = True
     max_steps: int = 30_000
     batch_size: int = 64
 
     # gradient
     gradient_accumulation_steps: int = 1
-    gradient_checkpointing: bool = True # False
+    gradient_checkpointing: bool = True
     gradient_clip_norm: float | None = 10.0
 
     # cos
@@ -45,11 +45,11 @@ class TrainingConfig:
     use_ddp: bool = True
     distributed_backend: str = "nccl"
     use_amp: bool = True
-    compile_model: bool = False
+    compile_model: bool = True
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "no_preencoder_point_pos"
+    wandb_name: str | None = "0717"
 
 
     def to_kwargs(self) -> dict[str, Any]:

@@ -51,7 +51,7 @@ def build_model(model_config: Any, training_config: Any, device: torch.device) -
     if getattr(training_config, "gradient_checkpointing", False):
         model.set_gradient_checkpointing(True)
     if getattr(training_config, "compile_model", False):
-        model = torch.compile(model)
+        model = torch.compile(model, dynamic=False)
     return model
 
 

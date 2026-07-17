@@ -446,8 +446,8 @@ class CustomTransform(TransformFn):
             return self.split_gripper_uvd(data)
         if self.mode in {"build_model_input", "build_final_input"}:
             return self.build_model_input(data)
-        if self.mode == "random_permutation":
-            return self.random_permutation(data)
+        if self.mode == "random_object_permutation":
+            return self.random_object_permutation(data)
         if self.mode == "build_model_output":
             return self.build_model_output(data)
         else:
@@ -459,7 +459,7 @@ class CustomTransform(TransformFn):
         data["gripper_d"] = gripper_uvd[..., 2:3]
         return data
 
-    def random_permutation(self, data: DataDict) -> DataDict:
+    def random_object_permutation(self, data: DataDict) -> DataDict:
         point_feats = data["point_feats"]
         target = data["target"]
         target_point = target["point"]

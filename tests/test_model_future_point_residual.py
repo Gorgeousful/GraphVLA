@@ -11,7 +11,7 @@ from src.model.model import PointQueryModel
 def test_future_point_residual_is_disabled_by_default() -> None:
     default = signature(PointQueryModel).parameters["use_future_point_residual"].default
     assert default is False
-    assert ModelConfig().use_future_point_residual is True
+    assert ModelConfig().use_future_point_residual is False
 
     model = PointQueryModel.__new__(PointQueryModel)
     torch.nn.Module.__init__(model)
