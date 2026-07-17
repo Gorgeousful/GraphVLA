@@ -11,7 +11,7 @@ from pathlib import Path
 @dataclass
 class TrainingConfig:
     # common
-    resume: bool = True
+    resume: bool = False
     max_steps: int = 30_000
     batch_size: int = 64
 
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0716"
+    wandb_name: str | None = "no_preencoder_point_pos"
 
 
     def to_kwargs(self) -> dict[str, Any]:

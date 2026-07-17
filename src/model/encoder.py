@@ -129,8 +129,10 @@ class SetEncoderViT(nn.Module):
     """DINO-style ViT encoder for per-object tracked point tokens.
 
     The point MLP replaces DINO conv patch embedding. Each object at each time
-    step is encoded independently. By default the encoder keeps point tokens as
-    the main output path; a cls token can be enabled for object-level pooling.
+    step is encoded independently without point-index positional embeddings, so
+    point-token outputs are permutation equivariant. By default the encoder
+    keeps point tokens as the main output path; a cls token can be enabled for
+    object-level pooling.
     """
 
     def __init__(
@@ -173,7 +175,6 @@ class SetEncoderViT(nn.Module):
             self.condition_proj = nn.Identity() if condition_dim == hidden_dim else nn.Linear(condition_dim, hidden_dim)
             self.condition_film = nn.Linear(hidden_dim, hidden_dim * 2)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) if use_cls_token else None
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_points + int(use_cls_token), hidden_dim))
         self.register_tokens = (
             nn.Parameter(torch.zeros(1, num_register_tokens, hidden_dim)) if num_register_tokens else None
         )
@@ -206,7 +207,6 @@ class SetEncoderViT(nn.Module):
         self.gradient_checkpointing = enabled
 
     def init_weights(self) -> None:
-        nn.init.trunc_normal_(self.pos_embed, std=0.02)
         if self.cls_token is not None:
             nn.init.normal_(self.cls_token, std=1e-6)
         if self.register_tokens is not None:
@@ -225,19 +225,6 @@ class SetEncoderViT(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             nn.init.ones_(module.weight)
             nn.init.zeros_(module.bias)
-
-    def interpolate_pos_encoding(self, x: torch.Tensor, num_points: int) -> torch.Tensor:
-        if num_points == self.num_points:
-            return self.pos_embed.to(dtype=x.dtype)
-        if not self.use_cls_token:
-            point_pos = self.pos_embed.float().transpose(1, 2)
-            point_pos = F.interpolate(point_pos, size=num_points, mode="linear", align_corners=False)
-            return point_pos.transpose(1, 2).to(dtype=x.dtype)
-        cls_pos = self.pos_embed[:, :1].float()
-        point_pos = self.pos_embed[:, 1:].float().transpose(1, 2)
-        point_pos = F.interpolate(point_pos, size=num_points, mode="linear", align_corners=False)
-        point_pos = point_pos.transpose(1, 2)
-        return torch.cat([cls_pos, point_pos], dim=1).to(dtype=x.dtype)
 
     def prepare_tokens(self, point_feats: torch.Tensor, condition: torch.Tensor | None = None) -> torch.Tensor:
         bsz, steps, num_objects, num_points, _ = point_feats.shape
@@ -261,7 +248,6 @@ class SetEncoderViT(nn.Module):
         if self.cls_token is not None:
             cls = self.cls_token.expand(x.shape[0], -1, -1)
             x = torch.cat([cls, x], dim=1)
-        x = x + self.interpolate_pos_encoding(x, num_points)
         if self.register_tokens is not None:
             registers = self.register_tokens.expand(x.shape[0], -1, -1)
             if self.use_cls_token:
