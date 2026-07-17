@@ -90,7 +90,12 @@ class PointQueryModel(nn.Module):
             condition_dim=condition_dim,
             use_cls_token=False,
         )
-        self.set_proj = (
+        self.object_set_proj = (
+            nn.Identity()
+            if set_hidden_dim == encoder_hidden_dim
+            else nn.Linear(set_hidden_dim, encoder_hidden_dim)
+        )
+        self.actor_set_proj = (
             nn.Identity()
             if set_hidden_dim == encoder_hidden_dim
             else nn.Linear(set_hidden_dim, encoder_hidden_dim)
@@ -168,8 +173,8 @@ class PointQueryModel(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         object_tokens = self.object_encoder(point_feats, condition=object_condition)
         actor_tokens = self.actor_encoder(actor_feats, condition=actor_condition)
-        object_tokens = self.set_proj(object_tokens)
-        actor_tokens = self.set_proj(actor_tokens)
+        object_tokens = self.object_set_proj(object_tokens)
+        actor_tokens = self.actor_set_proj(actor_tokens)
         if actor_tokens.shape[:2] != object_tokens.shape[:2] or actor_tokens.shape[-1] != object_tokens.shape[-1]:
             raise ValueError(
                 "actor/object point tokens must match batch/time/hidden dims: "
