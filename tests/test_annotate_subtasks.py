@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import tools.annotate_lerobot_subtasks as annotator
-from tools.annotate_lerobot_subtasks import create_app
+from tools.annotate_lerobot_subtasks import completion_mask, create_app
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -79,10 +79,41 @@ def make_dataset(root: Path) -> None:
         pq.write_table(table, path, row_group_size=2)
 
 
+def test_completion_mask_marks_last_n_frames_within_each_subtask() -> None:
+    assert completion_mask([4, 7], length=10, completion_frames=2).tolist() == [
+        False,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
+    assert completion_mask([2], length=5, completion_frames=4).tolist() == [
+        True,
+        True,
+        True,
+        True,
+        True,
+    ]
+    assert completion_mask([], length=7, completion_frames=3).tolist() == [
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+        True,
+    ]
+
+
 def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path: Path) -> None:
     root = tmp_path / "dataset"
     make_dataset(root)
-    client = TestClient(create_app(root, preview_fps=5, cache_episodes=1))
+    client = TestClient(create_app(root, preview_fps=5, cache_episodes=1, completion_frames=1))
     parquet = root / "data" / "chunk-000" / "episode_000003.parquet"
     original_row_groups = pq.ParquetFile(parquet).num_row_groups
     original_compression = pq.ParquetFile(parquet).metadata.row_group(0).column(0).compression
@@ -108,21 +139,88 @@ def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path:
         {"subtask_id": 3, "start": 4, "end": 4},
     ]
     assert pq.read_table(parquet, columns=["subtask_id"])["subtask_id"].to_pylist() == [1, 1, 2, 2, 3]
+    assert pq.read_table(parquet, columns=["is_complete"])["is_complete"].to_pylist() == [
+        False,
+        True,
+        False,
+        True,
+        True,
+    ]
     assert pq.ParquetFile(parquet).num_row_groups == original_row_groups
     assert pq.ParquetFile(parquet).metadata.row_group(0).column(0).compression == original_compression
     info = json.loads((root / "meta" / "info.json").read_text(encoding="utf-8"))
     assert info["features"]["subtask_id"] == {"dtype": "int64", "shape": [1], "names": None}
+    assert "is_complete" not in info["features"]
 
-    restarted = TestClient(create_app(root, preview_fps=5, cache_episodes=1))
+    restarted = TestClient(create_app(root, preview_fps=5, cache_episodes=1, completion_frames=1))
     assert restarted.get("/api/episodes/3").json()["boundaries"] == [2, 4]
     assert restarted.get("/api/tasks").json()[0]["annotated"] == 1
     assert restarted.post("/api/episodes/3/annotation", json={"boundaries": [3]}).status_code == 200
     assert pq.read_table(parquet, columns=["subtask_id"])["subtask_id"].to_pylist() == [1, 1, 1, 2, 2]
+    assert pq.read_table(parquet, columns=["is_complete"])["is_complete"].to_pylist() == [
+        False,
+        False,
+        True,
+        False,
+        True,
+    ]
 
     (root / "meta" / "subtask_annotations.jsonl").unlink()
     recovered = TestClient(create_app(root, preview_fps=5, cache_episodes=1))
     assert recovered.get("/api/episodes/3").json()["boundaries"] == [3]
     assert recovered.get("/api/tasks").json()[0]["annotated"] == 1
+
+
+def test_existing_subtask_ids_are_reported_as_needing_is_complete(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    parquet = root / "data/chunk-000/episode_000003.parquet"
+    table = pq.read_table(parquet).append_column(
+        "subtask_id", pa.array([1, 1, 2, 2, 2], type=pa.int64())
+    )
+    pq.write_table(table, parquet, row_group_size=2)
+    info_path = root / "meta/info.json"
+    info = json.loads(info_path.read_text())
+    info["features"]["subtask_id"] = {"dtype": "int64", "shape": [1], "names": None}
+    write_json(info_path, info)
+
+    client = TestClient(create_app(root))
+    episode = client.get("/api/episodes/3").json()
+
+    assert episode["annotated"] is True
+    assert episode["completion_annotated"] is False
+    row = client.get("/api/tasks/7/episodes").json()[0]
+    assert row["completion_annotated"] is False
+    assert [item["episode_index"] for item in client.get("/api/completion-pending").json()] == [3]
+
+    with client.stream(
+        "POST",
+        "/api/annotations/stream",
+        json={"annotations": [{"episode_index": 3, "boundaries": [2]}]},
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+    assert events[0]["status"] == "saved"
+    assert pq.read_table(parquet, columns=["is_complete"])["is_complete"].to_pylist() == [
+        True,
+        True,
+        True,
+        True,
+        True,
+    ]
+    restarted = TestClient(create_app(root))
+    assert restarted.get("/api/episodes/3").json()["completion_annotated"] is True
+
+
+def test_completion_frames_change_queues_recomputation(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    client = TestClient(create_app(root, completion_frames=1))
+    assert client.post("/api/episodes/3/annotation", json={"boundaries": [2]}).status_code == 200
+
+    restarted = TestClient(create_app(root, completion_frames=5))
+
+    assert restarted.get("/api/episodes/3").json()["completion_annotated"] is False
+    assert [item["episode_index"] for item in restarted.get("/api/completion-pending").json()] == [3]
 
 
 def test_batch_annotation_writes_multiple_episodes_once(tmp_path: Path) -> None:
@@ -149,6 +247,12 @@ def test_batch_annotation_writes_multiple_episodes_once(tmp_path: Path) -> None:
         root / "data/chunk-000/episode_000008.parquet", columns=["subtask_id"]
     )["subtask_id"].to_pylist() == [1, 1, 1, 1, 1]
     assert client.get("/api/tasks").json()[0]["annotated"] == 2
+    info = json.loads((root / "meta/info.json").read_text())
+    assert info["features"]["is_complete"] == {
+        "dtype": "bool",
+        "shape": [1],
+        "names": None,
+    }
 
 
 def test_stream_annotation_reports_each_episode_as_it_finishes(tmp_path: Path) -> None:
@@ -265,12 +369,15 @@ def test_web_ui_is_english_and_has_batch_save_and_timeline_markers(tmp_path: Pat
     assert "/api/annotations/stream" in html
     assert "const edited=new Set()" in html
     assert "visited=new Set()" not in html
-    assert "function dirtyIds(){return [...edited]" in html
+    assert "function dirtyIds(){return [...new Set([...edited,...completionPending])]" in html
     assert "submittedByEpisode" in html
     assert ".episode.current" in html
     assert "button.classList.toggle('current'" in html
     assert "subtask_id ✓" in html
     assert "persisted.className='persisted'" in html
+    assert "Needs is_complete" in html
+    assert "completionPending" in html
+    assert "/api/completion-pending" in html
     assert "boundary-thumbnail" in html
     assert "thumbnail.loading='lazy'" in html
     assert "'/frames/'+value" in html

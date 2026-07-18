@@ -31,6 +31,7 @@ from pydantic import BaseModel
 AGENT_IMAGE_KEYS = ("image", "observation.images.image")
 ANNOTATIONS_FILE = "subtask_annotations.jsonl"
 SUBTASK_FEATURE = {"dtype": "int64", "shape": [1], "names": None}
+IS_COMPLETE_FEATURE = {"dtype": "bool", "shape": [1], "names": None}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -90,7 +91,9 @@ class BatchAnnotationRequest(BaseModel):
 
 
 class DatasetStore:
-    def __init__(self, root: Path, preview_fps: float, cache_episodes: int) -> None:
+    def __init__(
+        self, root: Path, preview_fps: float, cache_episodes: int, completion_frames: int
+    ) -> None:
         self.root = root.resolve()
         self.meta_dir = self.root / "meta"
         self.info_path = self.meta_dir / "info.json"
@@ -98,9 +101,12 @@ class DatasetStore:
         self.info = load_json(self.info_path)
         if preview_fps <= 0:
             raise ValueError("preview_fps must be greater than zero")
+        if completion_frames <= 0:
+            raise ValueError("completion_frames must be greater than zero")
         self.tasks = load_jsonl(self.meta_dir / "tasks.jsonl")
         self.episodes = load_jsonl(self.meta_dir / "episodes.jsonl")
         self.preview_fps = preview_fps
+        self.completion_frames = completion_frames
         self.cache_episodes = max(1, cache_episodes)
         self.lock = threading.RLock()
         self.frame_cache: OrderedDict[int, dict[int, bytes]] = OrderedDict()
@@ -111,13 +117,30 @@ class DatasetStore:
         self.task_to_episodes = self._index_task_episodes()
         self.image_key, self.image_dtype = self._agent_image_feature()
         self.annotations = self._load_annotations()
-        self.annotated_episodes = {
-            episode_index
+        schemas = {
+            episode_index: set(pq.read_schema(self.episode_path(episode_index)).names)
             for episode_index in self.episodes_by_index
-            if "subtask_id" in pq.read_schema(self.episode_path(episode_index)).names
         }
-        if self.annotated_episodes and self.info.get("features", {}).get("subtask_id") != SUBTASK_FEATURE:
-            self._ensure_info_feature()
+        self.annotated_episodes = {
+            episode_index for episode_index, names in schemas.items() if "subtask_id" in names
+        }
+        self.completion_column_episodes = {
+            episode_index for episode_index, names in schemas.items() if "is_complete" in names
+        }
+        self.completion_episodes = {
+            episode_index
+            for episode_index in self.completion_column_episodes
+            if self.annotations.get(episode_index, {}).get("completion_frames")
+            == self.completion_frames
+        }
+        features = self.info.get("features", {})
+        if self.annotated_episodes and features.get("subtask_id") != SUBTASK_FEATURE:
+            self._ensure_info_features(include_completion=False)
+        if (
+            len(self.completion_column_episodes) == len(self.episodes_by_index)
+            and features.get("is_complete") != IS_COMPLETE_FEATURE
+        ):
+            self._ensure_info_features(include_completion=True)
 
     def _index_task_episodes(self) -> dict[int, list[int]]:
         output = {index: [] for index in self.tasks_by_index}
@@ -188,9 +211,16 @@ class DatasetStore:
                 "episode_index": episode_index,
                 "length": int(self.episodes_by_index[episode_index]["length"]),
                 "annotated": episode_index in self.annotated_episodes,
+                "completion_annotated": episode_index in self.completion_episodes,
                 "boundaries": self.boundaries(episode_index),
             }
             for episode_index in self.task_to_episodes.get(task_index, [])
+        ]
+
+    def completion_pending_rows(self) -> list[dict[str, Any]]:
+        return [
+            {"episode_index": episode_index, "boundaries": self.boundaries(episode_index)}
+            for episode_index in sorted(self.annotated_episodes - self.completion_episodes)
         ]
 
     def episode_detail(self, episode_index: int) -> dict[str, Any]:
@@ -205,6 +235,7 @@ class DatasetStore:
             "boundaries": self.boundaries(episode_index),
             "segments": segments_from_boundaries(self.boundaries(episode_index), length),
             "annotated": episode_index in self.annotated_episodes,
+            "completion_annotated": episode_index in self.completion_episodes,
         }
 
     def boundaries(self, episode_index: int) -> list[int]:
@@ -282,8 +313,11 @@ class DatasetStore:
                 for text in episode["tasks"]
                 if text in self.task_index_by_text
             )
-            values = np.searchsorted(validated, np.arange(length), side="right") + 1
-            prepared.append((episode_index, task_index, length, validated, values))
+            subtask_ids = np.searchsorted(validated, np.arange(length), side="right") + 1
+            is_complete = completion_mask(validated, length, self.completion_frames)
+            prepared.append(
+                (episode_index, task_index, length, validated, subtask_ids, is_complete)
+            )
 
         saved = []
         failures = []
@@ -291,24 +325,30 @@ class DatasetStore:
         with self.lock, exclusive_dataset_lock(self.meta_dir):
             self.annotations = self._load_annotations()
             timestamp = datetime.now(timezone.utc).isoformat()
-            for episode_index, task_index, length, boundaries, values in prepared:
+            for episode_index, task_index, length, boundaries, subtask_ids, is_complete in prepared:
                 try:
-                    self._write_episode_subtask_ids(episode_index, values)
+                    self._write_episode_annotations(episode_index, subtask_ids, is_complete)
                 except Exception as error:
                     failures.append({"episode_index": episode_index, "error": str(error)})
                     continue
                 saved.append(episode_index)
                 self.annotated_episodes.add(episode_index)
+                self.completion_column_episodes.add(episode_index)
+                self.completion_episodes.add(episode_index)
                 self.annotations[episode_index] = {
                     "episode_index": episode_index,
                     "task_index": task_index,
                     "length": length,
                     "boundaries": boundaries,
+                    "completion_frames": self.completion_frames,
                     "updated_at": timestamp,
                 }
             if saved:
                 try:
-                    self._ensure_info_feature()
+                    self._ensure_info_features(
+                        include_completion=len(self.completion_column_episodes)
+                        == len(self.episodes_by_index)
+                    )
                 except Exception as error:
                     metadata_errors.append({"path": str(self.info_path), "error": str(error)})
                 rows = [self.annotations[index] for index in sorted(self.annotations)]
@@ -328,12 +368,15 @@ class DatasetStore:
             result["metadata_errors"] = metadata_errors
         return result
 
-    def _write_episode_subtask_ids(self, episode_index: int, values: np.ndarray) -> None:
+    def _write_episode_annotations(
+        self, episode_index: int, subtask_ids: np.ndarray, is_complete: np.ndarray
+    ) -> None:
         path = self.episode_path(episode_index)
         source = pq.ParquetFile(path)
-        if source.metadata.num_rows != len(values):
+        if source.metadata.num_rows != len(subtask_ids) or len(subtask_ids) != len(is_complete):
             raise ValueError(
-                f"Episode {episode_index} parquet has {source.metadata.num_rows} rows, expected {len(values)}"
+                f"Episode {episode_index} parquet has {source.metadata.num_rows} rows, "
+                f"expected {len(subtask_ids)}"
             )
         compression = source.metadata.row_group(0).column(0).compression.lower()
         handle, temporary = tempfile.mkstemp(
@@ -346,12 +389,15 @@ class DatasetStore:
             for row_group in range(source.num_row_groups):
                 table = source.read_row_group(row_group)
                 length = table.num_rows
-                column = pa.array(values[offset : offset + length], type=pa.int64())
-                if "subtask_id" in table.column_names:
-                    position = table.column_names.index("subtask_id")
-                    table = table.set_column(position, "subtask_id", column)
-                else:
-                    table = table.append_column("subtask_id", column)
+                columns = (
+                    ("subtask_id", pa.array(subtask_ids[offset : offset + length], type=pa.int64())),
+                    ("is_complete", pa.array(is_complete[offset : offset + length], type=pa.bool_())),
+                )
+                for name, column in columns:
+                    if name in table.column_names:
+                        table = table.set_column(table.column_names.index(name), name, column)
+                    else:
+                        table = table.append_column(name, column)
                 if writer is None:
                     writer = pq.ParquetWriter(temporary, table.schema, compression=compression)
                 writer.write_table(table, row_group_size=length)
@@ -367,11 +413,15 @@ class DatasetStore:
                 writer.close()
             Path(temporary).unlink(missing_ok=True)
 
-    def _ensure_info_feature(self) -> None:
-        if self.info.setdefault("features", {}).get("subtask_id") == SUBTASK_FEATURE:
+    def _ensure_info_features(self, include_completion: bool) -> None:
+        required = {"subtask_id": SUBTASK_FEATURE}
+        if include_completion:
+            required["is_complete"] = IS_COMPLETE_FEATURE
+        features = self.info.setdefault("features", {})
+        if all(features.get(name) == feature for name, feature in required.items()):
             return
         updated_info = copy.deepcopy(self.info)
-        updated_info.setdefault("features", {})["subtask_id"] = SUBTASK_FEATURE
+        updated_info.setdefault("features", {}).update(required)
         atomic_write_text(
             self.info_path, json.dumps(updated_info, ensure_ascii=False, indent=2) + "\n"
         )
@@ -381,6 +431,17 @@ class DatasetStore:
         if episode_index not in self.episodes_by_index:
             raise KeyError(f"Unknown episode_index: {episode_index}")
         return self.episodes_by_index[episode_index]
+
+
+def completion_mask(
+    boundaries: list[int], length: int, completion_frames: int
+) -> np.ndarray:
+    if completion_frames <= 0:
+        raise ValueError("completion_frames must be greater than zero")
+    mask = np.zeros(length, dtype=np.bool_)
+    for start, end in zip([0, *boundaries], [*boundaries, length], strict=True):
+        mask[max(start, end - completion_frames) : end] = True
+    return mask
 
 
 def validate_boundaries(boundaries: list[int], length: int) -> list[int]:
@@ -400,8 +461,13 @@ def segments_from_boundaries(boundaries: list[int], length: int) -> list[dict[st
     ]
 
 
-def create_app(dataset: Path | str, preview_fps: float = 5, cache_episodes: int = 2) -> FastAPI:
-    store = DatasetStore(Path(dataset), preview_fps, cache_episodes)
+def create_app(
+    dataset: Path | str,
+    preview_fps: float = 5,
+    cache_episodes: int = 2,
+    completion_frames: int = 5,
+) -> FastAPI:
+    store = DatasetStore(Path(dataset), preview_fps, cache_episodes, completion_frames)
     app = FastAPI(title="LeRobot Subtask Annotator")
 
     @app.get("/", response_class=HTMLResponse)
@@ -411,6 +477,10 @@ def create_app(dataset: Path | str, preview_fps: float = 5, cache_episodes: int 
     @app.get("/api/tasks")
     def tasks() -> list[dict[str, Any]]:
         return store.task_rows()
+
+    @app.get("/api/completion-pending")
+    def completion_pending() -> list[dict[str, Any]]:
+        return store.completion_pending_rows()
 
     @app.get("/api/tasks/{task_index}/episodes")
     def episodes(task_index: int) -> list[dict[str, Any]]:
@@ -540,18 +610,20 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <script>
 const $=id=>document.getElementById(id);
 let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null;
-const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map();
-const edited=new Set();
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),completionByEpisode=new Map();
+const edited=new Set(),completionPending=new Set();
 async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
 function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
 function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries])}
-function needsSave(id){return edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id))}
-function dirtyIds(){return [...edited].filter(needsSave).sort((a,b)=>a-b)}
-async function init(){tasks=await json('/api/tasks');$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
-async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
+function needsSave(id){return completionPending.has(id)||(edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id)))}
+function dirtyIds(){return [...new Set([...edited,...completionPending])].filter(needsSave).sort((a,b)=>a-b)}
+function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);completionByEpisode.set(id,episode.completion_annotated);if(episode.annotated&&!episode.completion_annotated){completionPending.add(id);if(!savedByEpisode.has(id))savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}else completionPending.delete(id)}
+function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);completionByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
+async function init(){tasks=await json('/api/tasks');const pending=await json('/api/completion-pending');for(const episode of pending)rememberCompletionPending(episode);$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
+async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Changes ('+dirtyIds().length+')'}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}const state=document.createElement('span');if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
-async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);completionByEpisode.set(id,next.completion_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
 function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
@@ -580,7 +652,7 @@ async function saveAll(){
       for(const line of lines){
         if(!line.trim())continue;const event=JSON.parse(line);
         if(event.status==='saved'){
-          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);
+          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);completionByEpisode.set(id,true);completionPending.delete(id);
           if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
           if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.annotated=true;renderAnnotation()}
           metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
@@ -592,7 +664,7 @@ async function saveAll(){
       }
       if(chunk.done)break;
     }
-    tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);
+    tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);
     renderEpisodes();renderProgress();
     if(summary){$('message').textContent='Saved '+summary.saved+' / '+summary.total+' episode(s).'+(summary.failed?' '+summary.failed+' failed and remain unsaved.':'')+(metadataErrorCount?' Metadata sync reported '+metadataErrorCount+' error(s).':'')}
   }catch(error){$('message').textContent=error.message}finally{button.disabled=false;renderProgress()}
@@ -611,12 +683,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8008)
     parser.add_argument("--preview-fps", type=float, default=5)
     parser.add_argument("--cache-episodes", type=int, default=2)
+    parser.add_argument(
+        "--completion-frames",
+        type=int,
+        default=5,
+        help="Mark the last N frames of each subtask as is_complete=true.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    app = create_app(args.dataset, args.preview_fps, args.cache_episodes)
+    app = create_app(
+        args.dataset, args.preview_fps, args.cache_episodes, args.completion_frames
+    )
     print(f"Open http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)
 
