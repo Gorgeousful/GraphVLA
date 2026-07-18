@@ -8,11 +8,12 @@ import cv2
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import tools.annotate_subtasks as annotator
-from tools.annotate_subtasks import create_app
+import tools.annotate_lerobot_subtasks as annotator
+from tools.annotate_lerobot_subtasks import create_app
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -122,6 +123,121 @@ def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path:
     recovered = TestClient(create_app(root, preview_fps=5, cache_episodes=1))
     assert recovered.get("/api/episodes/3").json()["boundaries"] == [3]
     assert recovered.get("/api/tasks").json()[0]["annotated"] == 1
+
+
+def test_batch_annotation_writes_multiple_episodes_once(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    client = TestClient(create_app(root))
+
+    response = client.post(
+        "/api/annotations/batch",
+        json={
+            "annotations": [
+                {"episode_index": 3, "boundaries": [2]},
+                {"episode_index": 8, "boundaries": []},
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"saved_episode_indices": [3, 8]}
+    assert pq.read_table(
+        root / "data/chunk-000/episode_000003.parquet", columns=["subtask_id"]
+    )["subtask_id"].to_pylist() == [1, 1, 2, 2, 2]
+    assert pq.read_table(
+        root / "data/chunk-000/episode_000008.parquet", columns=["subtask_id"]
+    )["subtask_id"].to_pylist() == [1, 1, 1, 1, 1]
+    assert client.get("/api/tasks").json()[0]["annotated"] == 2
+
+
+def test_batch_annotation_reports_partial_failure_and_keeps_success(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    failed_parquet = root / "data/chunk-000/episode_000008.parquet"
+    original_failed = failed_parquet.read_bytes()
+    real_replace = annotator.os.replace
+
+    def fail_second_episode(source, destination):
+        if Path(destination) == failed_parquet:
+            raise OSError("simulated second episode failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(annotator.os, "replace", fail_second_episode)
+    client = TestClient(create_app(root))
+    response = client.post(
+        "/api/annotations/batch",
+        json={
+            "annotations": [
+                {"episode_index": 3, "boundaries": [2]},
+                {"episode_index": 8, "boundaries": [3]},
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["saved_episode_indices"] == [3]
+    assert response.json()["failures"][0]["episode_index"] == 8
+    assert pq.read_table(
+        root / "data/chunk-000/episode_000003.parquet", columns=["subtask_id"]
+    )["subtask_id"].to_pylist() == [1, 1, 2, 2, 2]
+    assert failed_parquet.read_bytes() == original_failed
+    assert client.get("/api/tasks").json()[0]["annotated"] == 1
+    annotations = [
+        json.loads(line)
+        for line in (root / "meta/subtask_annotations.jsonl").read_text().splitlines()
+    ]
+    assert [row["episode_index"] for row in annotations] == [3]
+
+
+@pytest.mark.parametrize("metadata_name", ["info.json", "subtask_annotations.jsonl"])
+def test_batch_annotation_reports_metadata_failure_after_parquet_commit(
+    tmp_path: Path, monkeypatch, metadata_name: str
+) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    target = root / "meta" / metadata_name
+    real_atomic_write_text = annotator.atomic_write_text
+
+    def fail_target(path, text):
+        if Path(path) == target:
+            raise OSError("simulated metadata failure")
+        return real_atomic_write_text(path, text)
+
+    monkeypatch.setattr(annotator, "atomic_write_text", fail_target)
+    client = TestClient(create_app(root))
+    response = client.post(
+        "/api/annotations/batch",
+        json={"annotations": [{"episode_index": 3, "boundaries": [2]}]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["saved_episode_indices"] == [3]
+    assert response.json()["metadata_errors"][0]["path"] == str(target)
+    assert pq.read_table(
+        root / "data/chunk-000/episode_000003.parquet", columns=["subtask_id"]
+    )["subtask_id"].to_pylist() == [1, 1, 2, 2, 2]
+
+    monkeypatch.undo()
+    recovered = TestClient(create_app(root))
+    assert recovered.get("/api/episodes/3").json()["boundaries"] == [2]
+    info = json.loads((root / "meta/info.json").read_text())
+    assert info["features"]["subtask_id"] == {"dtype": "int64", "shape": [1], "names": None}
+
+
+def test_web_ui_is_english_and_has_batch_save_and_timeline_markers(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+
+    html = TestClient(create_app(root)).get("/").text
+
+    assert '<html lang="en">' in html
+    assert "Save All Changes" in html
+    assert 'id="markers"' in html
+    assert "Saved boundary" in html
+    assert "Unsaved boundary" in html
+    assert "保存" not in html
+    assert "标注" not in html
 
 
 def test_http_annotation_rejects_invalid_boundaries_without_writing(tmp_path: Path) -> None:

@@ -81,6 +81,14 @@ class AnnotationRequest(BaseModel):
     boundaries: list[int]
 
 
+class EpisodeAnnotationRequest(AnnotationRequest):
+    episode_index: int
+
+
+class BatchAnnotationRequest(BaseModel):
+    annotations: list[EpisodeAnnotationRequest]
+
+
 class DatasetStore:
     def __init__(self, root: Path, preview_fps: float, cache_episodes: int) -> None:
         self.root = root.resolve()
@@ -108,6 +116,8 @@ class DatasetStore:
             for episode_index in self.episodes_by_index
             if "subtask_id" in pq.read_schema(self.episode_path(episode_index)).names
         }
+        if self.annotated_episodes and self.info.get("features", {}).get("subtask_id") != SUBTASK_FEATURE:
+            self._ensure_info_feature()
 
     def _index_task_episodes(self) -> dict[int, list[int]]:
         output = {index: [] for index in self.tasks_by_index}
@@ -252,33 +262,71 @@ class DatasetStore:
         return encode_jpeg(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
 
     def save_annotation(self, episode_index: int, boundaries: list[int]) -> dict[str, Any]:
-        episode = self._episode(episode_index)
-        length = int(episode["length"])
-        validated = validate_boundaries(boundaries, length)
-        task_index = next(
-            self.task_index_by_text[text]
-            for text in episode["tasks"]
-            if text in self.task_index_by_text
-        )
-        subtask_ids = np.searchsorted(validated, np.arange(length), side="right") + 1
+        result = self.save_annotations([(episode_index, boundaries)])
+        if result.get("failures"):
+            raise RuntimeError(result["failures"][0]["error"])
+        return self.episode_detail(episode_index)
+
+    def save_annotations(self, requests: list[tuple[int, list[int]]]) -> dict[str, Any]:
+        episode_indices = [episode_index for episode_index, _ in requests]
+        if len(episode_indices) != len(set(episode_indices)):
+            raise ValueError("each episode_index may appear only once")
+
+        prepared = []
+        for episode_index, boundaries in requests:
+            episode = self._episode(episode_index)
+            length = int(episode["length"])
+            validated = validate_boundaries(boundaries, length)
+            task_index = next(
+                self.task_index_by_text[text]
+                for text in episode["tasks"]
+                if text in self.task_index_by_text
+            )
+            values = np.searchsorted(validated, np.arange(length), side="right") + 1
+            prepared.append((episode_index, task_index, length, validated, values))
+
+        saved = []
+        failures = []
+        metadata_errors = []
         with self.lock, exclusive_dataset_lock(self.meta_dir):
             self.annotations = self._load_annotations()
-            self._write_episode_subtask_ids(episode_index, subtask_ids)
-            self.annotated_episodes.add(episode_index)
-            self._ensure_info_feature()
-            self.annotations[episode_index] = {
-                "episode_index": episode_index,
-                "task_index": task_index,
-                "length": length,
-                "boundaries": validated,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            rows = [self.annotations[index] for index in sorted(self.annotations)]
-            atomic_write_text(
-                self.annotations_path,
-                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
-            )
-        return self.episode_detail(episode_index)
+            timestamp = datetime.now(timezone.utc).isoformat()
+            for episode_index, task_index, length, boundaries, values in prepared:
+                try:
+                    self._write_episode_subtask_ids(episode_index, values)
+                except Exception as error:
+                    failures.append({"episode_index": episode_index, "error": str(error)})
+                    continue
+                saved.append(episode_index)
+                self.annotated_episodes.add(episode_index)
+                self.annotations[episode_index] = {
+                    "episode_index": episode_index,
+                    "task_index": task_index,
+                    "length": length,
+                    "boundaries": boundaries,
+                    "updated_at": timestamp,
+                }
+            if saved:
+                try:
+                    self._ensure_info_feature()
+                except Exception as error:
+                    metadata_errors.append({"path": str(self.info_path), "error": str(error)})
+                rows = [self.annotations[index] for index in sorted(self.annotations)]
+                try:
+                    atomic_write_text(
+                        self.annotations_path,
+                        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+                    )
+                except Exception as error:
+                    metadata_errors.append(
+                        {"path": str(self.annotations_path), "error": str(error)}
+                    )
+        result: dict[str, Any] = {"saved_episode_indices": saved}
+        if failures:
+            result["failures"] = failures
+        if metadata_errors:
+            result["metadata_errors"] = metadata_errors
+        return result
 
     def _write_episode_subtask_ids(self, episode_index: int, values: np.ndarray) -> None:
         path = self.episode_path(episode_index)
@@ -396,46 +444,75 @@ def create_app(dataset: Path | str, preview_fps: float = 5, cache_episodes: int 
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/annotations/batch")
+    def annotate_batch(request: BatchAnnotationRequest) -> dict[str, Any]:
+        try:
+            return store.save_annotations(
+                [(item.episode_index, item.boundaries) for item in request.annotations]
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     return app
 
 
 HTML = r'''<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LeRobot 子任务标注</title><style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LeRobot Subtask Annotator</title><style>
 :root{font-family:Inter,system-ui,sans-serif;color:#e8edf5;background:#0f131a}*{box-sizing:border-box}
 body{margin:0}header{padding:14px 22px;background:#171d27;border-bottom:1px solid #2b3442;display:flex;gap:20px;align-items:center}
 h1{font-size:18px;margin:0}select,button,input{font:inherit}select,button{background:#222b38;color:#eef3fa;border:1px solid #3b4758;border-radius:7px;padding:8px 11px}
-button{cursor:pointer}button:hover{background:#2d394a}.layout{display:grid;grid-template-columns:280px minmax(500px,1fr) 300px;height:calc(100vh - 59px)}
+button{cursor:pointer}button:hover{background:#2d394a}button:disabled{cursor:default;opacity:.55}.layout{display:grid;grid-template-columns:280px minmax(500px,1fr) 320px;height:calc(100vh - 59px)}
 aside,.right{padding:14px;overflow:auto;background:#141a23}.right{border-left:1px solid #2b3442}.episodes{border-right:1px solid #2b3442}
-.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.done{color:#77d49b}.pending{color:#e5b86b}
+.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
 main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow:auto}.viewer{width:min(100%,900px);background:#080a0e;border-radius:10px;overflow:hidden;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
-#frame{max-width:100%;max-height:100%;image-rendering:auto}.timeline{width:min(100%,900px);margin-top:14px}.timeline input{width:100%}.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-.frame-label{font-variant-numeric:tabular-nums;min-width:160px}.boundary{display:flex;justify-content:space-between;align-items:center;background:#202936;border-radius:7px;padding:8px;margin:6px 0}
-.segment{font-size:13px;color:#b9c4d2;padding:5px 0;border-bottom:1px solid #293342}.primary{background:#246bce;border-color:#347be0}.danger{background:#7b2930}.message{min-height:24px;color:#7ed79f;margin-top:10px}
+#frame{max-width:100%;max-height:100%;image-rendering:auto}.timeline{width:min(100%,900px);margin-top:14px}.range-wrap{position:relative;padding-bottom:15px}.range-wrap input{width:100%;margin:0}
+.marker-track{position:absolute;left:8px;right:8px;bottom:0;height:12px;pointer-events:none}.marker{position:absolute;top:0;width:3px;height:12px;transform:translateX(-1px);border-radius:2px}.marker.saved{background:#63d68b}.marker.unsaved{background:#ffad55}.marker.removed{background:#ef6b73;opacity:.8}
+.legend{display:flex;gap:14px;margin-top:5px;color:#aeb9c7;font-size:12px}.legend span:before{content:"";display:inline-block;width:9px;height:9px;margin-right:5px;border-radius:2px}.legend .saved-key:before{background:#63d68b}.legend .unsaved-key:before{background:#ffad55}.legend .removed-key:before{background:#ef6b73}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.frame-label{font-variant-numeric:tabular-nums;min-width:190px}
+.boundary{display:flex;justify-content:space-between;align-items:center;background:#202936;border-radius:7px;padding:8px;margin:6px 0}.segment{font-size:13px;color:#b9c4d2;padding:5px 0;border-bottom:1px solid #293342}
+.primary{background:#246bce;border-color:#347be0}.danger{background:#7b2930}.message{min-height:24px;color:#7ed79f;margin-top:10px}.save-all{width:100%;margin-top:14px}
 </style></head><body>
-<header><h1>LeRobot 子任务边界标注</h1><label>Task <select id="task"></select></label><span id="taskProgress"></span></header>
+<header><h1>LeRobot Subtask Boundary Annotator</h1><label>Task <select id="task"></select></label><span id="taskProgress"></span></header>
 <div class="layout"><aside class="episodes"><b>Episodes</b><div id="episodes"></div></aside>
-<main><div class="viewer"><img id="frame" alt="episode frame"></div><div class="timeline"><input id="slider" type="range" min="0" value="0" step="1">
-<div class="controls"><button id="play">▶ 播放</button><button id="prev">← 原始帧</button><button id="next">原始帧 →</button><span class="frame-label" id="frameLabel"></span><button class="primary" id="add">在当前帧添加边界</button></div></div></main>
-<aside class="right"><b>边界（该帧开始新 subtask）</b><div id="boundaries"></div><h3>全帧区间</h3><div id="segments"></div><button class="primary" id="save">保存并写入 Parquet</button><div class="message" id="message"></div></aside></div>
+<main><div class="viewer"><img id="frame" alt="Episode frame"></div><div class="timeline">
+<div class="range-wrap"><input id="slider" type="range" min="0" value="0" step="1"><div id="markers" class="marker-track"></div></div>
+<div class="legend"><span class="saved-key">Saved boundary</span><span class="unsaved-key">Unsaved boundary</span><span class="removed-key">Pending removal</span></div>
+<div class="controls"><button id="play">▶ Play</button><button id="prev">← Frame</button><button id="next">Frame →</button><span class="frame-label" id="frameLabel"></span><button class="primary" id="add">Add Boundary at Current Frame</button></div>
+</div></main>
+<aside class="right"><b>Boundaries (this frame starts the next subtask)</b><div id="boundaries"></div><h3>Full-frame Segments</h3><div id="segments"></div>
+<button class="primary save-all" id="save">Save All Changes (0)</button><div class="message" id="message"></div></aside></div>
 <script>
-const $=id=>document.getElementById(id);let tasks=[],episodes=[],detail=null,current=0,boundaries=[],savedBoundaries=[],timer=null,activeTask=null;
-function isDirty(){return JSON.stringify(boundaries)!==JSON.stringify(savedBoundaries)}
-async function json(url,options){const r=await fetch(url,options);const body=await r.json();if(!r.ok)throw new Error(body.detail||r.statusText);return body}
-async function init(){tasks=await json('/api/tasks');$('task').innerHTML='';for(const t of tasks){const o=document.createElement('option');o.value=t.task_index;o.textContent=`${t.task_index}: ${t.task}`;$('task').appendChild(o)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
-async function loadTask(){const id=Number($('task').value);if(detail&&isDirty()&&!confirm('当前 episode 有未保存边界，确定放弃吗？')){$('task').value=activeTask;return}stop();detail=null;activeTask=id;episodes=await json(`/api/tasks/${id}/episodes`);renderEpisodes();const t=tasks.find(x=>x.task_index===id);$('taskProgress').textContent=`${t.annotated}/${t.episodes} 已标注`;if(episodes.length)await selectEpisode(episodes[0].episode_index)}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const ep of episodes){const b=document.createElement('button');b.className='episode';b.onclick=()=>selectEpisode(ep.episode_index);const left=document.createElement('span');left.textContent=`Episode ${ep.episode_index}`;const right=document.createElement('span');right.className=ep.annotated?'done':'pending';right.textContent=ep.annotated?'✓':'待标注';b.append(left,right);box.appendChild(b)}}
-async function selectEpisode(id){if(detail&&detail.episode_index!==id&&isDirty()&&!confirm('当前 episode 有未保存边界，确定放弃吗？'))return;stop();detail=await json(`/api/episodes/${id}`);current=0;boundaries=[...detail.boundaries];savedBoundaries=[...boundaries];$('slider').max=detail.length-1;$('slider').value=0;showFrame();renderBoundaries();$('message').textContent=''}
-function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src=`/api/episodes/${detail.episode_index}/frames/${current}`;$('frameLabel').textContent=`原始帧 ${current} / ${detail.length-1} · subtask ${subtaskAt(current)}`}
-function subtaskAt(frame){return 1+boundaries.filter(x=>x<=frame).length}function move(delta){current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
-function play(){if(timer){stop();return}$('play').textContent='⏸ 暂停';timer=setInterval(()=>{if(current>=detail.length-1){stop();return}move(detail.preview_stride)},1000/detail.fps*detail.preview_stride)}
-function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ 播放'}
-function renderBoundaries(){const box=$('boundaries');box.innerHTML='';for(const value of boundaries){const row=document.createElement('div');row.className='boundary';row.innerHTML=`<span>Frame ${value} → subtask ${1+boundaries.indexOf(value)+1}</span>`;const del=document.createElement('button');del.className='danger';del.textContent='删除';del.onclick=()=>{boundaries=boundaries.filter(x=>x!==value);renderBoundaries();showFrame()};row.appendChild(del);box.appendChild(row)}renderSegments()}
-function renderSegments(){if(!detail)return;const starts=[0,...boundaries],ends=[...boundaries.map(x=>x-1),detail.length-1];$('segments').innerHTML=starts.map((s,i)=>`<div class="segment">subtask ${i+1}: frame ${s}–${ends[i]}</div>`).join('')}
-async function save(){try{const result=await json(`/api/episodes/${detail.episode_index}/annotation`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({boundaries})});detail=result;savedBoundaries=[...boundaries];$('message').textContent='已原子写入 Parquet';tasks=await json('/api/tasks');episodes=await json(`/api/tasks/${$('task').value}/episodes`);renderEpisodes();const t=tasks.find(x=>x.task_index===Number($('task').value));$('taskProgress').textContent=`${t.annotated}/${t.episodes} 已标注`}catch(e){$('message').textContent=e.message}}
-$('slider').oninput=e=>{stop();current=Number(e.target.value);showFrame()};$('play').onclick=play;$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
-$('add').onclick=()=>{if(current<=0||current>=detail.length)return;if(!boundaries.includes(current)){boundaries.push(current);boundaries.sort((a,b)=>a-b);renderBoundaries();showFrame()}};$('save').onclick=save;
-document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')move(-1);if(e.key==='ArrowRight')move(1);if(e.key===' '){e.preventDefault();play()}});window.onbeforeunload=()=>isDirty()?'有未保存标注':undefined;init().catch(e=>$('message').textContent=e.message);
+const $=id=>document.getElementById(id);
+let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null;
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),visited=new Set();
+async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
+function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
+function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries])}
+function needsSave(id){return visited.has(id)&&(!annotatedByEpisode.get(id)||!equal(drafts.get(id),savedByEpisode.get(id)))}
+function dirtyIds(){return [...visited].filter(needsSave).sort((a,b)=>a-b)}
+async function init(){tasks=await json('/api/tasks');$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
+async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
+function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Changes ('+dirtyIds().length+')'}
+function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');if(needsSave(id)){right.className='unsaved';right.textContent='Unsaved'}else if(annotatedByEpisode.get(id)){right.className='done';right.textContent='✓ Saved'}else{right.className='pending';right.textContent='Pending'}button.append(left,right);box.appendChild(button)}}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);visited.add(id);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
+function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
+function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
+function play(){if(timer){stop();return}$('play').textContent='⏸ Pause';timer=setInterval(()=>{if(current>=detail.length-1){stop();return}move(detail.preview_stride)},1000/detail.fps*detail.preview_stride)}
+function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Play'}
+function updateDraft(){drafts.set(detail.episode_index,[...boundaries]);renderAnnotation();showFrame();renderEpisodes();renderProgress()}
+function renderAnnotation(){renderBoundaries();renderSegments();renderMarkers()}
+function renderBoundaries(){const box=$('boundaries');box.innerHTML='';const saved=savedByEpisode.get(detail.episode_index)||[];for(const value of boundaries){const row=document.createElement('div');row.className='boundary';const label=document.createElement('span');label.textContent='Frame '+value+' → subtask '+(boundaries.indexOf(value)+2)+(saved.includes(value)?' (saved)':' (unsaved)');const remove=document.createElement('button');remove.className='danger';remove.textContent='Remove';remove.onclick=()=>{boundaries=boundaries.filter(item=>item!==value);updateDraft()};row.append(label,remove);box.appendChild(row)}}
+function renderSegments(){const starts=[0,...boundaries],ends=[...boundaries.map(value=>value-1),detail.length-1];$('segments').innerHTML=starts.map((start,index)=>'<div class="segment">subtask '+(index+1)+': frame '+start+'–'+ends[index]+'</div>').join('')}
+function renderMarkers(){const saved=savedByEpisode.get(detail.episode_index)||[],currentSet=new Set(boundaries),savedSet=new Set(saved),all=[...new Set([...saved,...boundaries])].sort((a,b)=>a-b),max=Math.max(1,detail.length-1),box=$('markers');box.innerHTML='';for(const value of all){const marker=document.createElement('span');const state=currentSet.has(value)?(savedSet.has(value)?'saved':'unsaved'):'removed';marker.className='marker '+state;marker.style.left=(value/max*100)+'%';marker.title=(state==='saved'?'Saved boundary':state==='unsaved'?'Unsaved boundary':'Saved boundary pending removal')+' at frame '+value;box.appendChild(marker)}}
+async function saveAll(){stashCurrent();const ids=dirtyIds();if(!ids.length){$('message').textContent='There are no unsaved changes.';return}const button=$('save');button.disabled=true;try{const annotations=ids.map(id=>({episode_index:id,boundaries:[...(drafts.get(id)||[])})),result=await json('/api/annotations/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({annotations})}),savedIds=result.saved_episode_indices||[];for(const id of savedIds){savedByEpisode.set(id,[...(drafts.get(id)||[])]);annotatedByEpisode.set(id,true)}tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);if(detail&&savedIds.includes(detail.episode_index)){detail.boundaries=[...boundaries];detail.annotated=true}renderAnnotation();renderEpisodes();renderProgress();const failed=result.failures||[],metadataErrors=result.metadata_errors||[];$('message').textContent=metadataErrors.length?'Saved '+savedIds.length+' episode(s) to Parquet, but metadata sync reported '+metadataErrors.length+' error(s).':failed.length?'Saved '+savedIds.length+' episode(s); '+failed.length+' failed and remain unsaved.':'Saved '+savedIds.length+' episode(s) to Parquet.'}catch(error){$('message').textContent=error.message}finally{button.disabled=false}}
+$('slider').oninput=event=>{stop();current=Number(event.target.value);showFrame()};$('play').onclick=play;$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
+$('add').onclick=()=>{if(!detail||current<=0||current>=detail.length||boundaries.includes(current))return;boundaries.push(current);boundaries.sort((a,b)=>a-b);updateDraft()};$('save').onclick=saveAll;
+document.addEventListener('keydown',event=>{if(event.key==='ArrowLeft')move(-1);if(event.key==='ArrowRight')move(1);if(event.key===' '){event.preventDefault();play()}});
+window.onbeforeunload=()=>dirtyIds().length?'You have unsaved annotations.':undefined;init().catch(error=>$('message').textContent=error.message);
 </script></body></html>'''
 
 
