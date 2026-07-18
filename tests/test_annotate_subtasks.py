@@ -271,6 +271,9 @@ def test_web_ui_is_english_and_has_batch_save_and_timeline_markers(tmp_path: Pat
     assert "button.classList.toggle('current'" in html
     assert "subtask_id ✓" in html
     assert "persisted.className='persisted'" in html
+    assert "boundary-thumbnail" in html
+    assert "thumbnail.loading='lazy'" in html
+    assert "'/frames/'+value" in html
     assert "保存" not in html
     assert "标注" not in html
 
