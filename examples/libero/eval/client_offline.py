@@ -78,6 +78,7 @@ def _first_batch(value: Any) -> np.ndarray:
 
 def _actor_uvd_for_frame(
     points: np.ndarray,
+    metric_depth: np.ndarray,
     object_id: np.ndarray,
     point_id: np.ndarray,
     frame_id: np.ndarray,
@@ -85,12 +86,16 @@ def _actor_uvd_for_frame(
 ) -> dict[str, np.ndarray] | None:
     mask = (object_id == 0) & (frame_id == target_frame_id)
     by_id = {int(pid): point for pid, point in zip(point_id[mask], points[mask], strict=True)}
+    metric_by_id = {
+        int(pid): depth
+        for pid, depth in zip(point_id[mask], metric_depth[mask], strict=True)
+    }
     if not all(index in by_id for index in (0, 1, 2)):
         return None
     return {
-        "root_uvd": by_id[0][[0, 1, 4]],
-        "left_uvd": by_id[1][[0, 1, 4]],
-        "right_uvd": by_id[2][[0, 1, 4]],
+        "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
+        "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+        "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
     }
 
 
@@ -112,6 +117,7 @@ def build_actor_diagnostics(
     close_threshold: float,
 ) -> list[dict[str, Any]]:
     points = _first_batch(response["point"]).astype(np.float64)
+    metric_depth = _first_batch(response["metric_depth"]).astype(np.float64).reshape(-1)
     object_id = _first_batch(response["object_id"]).astype(np.int64)
     point_id = _first_batch(response["point_id"]).astype(np.int64)
     frame_id = _first_batch(response["frame_id"]).astype(np.int64)
@@ -124,7 +130,9 @@ def build_actor_diagnostics(
 
     rows = []
     for future_frame_id in sorted(int(value) for value in np.unique(frame_id) if value > 0):
-        pred_uvd = _actor_uvd_for_frame(points, object_id, point_id, frame_id, future_frame_id)
+        pred_uvd = _actor_uvd_for_frame(
+            points, metric_depth, object_id, point_id, frame_id, future_frame_id
+        )
         gt_index = future_frame_id + history_horizon
         if pred_uvd is None or not 0 <= gt_index < len(gt_array):
             continue
@@ -388,6 +396,7 @@ def run_sample(
         raise RuntimeError(response["error"])
     required_response_fields = (
         "point",
+        "metric_depth",
         "object_id",
         "point_id",
         "frame_id",

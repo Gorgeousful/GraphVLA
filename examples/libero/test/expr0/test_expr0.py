@@ -16,7 +16,8 @@ from script.server import InferenceModel
 
 class FakePointModel:
     def infer(self, **inputs):
-        return {"point": inputs["point_feats"].reshape(1, -1, inputs["point_feats"].shape[-1])}
+        features = inputs["point_feats"].reshape(1, -1, inputs["point_feats"].shape[-1])
+        return {"point": features[..., :4], "metric_depth": features[..., 4:5]}
 
 
 def test_observation_request_can_warm_up_to_sample_without_future_leakage() -> None:
@@ -76,14 +77,15 @@ def test_inference_model_optionally_returns_exact_tensor_inputs() -> None:
         "point_id": np.asarray([[0, 0]], dtype=np.int64),
         "frame_id": np.asarray([[0, 0]], dtype=np.int64),
         "frame_query_frame_id": np.asarray([[0]], dtype=np.int64),
-        "head_names": "point",
+        "head_names": ["point", "metric_depth"],
     }
     outputs, captured = wrapper.infer(data, return_model_input=True)
 
     assert "point" in outputs
+    assert "metric_depth" in outputs
     assert np.asarray(captured["point_feats"]).shape == (1, 1, 1, 2, 6)
     assert np.array_equal(captured["object_id"], data["object_id"])
-    assert captured["head_names"] == "point"
+    assert captured["head_names"] == ["point", "metric_depth"]
 
 
 def test_patient_permutation_is_fixed_across_frames_and_preserves_other_slot() -> None:

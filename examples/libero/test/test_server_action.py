@@ -29,10 +29,11 @@ def test_to_action_binarizes_gripper_width(opening_width: float, expected_action
     adapter = EmbodimentAdapter(future_horizon=1, robot_cls=lambda **_: Robot())
     outputs = {
         "point": [[
-            [10.0, 10.0, 0.5, 1.0, 0.5, 1.0],
-            [11.0, 10.0, 0.5, 1.0, 0.5, 1.0],
-            [12.0, 10.0, 0.5, 1.0, 0.5, 1.0],
-        ]]
+            [10.0, 10.0, 0.5, 1.0],
+            [11.0, 10.0, 0.5, 1.0],
+            [12.0, 10.0, 0.5, 1.0],
+        ]],
+        "metric_depth": [[[0.5], [0.5], [0.5]]],
     }
     model_input = {
         "object_id": [[0, 0, 0]],

@@ -79,6 +79,8 @@ def load_gt_sample(episode_index: int, sample_index: int) -> tuple[dict[str, Any
 def save_gt_input(path: Path, sample: dict[str, Any]) -> None:
     arrays = {key: to_numpy(sample[key])[None] for key in ARRAY_FIELDS}
     arrays["target_point"] = to_numpy(sample["target"]["point"])[None]
+    arrays["target_metric_depth"] = to_numpy(sample["target"]["metric_depth"])[None]
+    arrays["target_metric_depth_mask"] = to_numpy(sample["target"]["metric_depth_mask"])[None]
     arrays["target_point_mask"] = to_numpy(sample["target"]["point_mask"])[None]
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **arrays)
@@ -242,7 +244,8 @@ def permute_patient_points(point_feats: torch.Tensor, seed: int) -> tuple[torch.
 
 @torch.inference_mode()
 def infer_points(model: PointQueryModel, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-    return model.infer(**batch, head_names="point")["point"].detach().cpu()
+    outputs = model.infer(**batch, head_names=("point", "metric_depth"))
+    return torch.cat([outputs["point"], outputs["metric_depth"]], dim=-1).detach().cpu()
 
 
 def future_actor_mask(sample: dict[str, Any]) -> np.ndarray:
@@ -267,7 +270,6 @@ def action_metrics(prediction: np.ndarray, target: np.ndarray, mask: np.ndarray)
         "depth_rel_mae_norm": float(np.mean(np.abs(diff[:, 2]))),
         "visibility_mae": float(np.mean(np.abs(diff[:, 3]))),
         "gripper_metric_mae_norm": float(np.mean(np.abs(diff[:, 4]))),
-        "metric_mask_mae": float(np.mean(np.abs(diff[:, 5]))),
     }
 
 
@@ -288,12 +290,17 @@ def sensitivity_metrics(control: np.ndarray, permuted: np.ndarray, mask: np.ndar
 
 def display_points(raw_points: torch.Tensor, object_id: torch.Tensor) -> np.ndarray:
     data: dict[str, Any] = {
-        "outputs": {"point": raw_points.clone()},
+        "outputs": {
+            "point": raw_points[..., :4].clone(),
+            "metric_depth": raw_points[..., 4:5].clone(),
+        },
         "batch": {"object_id": object_id.unsqueeze(0)},
     }
     for transform in LIBERO_DATA_CONFIG.out_transforms:
         data = transform(data)
-    return data["outputs"]["point"].detach().cpu().numpy()[0]
+    point = data["outputs"]["point"]
+    metric_depth = data["outputs"]["metric_depth"]
+    return torch.cat([point, metric_depth], dim=-1).detach().cpu().numpy()[0]
 
 
 def actor_uvd_by_frame(points: np.ndarray, sample: dict[str, Any]) -> dict[int, np.ndarray]:
@@ -375,7 +382,10 @@ def run_point_order_experiment(
 
     control = infer_points(model, control_batch)
     permuted = infer_points(model, permuted_batch)
-    target = sample["target"]["point"]
+    target = torch.cat(
+        [sample["target"]["point"], sample["target"]["metric_depth"]],
+        dim=-1,
+    )
     mask = future_actor_mask(sample)
 
     gt_display = display_points(target.unsqueeze(0), sample["object_id"])

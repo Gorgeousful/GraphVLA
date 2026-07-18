@@ -33,7 +33,8 @@ class ModelConfig:
 
     output_dims: dict[str, int] = field(
         default_factory=lambda: {
-            "point": 5,
+            "point": 4,
+            "metric_depth": 1,
             "is_complete": 1
         }
     )
@@ -53,7 +54,7 @@ class ModelConfig:
         }
     )
     use_future_point_residual: bool = False
-    residual_point_dims: tuple[int, ...] = (0, 1, 2, 4) # u,v,d,d_metric
+    residual_point_dims: tuple[int, ...] = (0, 1, 2) # u,v,d
 
     num_query_types: int = 0
     num_frame_query_types: int = 0

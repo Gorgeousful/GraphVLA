@@ -30,13 +30,20 @@ def test_random_permutation_keeps_object_trajectories_and_targets_aligned() -> N
             True, True, True, False, True, False, True, True, False, True, False,
         ]
     )
+    target_metric_depth = target_point + 1000.0
+    target_metric_mask = ~target_mask
     data = {
         "point_feats": point_feats,
         "actor_feats": actor_feats,
         "object_id": object_id,
         "point_id": point_id,
         "frame_id": frame_id,
-        "target": {"point": target_point, "point_mask": target_mask},
+        "target": {
+            "point": target_point,
+            "metric_depth": target_metric_depth,
+            "metric_depth_mask": target_metric_mask,
+            "point_mask": target_mask,
+        },
     }
 
     with torch.random.fork_rng(devices=[]):
@@ -60,6 +67,15 @@ def test_random_permutation_keeps_object_trajectories_and_targets_aligned() -> N
     expected_mask_2 = target_mask[object_id == 2].reshape(2, 4)[:, permutation_2]
     torch.testing.assert_close(output["target"]["point_mask"][object_id == 1].reshape(2, 4), expected_mask_1)
     torch.testing.assert_close(output["target"]["point_mask"][object_id == 2].reshape(2, 4), expected_mask_2)
+
+    for key, source in (
+        ("metric_depth", target_metric_depth),
+        ("metric_depth_mask", target_metric_mask),
+    ):
+        expected_1 = source[object_id == 1].reshape(2, 4)[:, permutation_1]
+        expected_2 = source[object_id == 2].reshape(2, 4)[:, permutation_2]
+        torch.testing.assert_close(output["target"][key][object_id == 1].reshape(2, 4), expected_1)
+        torch.testing.assert_close(output["target"][key][object_id == 2].reshape(2, 4), expected_2)
 
     torch.testing.assert_close(output["actor_feats"], actor_feats)
     torch.testing.assert_close(output["target"]["point"][object_id == 0], target_point[object_id == 0])

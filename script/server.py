@@ -482,7 +482,7 @@ class InputPreprocessor:
             "input_object_id": input_object_id[None].tolist(),
             "input_point_id": input_point_id[None].tolist(),
             "input_frame_id": input_frame_id[None].tolist(),
-            "head_names": "point",
+            "head_names": ("point", "metric_depth"),
             "frame_head_names": "is_complete",
         }
 
@@ -805,10 +805,11 @@ class EmbodimentAdapter:
     ) -> tuple[list[list[float]], list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        if "point" not in outputs:
-            raise KeyError("Model outputs must contain 'point' to recover action")
+        if "point" not in outputs or "metric_depth" not in outputs:
+            raise KeyError("Model outputs must contain 'point' and 'metric_depth' to recover action")
 
         points = np.asarray(outputs["point"], dtype=np.float32)[0]
+        metric_depth = np.asarray(outputs["metric_depth"], dtype=np.float32)[0].reshape(-1)
         object_id = np.asarray(model_input["object_id"], dtype=np.int64)[0]
         point_id = np.asarray(model_input["point_id"], dtype=np.int64)[0]
         frame_id = np.asarray(model_input["frame_id"], dtype=np.int64)[0]
@@ -820,16 +821,17 @@ class EmbodimentAdapter:
         for future_frame_id in range(1, self.future_horizon + 1):
             mask = (object_id == 0) & (frame_id == future_frame_id)
             actor_points = points[mask]
+            actor_metric_depth = metric_depth[mask]
             actor_point_ids = point_id[mask]
             by_id = {int(pid): actor_points[index] for index, pid in enumerate(actor_point_ids)}
+            metric_by_id = {int(pid): actor_metric_depth[index] for index, pid in enumerate(actor_point_ids)}
             missing = [index for index in (0, 1, 2) if index not in by_id]
             if missing:
                 raise ValueError(f"Missing actor point ids {missing} for future_frame_id={future_frame_id}")
-            # Actor points are [u, v, depth_rel, visibility, gripper_d, ...].
             uvd_dict = {
-                "root_uvd": by_id[0][[0, 1, 4]],
-                "left_uvd": by_id[1][[0, 1, 4]],
-                "right_uvd": by_id[2][[0, 1, 4]],
+                "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
+                "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+                "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
             }
             self._validate_uvd(uvd_dict, future_frame_id=future_frame_id)
             action = self._robot().project_uvd_to_gripper(

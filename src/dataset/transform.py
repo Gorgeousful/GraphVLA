@@ -462,8 +462,6 @@ class CustomTransform(TransformFn):
     def random_object_permutation(self, data: DataDict) -> DataDict:
         point_feats = data["point_feats"]
         target = data["target"]
-        target_point = target["point"]
-        target_mask = target.get("point_mask")
         object_id = data["object_id"]
 
         if point_feats.ndim != 4:
@@ -472,39 +470,31 @@ class CustomTransform(TransformFn):
         object_count = point_feats.shape[1]
         points_per_object = point_feats.shape[2]
         permuted_feats = point_feats.clone()
-        permuted_target = target_point.clone()
-        permuted_mask = target_mask.clone() if target_mask is not None else None
+        target_fields = tuple(
+            key
+            for key in ("point", "metric_depth", "metric_depth_mask", "point_mask")
+            if key in target
+        )
+        permuted_target = {**target, **{key: target[key].clone() for key in target_fields}}
 
         for object_index in range(object_count):
             permutation = torch.randperm(points_per_object, device=point_feats.device)
             permuted_feats[:, object_index] = point_feats[:, object_index].index_select(1, permutation)
 
             query_mask = object_id == object_index + 1
-            selected_point = target_point[query_mask]
-            if selected_point.shape[0] % points_per_object != 0:
-                raise ValueError(
-                    f"Object {object_index + 1} has {selected_point.shape[0]} target rows; "
-                    f"expected a multiple of {points_per_object}"
-                )
-            target_permutation = permutation.to(target_point.device)
-            permuted_target[query_mask] = (
-                selected_point.reshape(-1, points_per_object, target_point.shape[-1])
-                .index_select(1, target_permutation)
-                .reshape_as(selected_point)
-            )
-
-            if target_mask is not None:
-                selected_mask = target_mask[query_mask]
-                permuted_mask[query_mask] = (
-                    selected_mask.reshape(-1, points_per_object)
-                    .index_select(1, permutation.to(target_mask.device))
-                    .reshape_as(selected_mask)
+            for key in target_fields:
+                selected = target[key][query_mask]
+                if selected.shape[0] % points_per_object != 0:
+                    raise ValueError(
+                        f"Object {object_index + 1} has {selected.shape[0]} {key} rows; "
+                        f"expected a multiple of {points_per_object}"
+                    )
+                grouped = selected.reshape(-1, points_per_object, *selected.shape[1:])
+                permuted_target[key][query_mask] = (
+                    grouped.index_select(1, permutation.to(selected.device)).reshape_as(selected)
                 )
 
-        permuted_target_dict = {**target, "point": permuted_target}
-        if permuted_mask is not None:
-            permuted_target_dict["point_mask"] = permuted_mask
-        return {**data, "point_feats": permuted_feats, "target": permuted_target_dict}
+        return {**data, "point_feats": permuted_feats, "target": permuted_target}
 
     def build_model_output(self, data: DataDict) -> DataDict:
         height = int(self._extra_value("height", 256))
@@ -524,19 +514,14 @@ class CustomTransform(TransformFn):
             )
             point[..., 3] = torch.sigmoid(point[..., 3])
 
-            batch = data.get("batch", data)
-            object_id = batch.get("object_id") if isinstance(batch, Mapping) else None
-            if object_id is not None and point.shape[-1] > 4:
-                actor_mask = object_id == 0
-                while actor_mask.ndim < point[..., 4:5].ndim:
-                    actor_mask = actor_mask.unsqueeze(-1)
-                actor_metric = self._unnormalize_output_field(
-                    point[..., 4:5],
-                    field="gripper_d",
-                    context=data,
-                )
-                point[..., 4:5] = torch.where(actor_mask, actor_metric, point[..., 4:5])
             outputs["point"] = point
+
+        if "metric_depth" in outputs:
+            outputs["metric_depth"] = self._unnormalize_output_field(
+                outputs["metric_depth"].clone(),
+                field="gripper_d",
+                context=data,
+            )
 
         if self._extra_value("sigmoid_is_complete", True) and "is_complete" in outputs:
             outputs["is_complete"] = torch.sigmoid(outputs["is_complete"])
@@ -662,7 +647,9 @@ class CustomTransform(TransformFn):
             "frame_id": frame_id,
             "frame_query_frame_id": frame_offsets,
             "target": {
-                "point": target_point,
+                "point": target_point[..., :4],
+                "metric_depth": target_point[..., 4:5],
+                "metric_depth_mask": target_point[..., 5] > 0.5,
                 "point_mask": target_point_mask,
                 "is_complete": is_complete,
             },

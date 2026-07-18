@@ -22,7 +22,7 @@ class PointQueryModel(nn.Module):
     SetEncoderViT keeps per-point tokens. The memory contains actor point
     tokens plus object point tokens over the history-to-now window. Queries ask
     for object_id/point_id at a relative frame_id and produce query-level
-    head outputs, e.g. [B, Q, 5] for output_dims={"point": 5}.
+    head outputs, e.g. [B, Q, 4] for output_dims={"point": 4}.
     """
 
     def __init__(
@@ -58,7 +58,7 @@ class PointQueryModel(nn.Module):
         dropout: float = 0.1,
         weights: dict[str, float] | None = None,
         use_future_point_residual: bool = False,
-        residual_point_dims: tuple[int, ...] = (0, 1, 2, 4),
+        residual_point_dims: tuple[int, ...] = (0, 1, 2),
     ) -> None:
         super().__init__()
         #: pre-encoder
@@ -346,12 +346,13 @@ class PointQueryModel(nn.Module):
         )
 
         if "point" in target:
+            point_head_names = ("point", "metric_depth") if "metric_depth" in target else "point"
             point_outputs = self.decode(
                 memory=memory,
                 object_id=batch["object_id"],
                 point_id=batch["point_id"],
                 frame_id=batch["frame_id"],
-                head_names="point",
+                head_names=point_head_names,
             )
             point = self._apply_future_point_residual(
                 point_outputs["point"],
@@ -368,8 +369,22 @@ class PointQueryModel(nn.Module):
                 target_point[..., 3],
                 reduction="none",
             )
-            metric_depth_err = (target_point[..., 4] - point[..., 4]).abs()
-            metric_depth_mask = target_point[..., 5] > 0.5
+            point_components = [
+                ("point_regression", point_regression_err, None),
+                ("visibility", visibility_err, None),
+            ]
+            if "metric_depth" in target:
+                predicted_metric_depth = point_outputs["metric_depth"].squeeze(-1)
+                target_metric_depth = target["metric_depth"].to(
+                    device=predicted_metric_depth.device,
+                    dtype=predicted_metric_depth.dtype,
+                ).squeeze(-1)
+                metric_depth_err = (target_metric_depth - predicted_metric_depth).abs()
+                metric_depth_mask = target["metric_depth_mask"].to(
+                    device=predicted_metric_depth.device,
+                    dtype=torch.bool,
+                )
+                point_components.append(("metric_depth", metric_depth_err, metric_depth_mask))
             point_mask = target.get("point_mask")
             if point_mask is None:
                 point_mask = torch.ones_like(point_regression_err, dtype=torch.bool)
@@ -420,11 +435,7 @@ class PointQueryModel(nn.Module):
             for name, mask in loss_masks.items():
                 group_weight = float(weights.get(name, 1.0)) * float(frame_weights[name])
                 group_loss = point_regression_err.new_zeros(())
-                for component_name, component_err, component_mask in (
-                    ("point_regression", point_regression_err, None),
-                    ("visibility", visibility_err, None),
-                    ("metric_depth", metric_depth_err, metric_depth_mask),
-                ):
+                for component_name, component_err, component_mask in point_components:
                     selected_mask = mask if component_mask is None else mask & component_mask
                     selected_err = component_err[selected_mask]
                     component_loss = (

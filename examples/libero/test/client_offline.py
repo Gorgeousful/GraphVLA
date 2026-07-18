@@ -61,7 +61,7 @@ def build_request(sample: dict[str, Any]) -> dict[str, Any]:
         "frame_query_frame_id",
     )
     data = {key: to_json_value(add_batch_dim(sample[key])) for key in keys if key in sample}
-    data["head_names"] = "point"
+    data["head_names"] = ["point", "metric_depth"]
     data["frame_head_names"] = "is_complete"
     return data
 
@@ -206,6 +206,7 @@ def gripper_state_errors(
     *,
     robot: GeomFrankaPanda,
     points: np.ndarray,
+    metric_depth: np.ndarray,
     object_id: np.ndarray,
     point_id: np.ndarray,
     frame_id: np.ndarray,
@@ -227,16 +228,20 @@ def gripper_state_errors(
             continue
         mask = (object_id == 0) & (frame_id == fid)
         actor_points = points[mask]
+        actor_metric_depth = metric_depth[mask]
         actor_point_ids = point_id[mask]
         if actor_points.shape[0] < 3:
             continue
         by_id = {int(pid): actor_points[index] for index, pid in enumerate(actor_point_ids)}
+        metric_by_id = {
+            int(pid): actor_metric_depth[index] for index, pid in enumerate(actor_point_ids)
+        }
         if not all(index in by_id for index in (0, 1, 2)):
             continue
         uvd = {
-            "root_uvd": by_id[0][:3],
-            "left_uvd": by_id[1][:3],
-            "right_uvd": by_id[2][:3],
+            "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
+            "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+            "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
         }
         if not all(np.isfinite(value).all() and value[2] > 1e-6 for value in uvd.values()):
             continue
@@ -281,10 +286,11 @@ def run_sample(
     if "error" in response:
         raise RuntimeError(response["error"])
     outputs = response["outputs"]
-    if "point" not in outputs:
-        raise KeyError("server response missing outputs['point']")
+    if "point" not in outputs or "metric_depth" not in outputs:
+        raise KeyError("server response missing outputs['point'] or outputs['metric_depth']")
 
     points = np.asarray(outputs["point"], dtype=np.float32)[0]
+    metric_depth = np.asarray(outputs["metric_depth"], dtype=np.float32)[0].reshape(-1)
     object_id = np.asarray(request_data["object_id"], dtype=np.int64)[0]
     frame_id = np.asarray(request_data["frame_id"], dtype=np.int64)[0]
     point_id = np.asarray(request_data["point_id"], dtype=np.int64)[0]
@@ -297,6 +303,7 @@ def run_sample(
     errors = gripper_state_errors(
         robot=robot,
         points=points,
+        metric_depth=metric_depth,
         object_id=object_id,
         point_id=point_id,
         frame_id=frame_id,

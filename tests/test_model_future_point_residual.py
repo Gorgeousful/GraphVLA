@@ -16,7 +16,7 @@ def test_future_point_residual_is_disabled_by_default() -> None:
     model = PointQueryModel.__new__(PointQueryModel)
     torch.nn.Module.__init__(model)
     model.use_future_point_residual = False
-    model.residual_point_dims = (0, 1, 2, 4)
+    model.residual_point_dims = (0, 1, 2)
     raw_point = torch.randn(1, 2, 6)
 
     output = model._apply_future_point_residual(
@@ -35,8 +35,8 @@ def test_future_point_residual_is_applied_when_enabled() -> None:
     model = PointQueryModel.__new__(PointQueryModel)
     torch.nn.Module.__init__(model)
     model.use_future_point_residual = True
-    model.residual_point_dims = (0, 1, 2, 4)
-    raw_point = torch.ones(1, 2, 6)
+    model.residual_point_dims = (0, 1, 2)
+    raw_point = torch.ones(1, 2, 4)
     point_feats = torch.zeros(1, 1, 1, 1, 6)
     actor_feats = torch.tensor([[[[[10.0, 20.0, 30.0, 40.0, 50.0, 60.0]]]]])
 
@@ -50,5 +50,5 @@ def test_future_point_residual_is_applied_when_enabled() -> None:
     )
 
     expected = raw_point.clone()
-    expected[:, 1, (0, 1, 2, 4)] += actor_feats[0, -1, 0, 0, (0, 1, 2, 4)]
+    expected[:, 1, (0, 1, 2)] += actor_feats[0, -1, 0, 0, (0, 1, 2)]
     torch.testing.assert_close(output, expected)
