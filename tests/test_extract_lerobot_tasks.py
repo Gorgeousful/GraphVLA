@@ -129,7 +129,7 @@ def test_cli_extracts_independent_dataset_and_rebuilds_all_indices(tmp_path: Pat
     )
 
     assert result.returncode == 0, result.stderr
-    output = tmp_path / "source_task_indexs_7_3"
+    output = tmp_path / "source_7_3"
     assert read_jsonl(output / "meta" / "tasks.jsonl") == [
         {"task_index": 0, "task": "task seven"},
         {"task_index": 1, "task": "task three"},
@@ -194,4 +194,5 @@ def test_cli_rejects_invalid_task_indices(
 
     assert result.returncode != 0
     assert message in result.stderr
-    assert not list(tmp_path.glob("source_task_indexs_*"))
+    expected_output = tmp_path / ("source_" + "_".join(map(str, task_indices)))
+    assert not expected_output.exists()

@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", type=Path, help="Source LeRobot v2 dataset directory.")
     parser.add_argument("task_indices", type=int, nargs="+", help="Source task_index values to extract.")
-    parser.add_argument("--output", type=Path, help="Defaults to <dataset>_task_indexs_<ids>.")
+    parser.add_argument("--output", type=Path, help="Defaults to <dataset>_<ids>.")
     return parser.parse_args()
 
 
@@ -286,7 +286,7 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
 
 def main() -> None:
     args = parse_args()
-    suffix = "_task_indexs_" + "_".join(str(index) for index in args.task_indices)
+    suffix = "_" + "_".join(str(index) for index in args.task_indices)
     output = args.output or args.dataset.with_name(args.dataset.name + suffix)
     extract_dataset(args.dataset, output, args.task_indices)
     print(f"Output: {output.resolve()}")
