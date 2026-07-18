@@ -54,7 +54,6 @@ class ModelConfig:
         }
     )
     use_future_point_residual: bool = False
-    residual_point_dims: tuple[int, ...] = (0, 1, 2) # u,v,d
 
     num_query_types: int = 0
     num_frame_query_types: int = 0

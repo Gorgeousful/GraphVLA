@@ -24,7 +24,6 @@ class FixedPointModel(PointQueryModel):
         self.weights = {}
         self.actor_num_points = 3
         self.use_future_point_residual = False
-        self.residual_point_dims = ()
 
     def encode(self, **kwargs: torch.Tensor) -> torch.Tensor:
         return self.point_prediction.new_zeros((self.point_prediction.shape[0], 1, 1))
@@ -124,6 +123,44 @@ def test_metric_depth_uses_separate_target_and_mask() -> None:
         model.metric_prediction.grad[..., 0][~metric_mask],
         torch.zeros(2),
     )
+
+
+def test_metric_depth_mask_applies_to_object_queries() -> None:
+    point_prediction = torch.zeros(1, 9, 4)
+    metric_prediction = torch.zeros(1, 9, 1)
+    metric_target = torch.tensor(
+        [[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [2.0], [100.0], [4.0]]]
+    )
+    metric_mask = torch.tensor(
+        [[False, False, False, False, False, False, True, False, True]]
+    )
+    batch = {
+        "point_feats": torch.empty(1, 0),
+        "actor_feats": torch.empty(1, 0),
+        "object_id": torch.tensor([[0, 0, 0, 0, 0, 0, 1, 1, 1]]),
+        "point_id": torch.tensor([[0, 1, 2, 0, 1, 2, 0, 1, 2]]),
+        "frame_id": torch.tensor([[0, 0, 0, 1, 1, 1, 1, 1, 1]]),
+        "target": {
+            "point": torch.zeros(1, 9, 4),
+            "point_mask": torch.ones(1, 9, dtype=torch.bool),
+            "metric_depth": metric_target,
+            "metric_depth_mask": metric_mask,
+        },
+    }
+    model = FixedPointModel(point_prediction, metric_prediction)
+
+    _, metrics = model(
+        batch,
+        weights={
+            "point_regression": 0.0,
+            "visibility": 0.0,
+            "metric_depth": 1.0,
+            "gripper_width": 0.0,
+            "future_object": 0.0,
+        },
+    )
+
+    torch.testing.assert_close(metrics["loss_future_object_metric_depth"], torch.tensor(3.0))
 
 
 def test_gripper_width_uses_left_right_uv_distance_for_each_actor_frame() -> None:

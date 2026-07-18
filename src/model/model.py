@@ -58,7 +58,6 @@ class PointQueryModel(nn.Module):
         dropout: float = 0.1,
         weights: dict[str, float] | None = None,
         use_future_point_residual: bool = False,
-        residual_point_dims: tuple[int, ...] = (0, 1, 2),
     ) -> None:
         super().__init__()
         #: pre-encoder
@@ -67,7 +66,6 @@ class PointQueryModel(nn.Module):
         self.max_objects = max_objects
         self.weights = {} if weights is None else dict(weights)
         self.use_future_point_residual = bool(use_future_point_residual)
-        self.residual_point_dims = tuple(int(dim) for dim in residual_point_dims)
         self.object_encoder = SetEncoderViT(
             point_dim=point_dim,
             hidden_dim=set_hidden_dim,
@@ -260,16 +258,39 @@ class PointQueryModel(nn.Module):
         point_id: torch.Tensor,
         frame_id: torch.Tensor,
     ) -> torch.Tensor:
-        if not self.use_future_point_residual or not self.residual_point_dims:
+        if not self.use_future_point_residual:
             return raw_point
-        dims = torch.as_tensor(self.residual_point_dims, device=raw_point.device, dtype=torch.long)
         anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(dtype=raw_point.dtype)
         output = raw_point.clone()
         future_mask = (frame_id > 0).unsqueeze(-1)
-        residual_point = anchors.index_select(-1, dims) + raw_point.index_select(-1, dims)
-        direct_point = raw_point.index_select(-1, dims)
-        output[..., dims] = torch.where(future_mask, residual_point, direct_point).to(dtype=output.dtype)
+        output[..., :3] = torch.where(
+            future_mask,
+            anchors[..., :3] + raw_point[..., :3],
+            raw_point[..., :3],
+        ).to(dtype=output.dtype)
         return output
+
+    def _apply_future_metric_depth_residual(
+        self,
+        raw_metric_depth: torch.Tensor,
+        *,
+        point_feats: torch.Tensor,
+        actor_feats: torch.Tensor,
+        object_id: torch.Tensor,
+        point_id: torch.Tensor,
+        frame_id: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.use_future_point_residual:
+            return raw_metric_depth
+        anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(
+            dtype=raw_metric_depth.dtype
+        )
+        residual_mask = (frame_id > 0).unsqueeze(-1) & (anchors[..., 5:6] > 0.5)
+        return torch.where(
+            residual_mask,
+            anchors[..., 4:5] + raw_metric_depth,
+            raw_metric_depth,
+        )
 
     def infer(
         self,
@@ -314,6 +335,18 @@ class PointQueryModel(nn.Module):
             )
             if return_residual:
                 outputs["point_residual"] = raw_point
+        if "metric_depth" in outputs:
+            raw_metric_depth = outputs["metric_depth"]
+            outputs["metric_depth"] = self._apply_future_metric_depth_residual(
+                raw_metric_depth,
+                point_feats=point_feats,
+                actor_feats=actor_feats,
+                object_id=object_id,
+                point_id=point_id,
+                frame_id=frame_id,
+            )
+            if return_residual:
+                outputs["metric_depth_residual"] = raw_metric_depth
         if frame_query_frame_id is not None:
             outputs.update(
                 self.decode_frame(
@@ -374,7 +407,14 @@ class PointQueryModel(nn.Module):
                 ("visibility", visibility_err, None),
             ]
             if "metric_depth" in target:
-                predicted_metric_depth = point_outputs["metric_depth"].squeeze(-1)
+                predicted_metric_depth = self._apply_future_metric_depth_residual(
+                    point_outputs["metric_depth"],
+                    point_feats=batch["point_feats"],
+                    actor_feats=batch["actor_feats"],
+                    object_id=batch["object_id"],
+                    point_id=batch["point_id"],
+                    frame_id=batch["frame_id"],
+                ).squeeze(-1)
                 target_metric_depth = target["metric_depth"].to(
                     device=predicted_metric_depth.device,
                     dtype=predicted_metric_depth.dtype,
@@ -443,10 +483,16 @@ class PointQueryModel(nn.Module):
                         if selected_err.numel()
                         else point_regression_err.new_zeros(())
                     )
+                    # d_mask gates metric depth; node-role weights gate shared point components.
+                    component_group_weight = (
+                        float(frame_weights[name])
+                        if component_name == "metric_depth"
+                        else group_weight
+                    )
                     component_loss = (
                         component_loss
                         * float(weights.get(component_name, 1.0))
-                        * group_weight
+                        * component_group_weight
                     )
                     metrics[f"loss_{name}_{component_name}"] = component_loss
                     group_loss = group_loss + component_loss
