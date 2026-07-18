@@ -196,3 +196,108 @@ def test_cli_rejects_invalid_task_indices(
     assert message in result.stderr
     expected_output = tmp_path / ("source_" + "_".join(map(str, task_indices)))
     assert not expected_output.exists()
+
+
+def make_video_dataset(root: Path) -> None:
+    make_dataset(root)
+    info = json.loads((root / "meta" / "info.json").read_text(encoding="utf-8"))
+    info["codebase_version"] = "v2.1"
+    info["total_videos"] = info["total_episodes"] * 2
+    info["features"]["camera"] = {
+        "dtype": "video",
+        "shape": [1, 1, 3],
+        "names": ["height", "width", "rgb"],
+        "info": {"video.fps": 10, "video.channels": 3},
+    }
+    info["features"]["wrist"] = dict(info["features"]["camera"])
+    write_json(root / "meta" / "info.json", info)
+
+    episodes = read_jsonl(root / "meta" / "episodes.jsonl")
+    tasks = {row["task"]: row["task_index"] for row in read_jsonl(root / "meta" / "tasks.jsonl")}
+    episode_stats = []
+    for episode in episodes:
+        episode_index = episode["episode_index"]
+        length = episode["length"]
+        task_index = tasks[episode["tasks"][0]]
+        for video_key in ("camera", "wrist"):
+            video = (
+                root
+                / "videos"
+                / f"chunk-{episode_index // info['chunks_size']:03d}"
+                / video_key
+                / f"episode_{episode_index:06d}.mp4"
+            )
+            video.parent.mkdir(parents=True, exist_ok=True)
+            video.write_bytes(f"{video_key}-{episode_index}".encode())
+        episode_stats.append(
+            {
+                "episode_index": episode_index,
+                "stats": {
+                    "camera": {
+                        "min": [[[0.0]], [[0.0]], [[0.0]]],
+                        "max": [[[1.0]], [[1.0]], [[1.0]]],
+                        "mean": [[[0.1]], [[0.2]], [[0.3]]],
+                        "std": [[[0.01]], [[0.02]], [[0.03]]],
+                        "count": [length],
+                    },
+                    "frame_index": {"min": [0], "max": [length - 1], "mean": [(length - 1) / 2], "std": [0.0], "count": [length]},
+                    "episode_index": {"min": [episode_index], "max": [episode_index], "mean": [float(episode_index)], "std": [0.0], "count": [length]},
+                    "index": {"min": [100], "max": [100 + length - 1], "mean": [100 + (length - 1) / 2], "std": [0.0], "count": [length]},
+                    "task_index": {"min": [task_index], "max": [task_index], "mean": [float(task_index)], "std": [0.0], "count": [length]},
+                },
+            }
+        )
+    write_jsonl(root / "meta" / "episodes_stats.jsonl", episode_stats)
+
+
+def test_cli_copies_and_reindexes_v21_episode_videos(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    make_video_dataset(source)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(source), "7"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    output = tmp_path / "source_7"
+    first_source_video = source / "videos" / "chunk-000" / "camera" / "episode_000009.mp4"
+    first_output_video = output / "videos" / "chunk-000" / "camera" / "episode_000000.mp4"
+    second_output_video = output / "videos" / "chunk-000" / "camera" / "episode_000001.mp4"
+    assert first_output_video.read_bytes() == b"camera-9"
+    assert second_output_video.read_bytes() == b"camera-12"
+    assert (output / "videos" / "chunk-000" / "wrist" / "episode_000000.mp4").read_bytes() == b"wrist-9"
+    assert first_source_video.stat().st_ino != first_output_video.stat().st_ino
+
+    info = json.loads((output / "meta" / "info.json").read_text(encoding="utf-8"))
+    assert info["total_videos"] == 4
+    stats = read_jsonl(output / "meta" / "episodes_stats.jsonl")
+    assert [row["episode_index"] for row in stats] == [0, 1]
+    assert stats[0]["stats"]["camera"]["mean"] == [[[0.1]], [[0.2]], [[0.3]]]
+    assert stats[0]["stats"]["episode_index"]["mean"] == [0.0]
+    assert stats[0]["stats"]["index"]["min"] == [0.0]
+    assert stats[1]["stats"]["index"]["min"] == [3.0]
+    assert stats[0]["stats"]["task_index"]["mean"] == [0.0]
+
+
+def test_cli_rejects_v20_video_without_per_episode_stats(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    make_video_dataset(source)
+    info = json.loads((source / "meta" / "info.json").read_text(encoding="utf-8"))
+    info["codebase_version"] = "v2.0"
+    write_json(source / "meta" / "info.json", info)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(source), "7"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "v2.0 video datasets" in result.stderr
+    assert not (tmp_path / "source_7").exists()

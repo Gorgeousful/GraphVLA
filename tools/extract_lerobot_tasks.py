@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import io
 import json
 import math
@@ -18,6 +19,7 @@ import pyarrow.parquet as pq
 from PIL import Image
 
 DATA_PATH = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
 STATS_BATCH_SIZE = 16
 
 
@@ -127,8 +129,8 @@ def update_stats(
             if name not in batch.column_names:
                 continue
             dtype = feature.get("dtype")
-            if dtype == "video":
-                raise ValueError("Video features are not supported by this extractor")
+            if dtype in {"video", "string"}:
+                continue
             values = image_values(batch[name]) if dtype == "image" else numeric_values(batch[name])
             accumulators.setdefault(name, RunningStats()).update(values)
 
@@ -152,6 +154,52 @@ def output_episode_path(root: Path, chunks_size: int, episode_index: int) -> Pat
     return root / DATA_PATH.format(
         episode_chunk=episode_index // chunks_size, episode_index=episode_index
     )
+
+
+def video_keys(features: dict[str, dict[str, Any]]) -> list[str]:
+    return [name for name, feature in features.items() if feature.get("dtype") == "video"]
+
+
+def copy_episode_videos(
+    source: Path, output: Path, info: dict[str, Any], keys: list[str], old_episode: int, new_episode: int
+) -> None:
+    chunks_size = int(info["chunks_size"])
+    for key in keys:
+        source_path = source / info["video_path"].format(
+            episode_chunk=old_episode // chunks_size, video_key=key, episode_index=old_episode
+        )
+        if not source_path.is_file():
+            raise FileNotFoundError(f"Missing episode video: {source_path}")
+        output_path = output / VIDEO_PATH.format(
+            episode_chunk=new_episode // chunks_size, video_key=key, episode_index=new_episode
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, output_path)
+
+
+def sequence_stats(values: np.ndarray) -> dict[str, list[float]]:
+    values = np.asarray(values, dtype=np.float64)
+    return {
+        "min": [float(values.min())],
+        "max": [float(values.max())],
+        "mean": [float(values.mean())],
+        "std": [float(values.std())],
+        "count": [len(values)],
+    }
+
+
+def reindex_episode_stats(
+    source_row: dict[str, Any], new_episode: int, new_task: int, global_index: int, length: int
+) -> dict[str, Any]:
+    row = copy.deepcopy(source_row)
+    row["episode_index"] = new_episode
+    row["stats"].update(
+        frame_index=sequence_stats(np.arange(length)),
+        episode_index=sequence_stats(np.full(length, new_episode)),
+        index=sequence_stats(np.arange(global_index, global_index + length)),
+        task_index=sequence_stats(np.full(length, new_task)),
+    )
+    return row
 
 
 def validate_selection(tasks: list[dict[str, Any]], requested: list[int]) -> list[dict[str, Any]]:
@@ -183,17 +231,20 @@ def selected_episodes(
     return selected
 
 
-def make_info(source: dict[str, Any], episodes: int, frames: int, tasks: int) -> dict[str, Any]:
+def make_info(
+    source: dict[str, Any], episodes: int, frames: int, tasks: int, videos_per_episode: int
+) -> dict[str, Any]:
     chunks_size = int(source["chunks_size"])
     info = dict(source)
     info.update(
         total_episodes=episodes,
         total_frames=frames,
         total_tasks=tasks,
-        total_videos=0,
+        total_videos=episodes * videos_per_episode,
         total_chunks=math.ceil(episodes / chunks_size),
         splits={"train": f"0:{episodes}"},
         data_path=DATA_PATH,
+        video_path=VIDEO_PATH,
     )
     return info
 
@@ -216,6 +267,16 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
     chosen_episodes = selected_episodes(episodes, tasks, set(requested))
     task_remap = {old: new for new, old in enumerate(requested)}
     new_tasks = [{**task, "task_index": new} for new, task in enumerate(chosen_tasks)]
+    keys = video_keys(info["features"])
+    uses_episode_stats = info["codebase_version"] != "v2.0"
+    if keys and not uses_episode_stats:
+        raise ValueError(
+            "v2.0 video datasets are unsupported because they lack per-episode video stats"
+        )
+    source_episode_stats: dict[int, dict[str, Any]] = {}
+    if uses_episode_stats:
+        stats_rows = load_jsonl(source / "meta" / "episodes_stats.jsonl")
+        source_episode_stats = {int(row["episode_index"]): row for row in stats_rows}
 
     output.parent.mkdir(parents=True, exist_ok=True)
     temp_parent = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
@@ -223,6 +284,7 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
     try:
         accumulators: dict[str, RunningStats] = {}
         new_episodes = []
+        new_episode_stats = []
         global_index = 0
         chunks_size = int(info["chunks_size"])
         for new_episode, (episode, old_task) in enumerate(chosen_episodes):
@@ -255,7 +317,17 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
             destination = output_episode_path(staging, chunks_size, new_episode)
             destination.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(table, destination)
-            update_stats(accumulators, table, info["features"])
+            copy_episode_videos(source, staging, info, keys, old_episode, new_episode)
+            if not uses_episode_stats:
+                update_stats(accumulators, table, info["features"])
+            if uses_episode_stats:
+                if old_episode not in source_episode_stats:
+                    raise ValueError(f"Missing episodes_stats entry for episode {old_episode}")
+                new_episode_stats.append(
+                    reindex_episode_stats(
+                        source_episode_stats[old_episode], new_episode, task_remap[old_task], global_index, length
+                    )
+                )
             new_episodes.append({**episode, "episode_index": new_episode, "length": length})
             global_index += length
             print(
@@ -265,17 +337,20 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
 
         write_json(
             staging / "meta" / "info.json",
-            make_info(info, len(new_episodes), global_index, len(new_tasks)),
+            make_info(info, len(new_episodes), global_index, len(new_tasks), len(keys)),
         )
         write_jsonl(staging / "meta" / "tasks.jsonl", new_tasks)
         write_jsonl(staging / "meta" / "episodes.jsonl", new_episodes)
-        write_json(
-            staging / "meta" / "stats.json",
-            {
-                name: stats.result(info["features"][name].get("dtype") == "image")
-                for name, stats in accumulators.items()
-            },
-        )
+        if uses_episode_stats:
+            write_jsonl(staging / "meta" / "episodes_stats.jsonl", new_episode_stats)
+        else:
+            write_json(
+                staging / "meta" / "stats.json",
+                {
+                    name: stats.result(info["features"][name].get("dtype") == "image")
+                    for name, stats in accumulators.items()
+                },
+            )
         attributes = source / ".gitattributes"
         if attributes.is_file():
             shutil.copy2(attributes, staging / ".gitattributes")
