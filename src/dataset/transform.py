@@ -522,6 +522,7 @@ class CustomTransform(TransformFn):
                 field="depths.depth_rel",
                 context=data,
             )
+            point[..., 3] = torch.sigmoid(point[..., 3])
 
             batch = data.get("batch", data)
             object_id = batch.get("object_id") if isinstance(batch, Mapping) else None

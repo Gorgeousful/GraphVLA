@@ -33,7 +33,7 @@ class ModelConfig:
 
     output_dims: dict[str, int] = field(
         default_factory=lambda: {
-            "point": 6, 
+            "point": 5,
             "is_complete": 1
         }
     )
@@ -45,6 +45,10 @@ class ModelConfig:
             "future_weight": 1.0, # future
             "future_actor": 1.0,
             "future_object": 0.0,
+            "point_regression": 1.0,
+            "visibility": 1.0,
+            "metric_depth": 1.0,
+            "gripper_width": 1.0,
             "is_complete": 0.5, # complete
         }
     )
