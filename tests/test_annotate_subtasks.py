@@ -151,6 +151,32 @@ def test_batch_annotation_writes_multiple_episodes_once(tmp_path: Path) -> None:
     assert client.get("/api/tasks").json()[0]["annotated"] == 2
 
 
+def test_stream_annotation_reports_each_episode_as_it_finishes(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    make_dataset(root)
+    client = TestClient(create_app(root))
+
+    with client.stream(
+        "POST",
+        "/api/annotations/stream",
+        json={
+            "annotations": [
+                {"episode_index": 3, "boundaries": [2]},
+                {"episode_index": 8, "boundaries": [3]},
+            ]
+        },
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert events == [
+        {"episode_index": 3, "status": "saved", "completed": 1, "total": 2},
+        {"episode_index": 8, "status": "saved", "completed": 2, "total": 2},
+        {"status": "done", "saved": 2, "failed": 0, "total": 2},
+    ]
+
+
 def test_batch_annotation_reports_partial_failure_and_keeps_success(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "dataset"
     make_dataset(root)
@@ -236,6 +262,15 @@ def test_web_ui_is_english_and_has_batch_save_and_timeline_markers(tmp_path: Pat
     assert 'id="markers"' in html
     assert "Saved boundary" in html
     assert "Unsaved boundary" in html
+    assert "/api/annotations/stream" in html
+    assert "const edited=new Set()" in html
+    assert "visited=new Set()" not in html
+    assert "function dirtyIds(){return [...edited]" in html
+    assert "submittedByEpisode" in html
+    assert ".episode.current" in html
+    assert "button.classList.toggle('current'" in html
+    assert "subtask_id ✓" in html
+    assert "persisted.className='persisted'" in html
     assert "保存" not in html
     assert "标注" not in html
 

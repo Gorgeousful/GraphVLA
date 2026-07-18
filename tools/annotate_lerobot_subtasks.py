@@ -23,7 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from PIL import Image
 from pydantic import BaseModel
 
@@ -455,6 +455,59 @@ def create_app(dataset: Path | str, preview_fps: float = 5, cache_episodes: int 
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
+    @app.post("/api/annotations/stream")
+    def annotate_stream(request: BatchAnnotationRequest) -> StreamingResponse:
+        episode_indices = [item.episode_index for item in request.annotations]
+        if len(episode_indices) != len(set(episode_indices)):
+            raise HTTPException(status_code=422, detail="each episode_index may appear only once")
+
+        def events():
+            total = len(request.annotations)
+            saved = 0
+            failed = 0
+            for completed, item in enumerate(request.annotations, start=1):
+                try:
+                    result = store.save_annotations([(item.episode_index, item.boundaries)])
+                    failures = result.get("failures", [])
+                    if failures:
+                        failed += 1
+                        event = {
+                            "episode_index": item.episode_index,
+                            "status": "failed",
+                            "error": failures[0]["error"],
+                            "completed": completed,
+                            "total": total,
+                        }
+                    else:
+                        saved += 1
+                        event = {
+                            "episode_index": item.episode_index,
+                            "status": "saved",
+                            "completed": completed,
+                            "total": total,
+                        }
+                        if result.get("metadata_errors"):
+                            event["metadata_errors"] = result["metadata_errors"]
+                except Exception as error:
+                    failed += 1
+                    event = {
+                        "episode_index": item.episode_index,
+                        "status": "failed",
+                        "error": str(error),
+                        "completed": completed,
+                        "total": total,
+                    }
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {"status": "done", "saved": saved, "failed": failed, "total": total}
+            ) + "\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     return app
 
 
@@ -466,7 +519,7 @@ body{margin:0}header{padding:14px 22px;background:#171d27;border-bottom:1px soli
 h1{font-size:18px;margin:0}select,button,input{font:inherit}select,button{background:#222b38;color:#eef3fa;border:1px solid #3b4758;border-radius:7px;padding:8px 11px}
 button{cursor:pointer}button:hover{background:#2d394a}button:disabled{cursor:default;opacity:.55}.layout{display:grid;grid-template-columns:280px minmax(500px,1fr) 320px;height:calc(100vh - 59px)}
 aside,.right{padding:14px;overflow:auto;background:#141a23}.right{border-left:1px solid #2b3442}.episodes{border-right:1px solid #2b3442}
-.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
+.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.episode.current{background:#34465f;border-color:#6b8fbd;box-shadow:inset 3px 0 #72a7e8}.episode-status{display:flex;gap:8px;align-items:center}.persisted{color:#77d49b;font-size:12px}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
 main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow:auto}.viewer{width:min(100%,900px);background:#080a0e;border-radius:10px;overflow:hidden;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
 #frame{max-width:100%;max-height:100%;image-rendering:auto}.timeline{width:min(100%,900px);margin-top:14px}.range-wrap{position:relative;padding-bottom:15px}.range-wrap input{width:100%;margin:0}
 .marker-track{position:absolute;left:8px;right:8px;bottom:0;height:12px;pointer-events:none}.marker{position:absolute;top:0;width:3px;height:12px;transform:translateX(-1px);border-radius:2px}.marker.saved{background:#63d68b}.marker.unsaved{background:#ffad55}.marker.removed{background:#ef6b73;opacity:.8}
@@ -487,28 +540,63 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <script>
 const $=id=>document.getElementById(id);
 let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null;
-const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),visited=new Set();
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map();
+const edited=new Set();
 async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
 function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
 function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries])}
-function needsSave(id){return visited.has(id)&&(!annotatedByEpisode.get(id)||!equal(drafts.get(id),savedByEpisode.get(id)))}
-function dirtyIds(){return [...visited].filter(needsSave).sort((a,b)=>a-b)}
+function needsSave(id){return edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id))}
+function dirtyIds(){return [...edited].filter(needsSave).sort((a,b)=>a-b)}
 async function init(){tasks=await json('/api/tasks');$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Changes ('+dirtyIds().length+')'}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');if(needsSave(id)){right.className='unsaved';right.textContent='Unsaved'}else if(annotatedByEpisode.get(id)){right.className='done';right.textContent='✓ Saved'}else{right.className='pending';right.textContent='Pending'}button.append(left,right);box.appendChild(button)}}
-async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);visited.add(id);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}const state=document.createElement('span');if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
 function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
 function play(){if(timer){stop();return}$('play').textContent='⏸ Pause';timer=setInterval(()=>{if(current>=detail.length-1){stop();return}move(detail.preview_stride)},1000/detail.fps*detail.preview_stride)}
 function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Play'}
-function updateDraft(){drafts.set(detail.episode_index,[...boundaries]);renderAnnotation();showFrame();renderEpisodes();renderProgress()}
+function updateDraft(){const id=detail.episode_index;drafts.set(id,[...boundaries]);if(equal(boundaries,savedByEpisode.get(id)))edited.delete(id);else edited.add(id);renderAnnotation();showFrame();renderEpisodes();renderProgress()}
 function renderAnnotation(){renderBoundaries();renderSegments();renderMarkers()}
 function renderBoundaries(){const box=$('boundaries');box.innerHTML='';const saved=savedByEpisode.get(detail.episode_index)||[];for(const value of boundaries){const row=document.createElement('div');row.className='boundary';const label=document.createElement('span');label.textContent='Frame '+value+' → subtask '+(boundaries.indexOf(value)+2)+(saved.includes(value)?' (saved)':' (unsaved)');const remove=document.createElement('button');remove.className='danger';remove.textContent='Remove';remove.onclick=()=>{boundaries=boundaries.filter(item=>item!==value);updateDraft()};row.append(label,remove);box.appendChild(row)}}
 function renderSegments(){const starts=[0,...boundaries],ends=[...boundaries.map(value=>value-1),detail.length-1];$('segments').innerHTML=starts.map((start,index)=>'<div class="segment">subtask '+(index+1)+': frame '+start+'–'+ends[index]+'</div>').join('')}
 function renderMarkers(){const saved=savedByEpisode.get(detail.episode_index)||[],currentSet=new Set(boundaries),savedSet=new Set(saved),all=[...new Set([...saved,...boundaries])].sort((a,b)=>a-b),max=Math.max(1,detail.length-1),box=$('markers');box.innerHTML='';for(const value of all){const marker=document.createElement('span');const state=currentSet.has(value)?(savedSet.has(value)?'saved':'unsaved'):'removed';marker.className='marker '+state;marker.style.left=(value/max*100)+'%';marker.title=(state==='saved'?'Saved boundary':state==='unsaved'?'Unsaved boundary':'Saved boundary pending removal')+' at frame '+value;box.appendChild(marker)}}
-async function saveAll(){stashCurrent();const ids=dirtyIds();if(!ids.length){$('message').textContent='There are no unsaved changes.';return}const button=$('save');button.disabled=true;try{const annotations=ids.map(id=>({episode_index:id,boundaries:[...(drafts.get(id)||[])]})),result=await json('/api/annotations/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({annotations})}),savedIds=result.saved_episode_indices||[];for(const id of savedIds){savedByEpisode.set(id,[...(drafts.get(id)||[])]);annotatedByEpisode.set(id,true)}tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);if(detail&&savedIds.includes(detail.episode_index)){detail.boundaries=[...boundaries];detail.annotated=true}renderAnnotation();renderEpisodes();renderProgress();const failed=result.failures||[],metadataErrors=result.metadata_errors||[];$('message').textContent=metadataErrors.length?'Saved '+savedIds.length+' episode(s) to Parquet, but metadata sync reported '+metadataErrors.length+' error(s).':failed.length?'Saved '+savedIds.length+' episode(s); '+failed.length+' failed and remain unsaved.':'Saved '+savedIds.length+' episode(s) to Parquet.'}catch(error){$('message').textContent=error.message}finally{button.disabled=false}}
+async function saveAll(){
+  stashCurrent();const ids=dirtyIds();
+  if(!ids.length){$('message').textContent='There are no unsaved changes.';return}
+  const button=$('save');button.disabled=true;button.textContent='Saving 0 / '+ids.length;
+  let summary=null,metadataErrorCount=0;
+  try{
+    const submittedByEpisode=new Map(ids.map(id=>[id,[...(drafts.get(id)||[])]]));
+    const annotations=ids.map(id=>({episode_index:id,boundaries:[...submittedByEpisode.get(id)]}));
+    const response=await fetch('/api/annotations/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({annotations})});
+    if(!response.ok){const body=await response.json();throw new Error(body.detail||response.statusText)}
+    if(!response.body)throw new Error('Streaming responses are not supported by this browser.');
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+    while(true){
+      const chunk=await reader.read();buffer+=decoder.decode(chunk.value||new Uint8Array(),{stream:!chunk.done});
+      const lines=buffer.split('\n');buffer=lines.pop()||'';
+      for(const line of lines){
+        if(!line.trim())continue;const event=JSON.parse(line);
+        if(event.status==='saved'){
+          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);
+          if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
+          if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.annotated=true;renderAnnotation()}
+          metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
+          $('message').textContent='Saved episode '+id+' ('+event.completed+' / '+event.total+').';
+        }else if(event.status==='failed'){
+          renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
+          $('message').textContent='Episode '+event.episode_index+' failed and remains unsaved: '+event.error;
+        }else if(event.status==='done')summary=event;
+      }
+      if(chunk.done)break;
+    }
+    tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)annotatedByEpisode.set(episode.episode_index,episode.annotated);
+    renderEpisodes();renderProgress();
+    if(summary){$('message').textContent='Saved '+summary.saved+' / '+summary.total+' episode(s).'+(summary.failed?' '+summary.failed+' failed and remain unsaved.':'')+(metadataErrorCount?' Metadata sync reported '+metadataErrorCount+' error(s).':'')}
+  }catch(error){$('message').textContent=error.message}finally{button.disabled=false;renderProgress()}
+}
 $('slider').oninput=event=>{stop();current=Number(event.target.value);showFrame()};$('play').onclick=play;$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
 $('add').onclick=()=>{if(!detail||current<=0||current>=detail.length||boundaries.includes(current))return;boundaries.push(current);boundaries.sort((a,b)=>a-b);updateDraft()};$('save').onclick=saveAll;
 document.addEventListener('keydown',event=>{if(event.key==='ArrowLeft')move(-1);if(event.key==='ArrowRight')move(1);if(event.key===' '){event.preventDefault();play()}});
