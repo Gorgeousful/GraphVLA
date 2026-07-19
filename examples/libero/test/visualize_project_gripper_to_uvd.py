@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import cv2
+import imageio_ffmpeg
 import numpy as np
 import pyarrow.parquet as pq
 
@@ -22,7 +23,7 @@ from examples.libero.embodiment.robot import GeomFrankaPanda  # noqa: E402
 
 DEFAULT_DATASET_ROOT = Path(
     "/data0/luokang/dataset/luokang/lerobot/libero/"
-    "libero_all_no_noops_1.0.0_lerobot_10hz"
+    "libero_31_no_noops_1.0.0_lerobot_10hz"
 )
 
 
@@ -78,6 +79,14 @@ def draw_point(frame: np.ndarray, uvd: np.ndarray, color: tuple[int, int, int], 
         cv2.circle(frame, (x, y), radius, color, -1, lineType=cv2.LINE_AA)
 
 
+def draw_pose_triangle(frame: np.ndarray, uvd: dict[str, np.ndarray]) -> None:
+    points = [uvd[name] for name in ("root_uvd", "left_base_uvd", "right_base_uvd")]
+    if any(not np.isfinite(point).all() or point[2] <= 1e-6 for point in points):
+        return
+    pixels = np.rint(np.stack(points)[:, :2]).astype(np.int32)
+    cv2.polylines(frame, [pixels], True, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+
+
 def write_video(
     video_path: Path,
     output_path: Path,
@@ -96,7 +105,6 @@ def write_video(
     fps = cap.get(cv2.CAP_PROP_FPS) or 10
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    image_size = (height, width)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     proc = subprocess.Popen(
@@ -132,9 +140,8 @@ def write_video(
 
     colors = {
         "root_uvd": (255, 0, 0),
-        "center_uvd": (0, 0, 255),
-        "left_uvd": (0, 255, 0),
-        "right_uvd": (0, 255, 255),
+        "left_base_uvd": (0, 255, 0),
+        "right_base_uvd": (0, 255, 255),
     }
 
     frame_count = 0
@@ -145,14 +152,12 @@ def write_video(
         state = states[frame_count]
         uvd = geometry.project_gripper_to_uvd(
             tcp_state=state[:6],
-            gripper_state=abs(state[6]) + abs(state[7]),
             intrinsic=intrinsic,
             extrinsic=extrinsic,
-            image_size=image_size,
-            mode="SG",
         )
         if flip_horizontal:
             frame = cv2.flip(frame, 1)
+        draw_pose_triangle(frame, uvd)
         for name, color in colors.items():
             draw_point(frame, uvd[name], color, radius)
         proc.stdin.write(frame.tobytes())
@@ -170,17 +175,18 @@ def write_video(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
-    parser.add_argument("--task-index", type=int, default=31)
+    # The single-task libero_31 dataset remaps its source task index to 0.
+    parser.add_argument("--task-index", type=int, default=0)
     parser.add_argument("--trajectory-index", type=int, default=0)
     parser.add_argument("--camera-name", default="agentview")
     parser.add_argument("--video-key", default="observation.images.image")
-    parser.add_argument("--ffmpeg", default="ffmpeg")
+    parser.add_argument("--ffmpeg", default=imageio_ffmpeg.get_ffmpeg_exe())
     parser.add_argument("--radius", type=int, default=3)
     parser.add_argument("--flip-horizontal", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("GraphVLA/examples/libero/test/task31_traj0_project_gripper_uvd.mp4"),
+        default=Path(__file__).with_name("task31_traj0_fixed_gripper_keypoints.mp4"),
     )
     return parser.parse_args()
 
@@ -203,7 +209,7 @@ def main() -> None:
     print(f"trajectory_index: {args.trajectory_index}")
     print(f"episode_index: {episode_index}")
     print(f"video frames written: {frame_count}")
-    print("colors: root=blue, center=red, left=green, right=yellow")
+    print("colors: root=blue, left-base=green, right-base=yellow")
     print(f"output: {args.output}")
 
 

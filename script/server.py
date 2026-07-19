@@ -405,18 +405,14 @@ class InputPreprocessor:
 
     def _state_to_gripper_uvd(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
-        if state.size < 7:
-            raise ValueError(f"observation.state must contain at least 7 values, got {state.size}")
-        gripper_state = abs(float(state[6])) + abs(float(state[7])) if state.size >= 8 else float(state[6])
+        if state.size < 6:
+            raise ValueError(f"observation.state must contain at least 6 values, got {state.size}")
         output = self._robot().project_gripper_to_uvd(
             tcp_state=state[:6],
-            gripper_state=gripper_state,
             intrinsic=frame.intrinsic,
             extrinsic=frame.extrinsic,
-            image_size=frame.image.shape[:2],
-            mode="3P",
         )
-        return np.stack([np.asarray(output[key], dtype=np.float32) for key in ("root_uvd", "left_uvd", "right_uvd")])
+        return np.stack([np.asarray(output[key], dtype=np.float32) for key in ("root_uvd", "left_base_uvd", "right_base_uvd")])
 
     def _build_model_input(
         self,
@@ -830,8 +826,8 @@ class EmbodimentAdapter:
                 raise ValueError(f"Missing actor point ids {missing} for future_frame_id={future_frame_id}")
             uvd_dict = {
                 "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
-                "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
-                "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
+                "left_base_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+                "right_base_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
             }
             self._validate_uvd(uvd_dict, future_frame_id=future_frame_id)
             action = self._robot().project_uvd_to_gripper(

@@ -94,8 +94,8 @@ def _actor_uvd_for_frame(
         return None
     return {
         "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
-        "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
-        "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
+        "left_base_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+        "right_base_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
     }
 
 
@@ -138,8 +138,8 @@ def build_actor_diagnostics(
             continue
         gt_uvd = {
             "root_uvd": np.asarray(gt_array[gt_index, 0], dtype=np.float64),
-            "left_uvd": np.asarray(gt_array[gt_index, 1], dtype=np.float64),
-            "right_uvd": np.asarray(gt_array[gt_index, 2], dtype=np.float64),
+            "left_base_uvd": np.asarray(gt_array[gt_index, 1], dtype=np.float64),
+            "right_base_uvd": np.asarray(gt_array[gt_index, 2], dtype=np.float64),
         }
         pred_gripper = float(
             robot.project_uvd_to_gripper(pred_uvd, intrinsic=intrinsic, extrinsic=extrinsic)[6]

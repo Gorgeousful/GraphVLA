@@ -556,7 +556,6 @@ class OfflinePipeline:
         camera = self._load_libero_cameras()[int(task_index)]["agentview"]
         intrinsic = np.asarray(camera["intrinsic"], dtype=np.float64)
         extrinsic = np.asarray(camera["extrinsic"], dtype=np.float64)
-        image_size = self._video_image_size()
         geometry = self._ensure_gripper_geometry()
 
         results = []
@@ -564,11 +563,8 @@ class OfflinePipeline:
             state = np.asarray(state, dtype=np.float64)
             output = geometry.project_gripper_to_uvd(
                 tcp_state=state[:6],
-                gripper_state=abs(float(state[6])) + abs(float(state[7])),
                 intrinsic=intrinsic,
                 extrinsic=extrinsic,
-                image_size=image_size,
-                mode="3P",
             )
             results.append(self._flatten_gripper_uvd(output))
         return results
@@ -577,7 +573,7 @@ class OfflinePipeline:
     def _flatten_gripper_uvd(output: Mapping[str, object]) -> list[list[float]]:
         return [
             np.asarray(output[key], dtype=np.float64).astype(float).tolist()
-            for key in ("root_uvd", "left_uvd", "right_uvd")
+            for key in ("root_uvd", "left_base_uvd", "right_base_uvd")
         ]
 
     def _load_libero_cameras(self) -> dict[int, dict]:

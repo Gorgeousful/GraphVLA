@@ -41,7 +41,7 @@ def test_build_observation_request_sends_only_history_in_server_image_coordinate
 def test_build_actor_diagnostics_compares_predicted_and_gt_gripper_state() -> None:
     class TipDistanceProjector:
         def project_uvd_to_gripper(self, uvd: dict, **_: object) -> np.ndarray:
-            gripper = abs(float(uvd["right_uvd"][0] - uvd["left_uvd"][0])) / 100.0
+            gripper = abs(float(uvd["right_base_uvd"][0] - uvd["left_base_uvd"][0])) / 100.0
             return np.asarray([0.0] * 6 + [gripper], dtype=np.float64)
 
     response = {

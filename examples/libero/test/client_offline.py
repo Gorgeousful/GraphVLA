@@ -240,8 +240,8 @@ def gripper_state_errors(
             continue
         uvd = {
             "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
-            "left_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
-            "right_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
+            "left_base_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
+            "right_base_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
         }
         if not all(np.isfinite(value).all() and value[2] > 1e-6 for value in uvd.values()):
             continue
