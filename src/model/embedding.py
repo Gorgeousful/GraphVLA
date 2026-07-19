@@ -107,6 +107,17 @@ class LearnableFrameObjectPointEmbedding(nn.Module):
             + self.frame_embed(self._frame_to_index(frame_id))
         )
 
+    def encode_object_query(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
+        if object_id.shape != frame_id.shape:
+            raise ValueError(
+                "object_id and frame_id must have the same shape, "
+                f"got {object_id.shape} and {frame_id.shape}"
+            )
+        return (
+            self.object_embed(self._check_object_id(object_id))
+            + self.frame_embed(self._frame_to_index(frame_id))
+        )
+
 
 class FrameQueryEmbedder(nn.Module):
     """Build query tokens from learnable relative frame embeddings."""
@@ -158,6 +169,28 @@ class FrameQueryEmbedder(nn.Module):
                 raise ValueError(f"query_type must match frame_id shape, got {query_type.shape} vs {frame_id.shape}")
             token = token + self.query_type_embed(query_type.long())
 
+        return self.out_norm(token)
+
+
+class ObjectQueryEmbedder(nn.Module):
+    """Build query tokens from object id and relative frame id."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        position_embedding: LearnableFrameObjectPointEmbedding | None = None,
+    ) -> None:
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.position_embedding = position_embedding
+        self.out_norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
+        if object_id.ndim != 2 or frame_id.ndim != 2:
+            raise ValueError(f"Expected object_id/frame_id [B, Q], got {object_id.shape} and {frame_id.shape}")
+        if self.position_embedding is None:
+            raise ValueError("position_embedding must be provided for ObjectQueryEmbedder")
+        token = self.position_embedding.encode_object_query(object_id=object_id, frame_id=frame_id)
         return self.out_norm(token)
 
 
