@@ -59,6 +59,7 @@ class Args:
     device: str
     bge_path: str
     task_analyzer_api_key: str | None
+    gripper_action_mode: str = "binary" # continuous binary
     complete_threshold: float = 0.5
     complete_window: int = 3
     devices: dict[str, str] = field(default_factory=dict)
@@ -789,9 +790,18 @@ class InputPreprocessor:
 class EmbodimentAdapter:
     """Recover benchmark executable actions from transformed model outputs."""
 
-    def __init__(self, *, future_horizon: int, robot_cls: type[Any]) -> None:
+    def __init__(
+        self,
+        *,
+        future_horizon: int,
+        robot_cls: type[Any],
+        gripper_action_mode: str = "binary",
+    ) -> None:
+        if gripper_action_mode not in {"binary", "continuous"}:
+            raise ValueError(f"Unsupported gripper action mode: {gripper_action_mode!r}")
         self.future_horizon = future_horizon
         self.robot_cls = robot_cls
+        self.gripper_action_mode = gripper_action_mode
         self.robot: Any = None
         self.libero_gripper_max_width = 0.08
         self.libero_gripper_close_threshold = 0.04 # 0.04
@@ -869,7 +879,10 @@ class EmbodimentAdapter:
         opening_width = float(np.clip(action[6], 0.0, self.libero_gripper_max_width))
         action[:3] = action_pose[:3, 3]
         action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
-        action[6] = 1.0 if opening_width < self.libero_gripper_close_threshold else -1.0
+        if self.gripper_action_mode == "binary":
+            action[6] = 1.0 if opening_width < self.libero_gripper_close_threshold else -1.0
+        else:
+            action[6] = 1.0 - 2.0 * opening_width / self.libero_gripper_max_width
         return action
 
     @staticmethod
@@ -1212,6 +1225,12 @@ def parse_args() -> Args:
         help="API key used when a taskstructure is missing from the dataset cache.",
     )
     parser.add_argument(
+        "--gripper-action-mode",
+        choices=("binary", "continuous"),
+        default="binary",
+        help="Recover LIBERO gripper actions by thresholding or continuous scaling to [-1, 1].",
+    )
+    parser.add_argument(
         "--complete-threshold",
         type=float,
         default=0.5,
@@ -1280,7 +1299,11 @@ def main() -> None:
             device=torch.device(args.devices["inference"]),
             bge_path=args.bge_path,
         ),
-        embodiment=EmbodimentAdapter(future_horizon=future_horizon, robot_cls=GeomRobot),
+        embodiment=EmbodimentAdapter(
+            future_horizon=future_horizon,
+            robot_cls=GeomRobot,
+            gripper_action_mode=args.gripper_action_mode,
+        ),
     )
     server.serve_forever()
 

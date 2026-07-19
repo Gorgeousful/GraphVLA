@@ -7,7 +7,8 @@ python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/0718/checkpoints/step_15000.pt \
 --complete-window 100 \
---devices '{"inference":"cuda:0","node_locator":"cuda:0","sam3":"cuda:1","point_tracker":"cuda:1","depth_predictor":"cuda:1"}'
+--devices '{"inference":"cuda:0","node_locator":"cuda:0","sam3":"cuda:1","point_tracker":"cuda:1","depth_predictor":"cuda:1"}' \
+--gripper-action-mode continuous
 
 # libero环境
 python -m examples.libero.eval.client \
