@@ -107,6 +107,9 @@ class LearnableFrameObjectPointEmbedding(nn.Module):
             + self.frame_embed(self._frame_to_index(frame_id))
         )
 
+    def encode_frame_query(self, frame_id: torch.Tensor) -> torch.Tensor:
+        return self.frame_embed(self._frame_to_index(frame_id))
+
     def encode_object_query(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
         if object_id.shape != frame_id.shape:
             raise ValueError(
@@ -125,33 +128,14 @@ class FrameQueryEmbedder(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
+        position_embedding: LearnableFrameObjectPointEmbedding,
         num_query_types: int = 0,
-        min_frame: int = -15,
-        max_frame: int = 15,
     ) -> None:
         super().__init__()
-        if min_frame > max_frame:
-            raise ValueError(f"min_frame must be <= max_frame, got {min_frame} > {max_frame}")
         self.hidden_dim = hidden_dim
-        self.min_frame = int(min_frame)
-        self.max_frame = int(max_frame)
-        self.num_frame_embeddings = self.max_frame - self.min_frame + 1
-        self.frame_embed = nn.Embedding(self.num_frame_embeddings, hidden_dim)
+        self.position_embedding = position_embedding
         self.query_type_embed = nn.Embedding(num_query_types, hidden_dim) if num_query_types > 0 else None
         self.out_norm = nn.LayerNorm(hidden_dim)
-
-    def _frame_to_index(self, frame_id: torch.Tensor) -> torch.Tensor:
-        if frame_id.is_floating_point() and not torch.all(frame_id == frame_id.round()):
-            raise ValueError("frame query embedding expects integer relative frame ids")
-        frame_id = frame_id.long()
-        if frame_id.numel() > 0:
-            min_f = int(frame_id.min().item())
-            max_f = int(frame_id.max().item())
-            if min_f < self.min_frame or max_f > self.max_frame:
-                raise ValueError(
-                    f"frame_id must be in [{self.min_frame}, {self.max_frame}], got range [{min_f}, {max_f}]"
-                )
-        return frame_id - self.min_frame
 
     def forward(
         self,
@@ -160,7 +144,7 @@ class FrameQueryEmbedder(nn.Module):
     ) -> torch.Tensor:
         if frame_id.ndim != 2:
             raise ValueError(f"Expected frame_id [B, Q], got {frame_id.shape}")
-        token = self.frame_embed(self._frame_to_index(frame_id))
+        token = self.position_embedding.encode_frame_query(frame_id)
 
         if query_type is not None:
             if self.query_type_embed is None:
@@ -178,7 +162,7 @@ class ObjectQueryEmbedder(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
-        position_embedding: LearnableFrameObjectPointEmbedding | None = None,
+        position_embedding: LearnableFrameObjectPointEmbedding,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -188,8 +172,6 @@ class ObjectQueryEmbedder(nn.Module):
     def forward(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
         if object_id.ndim != 2 or frame_id.ndim != 2:
             raise ValueError(f"Expected object_id/frame_id [B, Q], got {object_id.shape} and {frame_id.shape}")
-        if self.position_embedding is None:
-            raise ValueError("position_embedding must be provided for ObjectQueryEmbedder")
         token = self.position_embedding.encode_object_query(object_id=object_id, frame_id=frame_id)
         return self.out_norm(token)
 
@@ -200,8 +182,8 @@ class PointQueryEmbedder(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
+        position_embedding: LearnableFrameObjectPointEmbedding,
         num_query_types: int = 0,
-        position_embedding: LearnableFrameObjectPointEmbedding | None = None,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -220,8 +202,6 @@ class PointQueryEmbedder(nn.Module):
             raise ValueError(
                 f"Expected object_id/point_id/frame_id [B, Q], got {object_id.shape}, {point_id.shape}, {frame_id.shape}"
             )
-        if self.position_embedding is None:
-            raise ValueError("position_embedding must be provided for PointQueryEmbedder")
         token = self.position_embedding.encode_query(object_id=object_id, point_id=point_id, frame_id=frame_id)
 
         if query_type is not None:

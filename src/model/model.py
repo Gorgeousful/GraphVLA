@@ -141,8 +141,7 @@ class PointQueryModel(nn.Module):
         self.frame_query_embedder = FrameQueryEmbedder(
             hidden_dim=decoder_hidden_dim,
             num_query_types=num_frame_query_types,
-            min_frame=min_frame,
-            max_frame=max_frame,
+            position_embedding=self.query_position_embedding,
         )
         self.decoder = IndependentQueryDecoder(
             hidden_dim=decoder_hidden_dim,
