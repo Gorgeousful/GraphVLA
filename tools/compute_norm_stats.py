@@ -222,13 +222,6 @@ def _make_lerobot_dataset(dataset_dir: Path, **kwargs: Any) -> LeRobotDataset:
         return LeRobotDataset(repo_id=str(dataset_dir), **kwargs)
 
 
-FIELD_ALIASES = {"depth_rel": "depths_rel"}
-
-
-def _canonical_field(field: str) -> str:
-    return FIELD_ALIASES.get(field, field)
-
-
 def _to_numpy(value: Any) -> np.ndarray:
     if hasattr(value, "detach"):
         return value.detach().cpu().numpy()
@@ -238,8 +231,7 @@ def _to_numpy(value: Any) -> np.ndarray:
 
 
 def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarray | None:
-    canonical = _canonical_field(field)
-    if canonical == "depths_rel":
+    if field == "depths_rel":
         if "depths_rel" not in batch or "far_background_mask" not in batch:
             raise KeyError("Field 'depths_rel' stats require both 'depths_rel' and 'far_background_mask'.")
         depths = _to_numpy(batch["depths_rel"]).astype(np.float64, copy=False)
@@ -249,7 +241,7 @@ def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarr
         valid = (~far_background) & np.isfinite(depths)
         return depths[valid].reshape(-1, 1)
 
-    if canonical == "gripper_uvd":
+    if field == "gripper_uvd":
         if "gripper_uvd" not in batch:
             raise KeyError("Field 'gripper_uvd' not found.")
         gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
@@ -262,8 +254,7 @@ def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarr
 
 
 def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -> list[np.ndarray] | None:
-    canonical = _canonical_field(field)
-    if canonical == "depths_rel":
+    if field == "depths_rel":
         if "depths_rel" not in batch or "far_background_mask" not in batch:
             raise KeyError("Field 'depths_rel' stats require both 'depths_rel' and 'far_background_mask'.")
         depths = _to_numpy(batch["depths_rel"]).astype(np.float64, copy=False)
@@ -276,7 +267,7 @@ def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -
             values.append(depth[valid].reshape(-1, 1))
         return values
 
-    if canonical == "gripper_uvd":
+    if field == "gripper_uvd":
         if "gripper_uvd" not in batch:
             raise KeyError("Field 'gripper_uvd' not found.")
         gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
