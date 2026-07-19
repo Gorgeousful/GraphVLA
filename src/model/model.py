@@ -12,6 +12,7 @@ from src.model.heads import PredictionHeads
 
 from src.model.embedding import FrameQueryEmbedder
 from src.model.embedding import LearnableFrameObjectPointEmbedding
+from src.model.embedding import ObjectQueryEmbedder
 from src.model.embedding import PointQueryEmbedder
 from src.model.encoder import PointMemoryEncoder
 
@@ -138,6 +139,10 @@ class PointQueryModel(nn.Module):
             num_query_types=num_query_types,
             position_embedding=self.query_position_embedding,
         )
+        self.object_query_embedder = ObjectQueryEmbedder(
+            hidden_dim=decoder_hidden_dim,
+            position_embedding=self.query_position_embedding,
+        )
         self.frame_query_embedder = FrameQueryEmbedder(
             hidden_dim=decoder_hidden_dim,
             num_query_types=num_frame_query_types,
@@ -210,6 +215,17 @@ class PointQueryModel(nn.Module):
             frame_id=frame_id,
             query_type=query_type,
         )
+        decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
+        return self.heads(decoded, head_names=head_names)
+
+    def decode_object(
+        self,
+        memory: torch.Tensor,
+        object_id: torch.Tensor,
+        frame_id: torch.Tensor,
+        head_names: str | list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        query_tokens = self.object_query_embedder(object_id=object_id, frame_id=frame_id)
         decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
         return self.heads(decoded, head_names=head_names)
 

@@ -167,7 +167,7 @@ class ObjectQueryEmbedder(nn.Module):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.position_embedding = position_embedding
-        self.out_norm = nn.LayerNorm(hidden_dim)
+        self.out_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False)
 
     def forward(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
         if object_id.ndim != 2 or frame_id.ndim != 2:
