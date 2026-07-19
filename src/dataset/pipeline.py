@@ -68,6 +68,7 @@ class OfflinePipeline:
             "far_background_mask": True,
             "is_complete": True,
             "gripper_uvd": True,
+            "gripper_openness": True,
             "subtask_id": True,
         }
         unknown_overwrite = set(config.overwrite or {}) - set(overwrite_defaults)
@@ -194,6 +195,10 @@ class OfflinePipeline:
         )
         need_is_complete = self.overwrite["is_complete"] or "is_complete" not in df.columns
         need_gripper_uvd = self.overwrite["gripper_uvd"] or "gripper_uvd" not in df.columns
+        need_gripper_openness = (
+            self.overwrite["gripper_openness"]
+            or "gripper_openness" not in df.columns
+        )
         need_subtask_id = (
             self.overwrite["subtask_id"]
             or "subtask_id" not in df.columns
@@ -206,6 +211,7 @@ class OfflinePipeline:
             and not need_far_background
             and not need_is_complete
             and not need_gripper_uvd
+            and not need_gripper_openness
             and not need_subtask_id
         ):
             return
@@ -238,6 +244,9 @@ class OfflinePipeline:
                     episode_index=episode_index,
                     task_index=task_index,
                 )
+
+        if need_gripper_openness:
+            df["gripper_openness"] = self._build_gripper_openness(df)
 
         if need_node_track:
             debug_node_points_masks = None
@@ -288,6 +297,7 @@ class OfflinePipeline:
             "depths_rel": pa.list_(pa.list_(pa.float32())),
             "far_background_mask": pa.list_(pa.list_(pa.bool_())),
             "gripper_uvd": pa.list_(pa.list_(pa.float32())),
+            "gripper_openness": pa.float32(),
             "is_complete": pa.bool_(),
             "subtask_id": pa.int64(),
         }
@@ -552,6 +562,19 @@ class OfflinePipeline:
             return self._build_libero_gripper_uvd(df, task_index)
         raise KeyError(f"Unsupported dataset_type for gripper_uvd: {self.config.dataset_type}")
 
+    def _build_gripper_openness(self, df: pd.DataFrame) -> np.ndarray:
+        if str(self.config.dataset_type).lower() != "libero":
+            raise KeyError(
+                f"Unsupported dataset_type for gripper_openness: {self.config.dataset_type}"
+            )
+        states = np.asarray(df["observation.state"].tolist(), dtype=np.float32)
+        if states.ndim != 2 or states.shape[1] < 8:
+            raise ValueError(
+                "observation.state must have shape [frames, >=8] to build gripper_openness"
+            )
+        widths = np.abs(states[:, 6]) + np.abs(states[:, 7])
+        return np.clip(widths / 0.08, 0.0, 1.0).astype(np.float32)
+
     def _build_libero_gripper_uvd(self, df: pd.DataFrame, task_index: int) -> list[list[list[float]]]:
         camera = self._load_libero_cameras()[int(task_index)]["agentview"]
         intrinsic = np.asarray(camera["intrinsic"], dtype=np.float64)
@@ -646,7 +669,10 @@ class OfflinePipeline:
             cs.print("parquet fields: debug dry-run does not write original parquet files")
         else:
             cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
-            cs.print("parquet fields: node_points_track, node_points_mask, depths_rel, far_background_mask, is_complete, gripper_uvd, subtask_id")
+            cs.print(
+                "parquet fields: node_points_track, node_points_mask, depths_rel, "
+                "far_background_mask, is_complete, gripper_uvd, gripper_openness, subtask_id"
+            )
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
             cs.print(f"debug point tracker videos: {self.point_tracker_vis_dir}")
@@ -1077,6 +1103,11 @@ class OfflinePipeline:
                 "shape": [3, 3],
                 "names": ["point", "uvd"],
             },
+            "gripper_openness": {
+                "dtype": "float32",
+                "shape": [1],
+                "names": None,
+            },
             "is_complete": {
                 "dtype": "bool",
                 "shape": [1],
@@ -1181,6 +1212,7 @@ if __name__ == "__main__":
             "far_background_mask": True,
             "is_complete": True,
             "gripper_uvd": True,
+            "gripper_openness": True,
             "subtask_id": True,
         },
         task_analyzer_api_key=api_key,
