@@ -120,7 +120,7 @@ LIBERO_TRANSFORM = (
 
     FlipTransform(mode="horizontal"),
     CustomTransform(mode="build_model_input"),
-    CustomTransform(mode="random_object_permutation"),
+    # CustomTransform(mode="random_object_permutation"),
 )
 
 LIBERO_OUT_TRANSFORM = (

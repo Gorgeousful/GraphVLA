@@ -5,7 +5,7 @@ python examples/libero/test/client_offline.py \
 # robobrain环境
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0716/checkpoints/step_15000.pt \
+--ckpt-path examples/libero/result/0718/checkpoints/step_15000.pt \
 --complete-window 100 \
 --devices '{"inference":"cuda:0","node_locator":"cuda:0","sam3":"cuda:1","point_tracker":"cuda:1","depth_predictor":"cuda:1"}'
 
@@ -15,7 +15,7 @@ python -m examples.libero.eval.client \
 --tasks 6 \
 --num-trials-per-task 1 \
 --max-steps 300 \
---execute-chunk-len 8 \
+--execute-chunk-len 4 \
 --future-object false
 
 # offline测试

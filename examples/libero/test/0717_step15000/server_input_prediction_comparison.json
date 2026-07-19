@@ -1,0 +1,39 @@
+{
+  "checkpoint_load": {
+    "missing_keys": [],
+    "unexpected_keys": []
+  },
+  "direct_gt_input_vs_gt": {
+    "query_count": 24,
+    "all_feature_mae_norm": 0.020830772817134857,
+    "uv_mae_norm": 0.028793400153517723,
+    "uv_rmse_norm": 0.04281230643391609,
+    "uv_l2_px_mean": 6.190016269683838,
+    "uv_l2_px_max": 13.61849594116211,
+    "depth_rel_mae_norm": 0.021102800965309143,
+    "visibility_mae": 0.005203709006309509,
+    "gripper_metric_mae_norm": 0.03276588022708893,
+    "metric_mask_mae": 0.008325457572937012
+  },
+  "server_input_vs_gt": {
+    "query_count": 24,
+    "all_feature_mae_norm": 0.023786047473549843,
+    "uv_mae_norm": 0.032553866505622864,
+    "uv_rmse_norm": 0.04562894627451897,
+    "uv_l2_px_mean": 6.742898464202881,
+    "uv_l2_px_max": 15.4210205078125,
+    "depth_rel_mae_norm": 0.02598395012319088,
+    "visibility_mae": 0.0052116564474999905,
+    "gripper_metric_mae_norm": 0.03757641837000847,
+    "metric_mask_mae": 0.008836532942950726
+  },
+  "server_input_vs_direct_input": {
+    "all_feature_mae_norm": 0.005384545307606459,
+    "uv_l2_px_mean": 1.4744218587875366,
+    "uv_l2_px_max": 2.0472123622894287,
+    "depth_rel_mae_norm": 0.0078073604963719845,
+    "gripper_metric_mae_norm": 0.008129768073558807,
+    "max_abs_any_feature": 0.01774895191192627
+  },
+  "all_predictions_finite": true
+}

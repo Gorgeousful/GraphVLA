@@ -46,7 +46,7 @@ class ModelConfig:
             "future_weight": 1.0, # future
             "future_actor": 1.0,
             "future_object": 0.0,
-            "point_regression": 1.0,
+            "point_regression": 1.0, # inside point
             "visibility": 1.0,
             "metric_depth": 1.0,
             "gripper_width": 1.0,

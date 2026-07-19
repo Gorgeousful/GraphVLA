@@ -794,7 +794,7 @@ class EmbodimentAdapter:
         self.robot_cls = robot_cls
         self.robot: Any = None
         self.libero_gripper_max_width = 0.08
-        self.libero_gripper_close_threshold = 0.04
+        self.libero_gripper_close_threshold = 0.04 # 0.04
 
     def to_action(
         self,
