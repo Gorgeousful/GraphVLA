@@ -181,7 +181,12 @@ def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int) ->
         2,
         lineType=cv2.LINE_AA,
     )
-    return add_panel_title(panel, "gripper_uvd")
+    if "gripper_openness" in df.columns:
+        openness = float(np.asarray(df["gripper_openness"].iloc[frame_index]).reshape(-1)[0])
+        title = f"gripper_uvd  open={openness:.2f}"
+    else:
+        title = "gripper_uvd  open=N/A"
+    return add_panel_title(panel, title)
 
 
 def render_check_video(dataset_dir: Path, task_index: int, local_episode_index: int, output_dir: Path, video_key: str | None) -> Path:

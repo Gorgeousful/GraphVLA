@@ -234,6 +234,9 @@ class OfflinePipeline:
             node_points_mask = self._build_node_points_mask(df, taskstructures[task_index])
             df["node_points_mask"] = [mask.tolist() for mask in node_points_mask]
 
+        if need_gripper_openness:
+            df["gripper_openness"] = self._build_gripper_openness(df)
+
         if need_gripper_uvd:
             gripper_uvd = self._build_gripper_uvd(df, task_index)
             df["gripper_uvd"] = gripper_uvd
@@ -241,12 +244,10 @@ class OfflinePipeline:
                 self._save_gripper_uvd_vis_video(
                     frames,
                     gripper_uvd,
+                    df["gripper_openness"].to_numpy(),
                     episode_index=episode_index,
                     task_index=task_index,
                 )
-
-        if need_gripper_openness:
-            df["gripper_openness"] = self._build_gripper_openness(df)
 
         if need_node_track:
             debug_node_points_masks = None
@@ -908,6 +909,7 @@ class OfflinePipeline:
         self,
         frames: Sequence[np.ndarray],
         gripper_uvds: Sequence[Sequence[Sequence[float]]],
+        gripper_opennesses: Sequence[float],
         episode_index: int,
         task_index: int,
     ):
@@ -934,9 +936,12 @@ class OfflinePipeline:
             stderr=subprocess.PIPE,
         )
         try:
-            for frame, uvd in zip(frames, gripper_uvds):
+            for frame, uvd, openness in zip(frames, gripper_uvds, gripper_opennesses):
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                drawn = self._draw_gripper_uvd(frame_bgr, uvd)
+                openness_value = float(np.asarray(openness).reshape(-1)[0])
+                drawn = self._draw_gripper_uvd(
+                    frame_bgr, uvd, openness_value,
+                )
                 proc.stdin.write(drawn.tobytes())
             proc.stdin.close()
             proc.wait()
@@ -947,7 +952,12 @@ class OfflinePipeline:
             stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
             raise RuntimeError(f"ffmpeg failed for {save_path}: {stderr}")
 
-    def _draw_gripper_uvd(self, image_bgr: np.ndarray, uvd: Sequence[Sequence[float]]) -> np.ndarray:
+    def _draw_gripper_uvd(
+        self,
+        image_bgr: np.ndarray,
+        uvd: Sequence[Sequence[float]],
+        openness: float,
+    ) -> np.ndarray:
         image = image_bgr.copy()
         root, left, right = np.asarray(uvd, dtype=np.float64)[:3]
         center = 0.5 * (left + right)
@@ -969,6 +979,21 @@ class OfflinePipeline:
             (255, 255, 255),
             2,
             lineType=cv2.LINE_AA,
+        )
+        label = f"open={openness:.2f}"
+        (text_width, text_height), _ = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1,
+        )
+        cv2.rectangle(image, (0, 0), (text_width + 16, text_height + 14), (0, 0, 0), -1)
+        cv2.putText(
+            image,
+            label,
+            (8, text_height + 7),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
         )
         return image
 
