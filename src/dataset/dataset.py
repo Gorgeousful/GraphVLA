@@ -18,14 +18,30 @@ except ModuleNotFoundError:
 from .transform import Compose
 
 
-class _VideoFreeLeRobotDataset(LeRobotDataset):
+class _FeatureOnlyLeRobotDataset(LeRobotDataset):
     """LeRobot integration hook that skips camera decoding for feature-only training."""
+
     def _query_videos(
         self,
         query_timestamps: dict[str, list[float]],
         ep_idx: int,
     ) -> dict[str, torch.Tensor]:
         return {}
+
+    def _query_hf_dataset(self, query_indices: dict[str, list[int]]) -> dict[str, torch.Tensor]:
+        grouped_keys: dict[tuple[int, ...], list[str]] = {}
+        video_keys = set(self.meta.video_keys)
+        for key, indices in query_indices.items():
+            if key not in video_keys:
+                grouped_keys.setdefault(tuple(indices), []).append(key)
+
+        materialized: dict[str, torch.Tensor] = {}
+        for indices, keys in grouped_keys.items():
+            selected = self.hf_dataset.select(list(indices)).with_format("numpy")
+            for key in keys:
+                materialized[key] = torch.from_numpy(selected[key].copy())
+
+        return {key: materialized[key] for key in query_indices if key in materialized}
 
 
 def make_lerobot_dataset(
@@ -35,7 +51,7 @@ def make_lerobot_dataset(
     **kwargs: Any,
 ) -> LeRobotDataset:
     dataset_dir = Path(dataset_dir)
-    dataset_cls = LeRobotDataset if load_videos else _VideoFreeLeRobotDataset
+    dataset_cls = LeRobotDataset if load_videos else _FeatureOnlyLeRobotDataset
     try:
         return dataset_cls(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
     except TypeError:
