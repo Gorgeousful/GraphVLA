@@ -370,7 +370,7 @@ def run_point_order_experiment(
     device = torch.device(device_name)
     model = PointQueryModel(**LIBERO_MODEL_CONFIG.to_kwargs()).to(device)
     state = torch.load(ckpt_path, map_location=device, weights_only=False)
-    incompatible = model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=False)
+    model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
     model.eval()
 
     control_batch = model_batch(sample, device)
@@ -417,10 +417,6 @@ def run_point_order_experiment(
         "permutation": permutation.tolist(),
         "same_permutation_for_all_history_frames": True,
         "unchanged": ["actor_feats", "conditions", "query ids", "targets"],
-        "checkpoint_load": {
-            "missing_keys": list(incompatible.missing_keys),
-            "unexpected_keys": list(incompatible.unexpected_keys),
-        },
         "control_vs_gt": action_metrics(control.numpy(), target.numpy(), mask),
         "patient_permuted_vs_gt": action_metrics(permuted.numpy(), target.numpy(), mask),
         "patient_permuted_vs_control": sensitivity_metrics(control.numpy(), permuted.numpy(), mask),

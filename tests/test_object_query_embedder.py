@@ -42,3 +42,29 @@ def test_object_query_embedder_validates_query_shape() -> None:
 
     with pytest.raises(ValueError, match="must have the same shape"):
         embedder(object_id=torch.tensor([[0, 1]]), frame_id=torch.tensor([[0]]))
+
+
+def test_object_query_embedder_adds_optional_query_type_embedding() -> None:
+    position_embedding = LearnableFrameObjectPointEmbedding(
+        hidden_dim=4,
+        max_objects=3,
+        max_points=2,
+        min_frame=-1,
+        max_frame=1,
+    )
+    embedder = ObjectQueryEmbedder(
+        hidden_dim=4,
+        position_embedding=position_embedding,
+        num_query_types=2,
+    )
+    object_id = torch.tensor([[0, 0]])
+    frame_id = torch.tensor([[0, 0]])
+    query_type = torch.tensor([[0, 1]])
+
+    output = embedder(object_id=object_id, frame_id=frame_id, query_type=query_type)
+    expected = embedder.out_norm(
+        position_embedding.encode_object_query(object_id=object_id, frame_id=frame_id)
+        + embedder.query_type_embed(query_type)
+    )
+
+    torch.testing.assert_close(output, expected)

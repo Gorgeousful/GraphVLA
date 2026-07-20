@@ -246,7 +246,7 @@ def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarr
             raise KeyError("Field 'gripper_uvd' not found.")
         gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
         if gripper_uvd.ndim < 3 or gripper_uvd.shape[-1] < 3:
-            raise ValueError(f"Expected gripper_uvd shape (..., 3, 3), got {gripper_uvd.shape}")
+            raise ValueError(f"Expected gripper_uvd shape (..., points, 3), got {gripper_uvd.shape}")
         d_values = gripper_uvd[..., 2]
         return d_values[np.isfinite(d_values)].reshape(-1, 1)
 
@@ -272,7 +272,7 @@ def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -
             raise KeyError("Field 'gripper_uvd' not found.")
         gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
         if gripper_uvd.ndim < 3 or gripper_uvd.shape[-1] < 3:
-            raise ValueError(f"Expected gripper_uvd shape (..., 3, 3), got {gripper_uvd.shape}")
+            raise ValueError(f"Expected gripper_uvd shape (..., points, 3), got {gripper_uvd.shape}")
         values = []
         for sample in gripper_uvd:
             d_values = sample[..., 2]

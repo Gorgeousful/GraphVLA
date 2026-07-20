@@ -58,7 +58,6 @@ class Args:
     save_video: bool = True
     control_delta: bool = False
     execute_chunk_len: int = 16
-    future_object: bool = True
 
 
 class ObservationDeltaBuffer:
@@ -275,10 +274,8 @@ def _draw_text_rgb_right(
     cv2.putText(image, text, (x, y), font, 0.48, color, 1, cv2.LINE_AA)
 
 
-def _complete_score_for_frame(response: dict[str, Any], frame_id: int | None) -> float | None:
-    if frame_id is None:
-        return None
-    complete_value = response.get("is_complete", response.get("complete"))
+def _current_complete_score(response: dict[str, Any]) -> float | None:
+    complete_value = response.get("is_complete")
     frame_ids_value = response.get("frame_query_frame_id")
     if complete_value is None or frame_ids_value is None:
         return None
@@ -288,7 +285,7 @@ def _complete_score_for_frame(response: dict[str, Any], frame_id: int | None) ->
     if scores.shape[0] != frame_ids.shape[0]:
         return None
 
-    matched_scores = scores[frame_ids == int(frame_id)]
+    matched_scores = scores[frame_ids == 0]
     matched_scores = matched_scores[np.isfinite(matched_scores)]
     if matched_scores.size == 0:
         return None
@@ -305,7 +302,6 @@ def _draw_response_points(
     frame_id: int | None,
     *,
     mode: str,
-    future_object: bool = True,
 ) -> np.ndarray:
     image = np.ascontiguousarray(image_rgb.copy())
     if response is None:
@@ -362,6 +358,14 @@ def _draw_response_points(
                     )
                     rb_count += 1
         _draw_text_rgb(image, f"tracking in={count} rb={rb_count}", (8, 18))
+        complete_score = _current_complete_score(response)
+        if complete_score is None:
+            complete_text = "-"
+            complete_color = (255, 255, 255)
+        else:
+            complete_text = f"{complete_score:.2f}"
+            complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
+        _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
         return image
 
     if frame_id is not None and all(key in response for key in ("point", "object_id", "frame_id")):
@@ -370,8 +374,6 @@ def _draw_response_points(
         point_frame_id = _first_batch(response["frame_id"]).astype(np.int64)
         if points.ndim == 2 and object_id.ndim == 1 and point_frame_id.ndim == 1:
             mask = point_frame_id == int(frame_id)
-            if not future_object and frame_id > 0:
-                mask &= object_id == 0
             for actor_layer in (False, True):
                 for point, obj_id in zip(points[mask], object_id[mask]):
                     is_actor = int(obj_id) == 0
@@ -387,7 +389,7 @@ def _draw_response_points(
 
     label_frame = "-" if frame_id is None else str(frame_id)
     _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))
-    complete_score = _complete_score_for_frame(response, frame_id)
+    complete_score = _current_complete_score(response)
     if complete_score is None:
         complete_text = "-"
         complete_color = (255, 255, 255)
@@ -445,13 +447,16 @@ def _save_video_ffmpeg(frames_rgb: list[np.ndarray], save_path: Path, *, fps: fl
     cs.print(f"saved video to: {save_path} ({len(frames_rgb)} frames, {fps:.1f} fps)")
 
 
-def _goal_progress(env: Any) -> tuple[int, int, float]:
+def _goal_progress(env: Any) -> tuple[int, int, float, list[int], list[str]]:
     problem_env = env.env if hasattr(env, "env") else env
     goal_state = problem_env.parsed_problem["goal_state"]
-    completed_goals = sum(bool(problem_env._eval_predicate(state)) for state in goal_state)
+    goal_results = [bool(problem_env._eval_predicate(state)) for state in goal_state]
+    completed_subtasks = [index + 1 for index, complete in enumerate(goal_results) if complete]
+    completed_goal_states = [str(state) for state, complete in zip(goal_state, goal_results) if complete]
+    completed_goals = len(completed_subtasks)
     total_goals = len(goal_state)
     progress = float(completed_goals) / float(total_goals) if total_goals else 0.0
-    return completed_goals, total_goals, progress
+    return completed_goals, total_goals, progress, completed_subtasks, completed_goal_states
 
 
 def _default_max_steps(task_suite_name: str) -> int:
@@ -499,12 +504,6 @@ def parse_args() -> Args:
     parser.add_argument("--no-save-video", action="store_true")
     parser.add_argument("--control-delta", action="store_true", default=Args.control_delta)
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
-    parser.add_argument(
-        "--future-object",
-        choices=("true", "false"),
-        default=str(Args.future_object).lower(),
-        help="Whether to draw predicted future object points.",
-    )
     ns = parser.parse_args()
     return Args(
         host=ns.host,
@@ -520,7 +519,6 @@ def parse_args() -> Args:
         save_video=not ns.no_save_video,
         control_delta=ns.control_delta,
         execute_chunk_len=ns.execute_chunk_len,
-        future_object=ns.future_object == "true",
     )
 
 
@@ -603,7 +601,6 @@ def main() -> None:
                             client.last_response,
                             client.last_action_frame_id,
                             mode="prediction",
-                            future_object=args.future_object,
                         )
                     )
                     tracking_images.append(
@@ -624,7 +621,13 @@ def main() -> None:
                     task_successes += 1
                     total_successes += 1
 
-                completed_goals, total_goals, progress = _goal_progress(env)
+                (
+                    completed_goals,
+                    total_goals,
+                    progress,
+                    completed_subtasks,
+                    completed_goal_states,
+                ) = _goal_progress(env)
                 task_progress += progress
                 total_progress += progress
 
@@ -636,7 +639,9 @@ def main() -> None:
 
                 cs.print(
                     f"task={task_id} episode={episode_idx} success={done} "
-                    f"progress={completed_goals}/{total_goals}"
+                    f"progress={completed_goals}/{total_goals} "
+                    f"completed_subtasks={completed_subtasks} "
+                    f"completed_goals={completed_goal_states}"
                 )
 
             task_result = {

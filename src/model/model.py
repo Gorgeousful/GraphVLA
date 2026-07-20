@@ -15,6 +15,7 @@ from src.model.embedding import LearnableFrameObjectPointEmbedding
 from src.model.embedding import ObjectQueryEmbedder
 from src.model.embedding import PointQueryEmbedder
 from src.model.encoder import PointMemoryEncoder
+from src.common.schema import POINT_FEATURE_DIM, POINT_METRIC_DEPTH_INDEX, POINT_METRIC_DEPTH_MASK_INDEX
 
 
 class PointQueryModel(nn.Module):
@@ -28,9 +29,9 @@ class PointQueryModel(nn.Module):
 
     def __init__(
         self,
-        point_dim: int = 6,
+        point_dim: int = POINT_FEATURE_DIM,
         num_points: int = 32,
-        actor_num_points: int = 3,
+        actor_num_points: int = 6,
         set_hidden_dim: int = 384,
         set_layers: int = 12,
         set_heads: int = 6,
@@ -51,6 +52,7 @@ class PointQueryModel(nn.Module):
         output_dims: dict[str, int] | None = None,
 
         num_query_types: int = 0,
+        num_object_query_types: int = 0,
         num_frame_query_types: int = 0,
         max_objects: int = 3, # 1+2
         min_frame: int = -15,
@@ -142,6 +144,7 @@ class PointQueryModel(nn.Module):
         self.object_query_embedder = ObjectQueryEmbedder(
             hidden_dim=decoder_hidden_dim,
             position_embedding=self.query_position_embedding,
+            num_query_types=num_object_query_types,
         )
         self.frame_query_embedder = FrameQueryEmbedder(
             hidden_dim=decoder_hidden_dim,
@@ -223,9 +226,14 @@ class PointQueryModel(nn.Module):
         memory: torch.Tensor,
         object_id: torch.Tensor,
         frame_id: torch.Tensor,
+        query_type: torch.Tensor | None = None,
         head_names: str | list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, torch.Tensor]:
-        query_tokens = self.object_query_embedder(object_id=object_id, frame_id=frame_id)
+        query_tokens = self.object_query_embedder(
+            object_id=object_id,
+            frame_id=frame_id,
+            query_type=query_type,
+        )
         decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
         return self.heads(decoded, head_names=head_names)
 
@@ -300,10 +308,10 @@ class PointQueryModel(nn.Module):
         anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(
             dtype=raw_metric_depth.dtype
         )
-        residual_mask = (frame_id > 0).unsqueeze(-1) & (anchors[..., 5:6] > 0.5)
+        residual_mask = (frame_id > 0).unsqueeze(-1) & (anchors[..., POINT_METRIC_DEPTH_MASK_INDEX:POINT_METRIC_DEPTH_MASK_INDEX + 1] > 0.5)
         return torch.where(
             residual_mask,
-            anchors[..., 4:5] + raw_metric_depth,
+            anchors[..., POINT_METRIC_DEPTH_INDEX:POINT_METRIC_DEPTH_INDEX + 1] + raw_metric_depth,
             raw_metric_depth,
         )
 
@@ -322,6 +330,9 @@ class PointQueryModel(nn.Module):
         frame_query_frame_id: torch.Tensor | None = None,
         frame_query_type: torch.Tensor | None = None,
         frame_head_names: str | list[str] | tuple[str, ...] | None = None,
+        actor_query_frame_id: torch.Tensor | None = None,
+        actor_query_type: torch.Tensor | None = None,
+        actor_head_names: str | list[str] | tuple[str, ...] | None = None,
         return_residual: bool = False,
     ) -> dict[str, torch.Tensor]:
         memory = self.encode(
@@ -371,6 +382,16 @@ class PointQueryModel(nn.Module):
                     head_names=frame_head_names,
                 )
             )
+        if actor_query_frame_id is not None:
+            outputs.update(
+                self.decode_object(
+                    memory=memory,
+                    object_id=torch.zeros_like(actor_query_frame_id),
+                    frame_id=actor_query_frame_id,
+                    query_type=actor_query_type,
+                    head_names=actor_head_names,
+                )
+            )
         return outputs
 
     def forward(
@@ -400,6 +421,7 @@ class PointQueryModel(nn.Module):
                 object_id=batch["object_id"],
                 point_id=batch["point_id"],
                 frame_id=batch["frame_id"],
+                query_type=batch.get("query_type"),
                 head_names=point_head_names,
             )
             point = self._apply_future_point_residual(
@@ -447,45 +469,15 @@ class PointQueryModel(nn.Module):
                 point_mask = point_mask.to(device=point_regression_err.device, dtype=torch.bool)
 
             frame_id = batch["frame_id"]
-            actor_query_mask = batch["object_id"] == 0
-            # build_model_input emits root/left/right actor queries consecutively per frame.
-            actor_point = point[actor_query_mask].reshape(
-                point.shape[0], -1, self.actor_num_points, point.shape[-1]
-            )
-            actor_target = target_point[actor_query_mask].reshape(
-                point.shape[0], -1, self.actor_num_points, target_point.shape[-1]
-            )
-            actor_valid = point_mask[actor_query_mask].reshape(
-                point.shape[0], -1, self.actor_num_points
-            ).all(dim=-1)
-            actor_frame_id = frame_id[actor_query_mask].reshape(
-                point.shape[0], -1, self.actor_num_points
-            )[..., 0]
-            predicted_width = torch.linalg.vector_norm(
-                actor_point[..., 2, :2] - actor_point[..., 1, :2],
-                dim=-1,
-            )
-            target_width = torch.linalg.vector_norm(
-                actor_target[..., 2, :2] - actor_target[..., 1, :2],
-                dim=-1,
-            )
-            gripper_width_err = (target_width - predicted_width).abs()
-            gripper_width_masks = {
-                "history_actor": (actor_frame_id <= 0) & actor_valid,
-                "future_actor": (actor_frame_id > 0) & actor_valid,
-            }
-
             loss_masks = {
                 "history_actor": (batch["object_id"] == 0) & (frame_id <= 0) & point_mask,
                 "history_object": (batch["object_id"] > 0) & (frame_id <= 0) & point_mask,
                 "future_actor": (batch["object_id"] == 0) & (frame_id > 0) & point_mask,
-                "future_object": (batch["object_id"] > 0) & (frame_id > 0) & point_mask,
             }
             frame_weights = {
                 "history_actor": weights.get("history_weight", 1.0),
                 "history_object": weights.get("history_weight", 1.0),
                 "future_actor": weights.get("future_weight", 1.0),
-                "future_object": weights.get("future_weight", 1.0),
             }
             for name, mask in loss_masks.items():
                 group_weight = float(weights.get(name, 1.0)) * float(frame_weights[name])
@@ -498,40 +490,60 @@ class PointQueryModel(nn.Module):
                         if selected_err.numel()
                         else point_regression_err.new_zeros(())
                     )
-                    # d_mask gates metric depth; node-role weights gate shared point components.
-                    component_group_weight = (
-                        float(frame_weights[name])
-                        if component_name == "metric_depth"
-                        else group_weight
-                    )
                     component_loss = (
                         component_loss
                         * float(weights.get(component_name, 1.0))
-                        * component_group_weight
+                        * group_weight
                     )
                     metrics[f"loss_{name}_{component_name}"] = component_loss
                     group_loss = group_loss + component_loss
-                if name in gripper_width_masks:
-                    width_err = gripper_width_err[gripper_width_masks[name]]
-                    width_loss = (
-                        width_err.mean()
-                        if width_err.numel()
-                        else point_regression_err.new_zeros(())
-                    )
-                    width_loss = (
-                        width_loss
-                        * float(weights.get("gripper_width", 1.0))
-                        * group_weight
-                    )
-                    metrics[f"loss_{name}_gripper_width"] = width_loss
-                    group_loss = group_loss + width_loss
                 metrics[f"loss_{name}"] = group_loss
                 total = group_loss if total is None else total + group_loss
 
+        object_head_names = tuple(
+            name for name in ("gripper_openness", "gripper_action") if name in target
+        )
+        if object_head_names:
+            object_outputs = self.decode_object(
+                memory=memory,
+                object_id=torch.zeros_like(batch["actor_query_frame_id"]),
+                frame_id=batch["actor_query_frame_id"],
+                query_type=batch.get("actor_query_type"),
+                head_names=object_head_names,
+            )
+            for name in object_head_names:
+                pred = object_outputs[name]
+                gt = target[name].to(device=pred.device, dtype=pred.dtype)
+                if gt.shape != pred.shape:
+                    raise ValueError(
+                        f"Expected target[{name}] shape {tuple(pred.shape)}, got {tuple(gt.shape)}"
+                    )
+                err = (gt - pred).abs().mean(dim=-1)
+                component_loss = err.new_zeros(())
+                actor_frame_id = batch["actor_query_frame_id"]
+                for period, period_mask in (
+                    ("history", actor_frame_id <= 0),
+                    ("future", actor_frame_id > 0),
+                ):
+                    selected_err = err[period_mask]
+                    period_loss = selected_err.mean() if selected_err.numel() else err.new_zeros(())
+                    period_loss = (
+                        period_loss
+                        * float(weights.get(name, 1.0))
+                        * float(weights.get(f"{period}_weight", 1.0))
+                        * float(weights.get(f"{period}_actor", 1.0))
+                    )
+                    metrics[f"loss_{period}_{name}"] = period_loss
+                    component_loss = component_loss + period_loss
+                metrics[f"loss_{name}"] = component_loss
+                total = component_loss if total is None else total + component_loss
+
         if "is_complete" in target:
+            complete_frame_id = batch["frame_query_frame_id"]
             frame_outputs = self.decode_frame(
                 memory=memory,
-                frame_id=batch.get("frame_query_frame_id", batch["frame_id"]),
+                frame_id=complete_frame_id,
+                query_type=batch.get("frame_query_type"),
                 head_names="is_complete",
             )
             pred = frame_outputs["is_complete"]
@@ -541,8 +553,18 @@ class PointQueryModel(nn.Module):
             if gt.shape[-1:] == (1,) and pred.shape == gt.shape[:-1]:
                 gt = gt.squeeze(-1)
 
-            complete_loss = F.binary_cross_entropy_with_logits(pred, gt)
-            complete_loss = complete_loss * float(weights.get("is_complete", 1.0))
+            complete_err = F.binary_cross_entropy_with_logits(pred, gt, reduction="none")
+            if complete_err.shape != complete_frame_id.shape:
+                raise ValueError(
+                    f"Expected completion frame ids shape {tuple(complete_err.shape)}, "
+                    f"got {tuple(complete_frame_id.shape)}"
+                )
+            complete_loss = (
+                complete_err.mean()
+                * float(weights.get("is_complete", 1.0))
+                * float(weights.get("history_weight", 1.0))
+            )
+            metrics["loss_history_is_complete"] = complete_loss
             metrics["loss_is_complete"] = complete_loss
             total = complete_loss if total is None else total + complete_loss
 

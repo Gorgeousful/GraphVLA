@@ -17,9 +17,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=Path,
-        default=Path("/data0/luokang/dataset/luokang/lerobot/libero/libero_all_no_noops_1.0.0_lerobot_10hz"),
+        default=Path("/data0/luokang/dataset/luokang/lerobot/libero/libero_31_no_noops_1.0.0_lerobot_10hz"),
     )
-    parser.add_argument("--task-index", type=int, default=31)
+    parser.add_argument("--task-index", type=int, default=0)
     parser.add_argument("--local-episode-index", type=int, default=0)
     parser.add_argument(
         "--output-dir",
@@ -157,15 +157,17 @@ def draw_far_background_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: 
 def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int) -> np.ndarray:
     height, width = frame.shape[:2]
     panel = frame.copy()
-    uvd = df["gripper_uvd"].iloc[frame_index]
-    root, left, right = [np.asarray(point, dtype=np.float64) for point in uvd[:3]]
-    center = 0.5 * (left + right)
+    root, left_base, right_base, left_tip, right_tip, tcp = np.asarray(
+        df["gripper_uvd"].iloc[frame_index], dtype=np.float64,
+    )
 
     for name, p, color in (
         ("root", root, (255, 0, 0)),
-        ("center", center, (0, 0, 255)),
-        ("left", left, (0, 255, 0)),
-        ("right", right, (0, 255, 255)),
+        ("left_base", left_base, (0, 255, 0)),
+        ("right_base", right_base, (0, 255, 255)),
+        ("left_tip", left_tip, (255, 0, 255)),
+        ("right_tip", right_tip, (255, 255, 0)),
+        ("tcp", tcp, (0, 0, 255)),
     ):
         x, y = int(round(p[0])), int(round(p[1]))
         if -50 <= x < width + 50 and -50 <= y < height + 50:
@@ -173,14 +175,15 @@ def draw_gripper_panel(frame: np.ndarray, df: pd.DataFrame, frame_index: int) ->
             cv2.circle(panel, (x, y), 7, (255, 255, 255), 1, lineType=cv2.LINE_AA)
             cv2.putText(panel, name, (x + 7, y - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
-    cv2.line(
-        panel,
-        tuple(np.round(left[:2]).astype(int)),
-        tuple(np.round(right[:2]).astype(int)),
-        (255, 255, 255),
-        2,
-        lineType=cv2.LINE_AA,
-    )
+    for left, right in ((left_base, right_base), (left_tip, right_tip)):
+        cv2.line(
+            panel,
+            tuple(np.round(left[:2]).astype(int)),
+            tuple(np.round(right[:2]).astype(int)),
+            (255, 255, 255),
+            2,
+            lineType=cv2.LINE_AA,
+        )
     if "gripper_openness" in df.columns:
         openness = float(np.asarray(df["gripper_openness"].iloc[frame_index]).reshape(-1)[0])
         title = f"gripper_uvd  open={openness:.2f}"

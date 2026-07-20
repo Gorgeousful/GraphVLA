@@ -70,17 +70,12 @@ class TrainingCheckpoint:
             return
         path = Path(ckpt_path)
         if not path.exists():
-            if self.is_main_process:
-                cs.print(f"[yellow]pretrained checkpoint not found, skip: {path}[/yellow]")
-            return
+            raise FileNotFoundError(f"Pretrained checkpoint not found: {path}")
 
         state = torch.load(path, map_location=device, weights_only=False)
-        incompatible = self.model_for_state(model).load_state_dict(self.unwrap_model_state(state), strict=False)
+        self.model_for_state(model).load_state_dict(self.unwrap_model_state(state), strict=True)
         if self.is_main_process:
-            cs.print(
-                f"[green]loaded pretrained weights from {path}[/green] "
-                f"missing={len(incompatible.missing_keys)} unexpected={len(incompatible.unexpected_keys)}"
-            )
+            cs.print(f"[green]loaded pretrained weights from {path}[/green]")
 
     def load_latest(self, model: torch.nn.Module, optimizer: Any, device: torch.device, *, seed: int) -> int:
         path = self.latest_checkpoint()
@@ -91,26 +86,26 @@ class TrainingCheckpoint:
         optimizer.load_state_dict(state["optimizer"])
         step = int(state.get("step", self.step_from_path(path) or 0))
         resume = state.get("resume")
-        rng_by_rank = resume.get("rng_by_rank") if isinstance(resume, Mapping) else None
-        saved_world_size = resume.get("world_size") if isinstance(resume, Mapping) else None
-        rank_rng = rng_by_rank[self.rank] if isinstance(rng_by_rank, list) and self.rank < len(rng_by_rank) else None
-        can_restore_rng = (
-            saved_world_size == self.world_size
-            and isinstance(rank_rng, Mapping)
-            and all(key in rank_rng for key in ("python", "numpy", "torch_cpu"))
-        )
-        if can_restore_rng:
+        if not isinstance(resume, Mapping):
+            raise ValueError(f"Checkpoint {path} is missing resume metadata")
+        saved_world_size = resume.get("world_size")
+        rng_by_rank = resume.get("rng_by_rank")
+        if not isinstance(saved_world_size, int) or not isinstance(rng_by_rank, list):
+            raise ValueError(f"Checkpoint {path} has invalid resume metadata")
+        if saved_world_size == self.world_size:
+            rank_rng = rng_by_rank[self.rank] if self.rank < len(rng_by_rank) else None
+            if not isinstance(rank_rng, Mapping) or not all(
+                key in rank_rng for key in ("python", "numpy", "torch_cpu")
+            ):
+                raise ValueError(f"Checkpoint {path} has incomplete RNG state for rank {self.rank}")
             self.restore_rng_state(rank_rng, device)
         else:
             self.seed_rng(seed + step + self.rank, device)
             if self.is_main_process:
-                if not isinstance(resume, Mapping):
-                    reason = "legacy checkpoint"
-                elif saved_world_size != self.world_size:
-                    reason = f"world_size changed from {saved_world_size} to {self.world_size}"
-                else:
-                    reason = "checkpoint resume metadata is incomplete"
-                cs.print(f"[yellow]{reason}; rebuilt RNG state for elastic resume[/yellow]")
+                cs.print(
+                    f"[yellow]world_size changed from {saved_world_size} to {self.world_size}; "
+                    "rebuilt RNG state for elastic resume[/yellow]"
+                )
         if self.is_main_process:
             cs.print(f"[green]resumed from {path} at step {step}[/green]")
         return step

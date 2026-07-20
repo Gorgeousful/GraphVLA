@@ -16,6 +16,8 @@ import numpy as np
 import pyarrow.parquet as pq
 from scipy.spatial.transform import Rotation as R
 
+from src.common.schema import LIBERO_GRIPPER_MAX_WIDTH
+
 
 DEFAULT_DATASET_ROOT = Path(
     "/data0/luokang/dataset/luokang/lerobot/libero/"
@@ -27,7 +29,6 @@ DEFAULT_ROBOT_XML = Path(
 )
 DEFAULT_FINGER_STL = DEFAULT_ROBOT_XML.parent / "meshes" / "panda_gripper" / "finger_vis.stl"
 TCP_TO_HAND_OFFSET = np.array([0.0, 0.0, -0.097], dtype=np.float64)
-MAX_GRIPPER_OPENING = 0.08
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -99,7 +100,7 @@ def transform_point(transform: np.ndarray, point: np.ndarray) -> np.ndarray:
 
 
 def local_tip_points(opening: float, mesh_tip: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    opening = float(np.clip(opening, 0.0, MAX_GRIPPER_OPENING))
+    opening = float(np.clip(opening, 0.0, LIBERO_GRIPPER_MAX_WIDTH))
     half_open = opening / 2.0
 
     hand_from_gripper = make_pose([0.0, 0.0, 0.0], [0.707107, 0.0, 0.0, -0.707107])
@@ -165,7 +166,7 @@ def convert_states(states: np.ndarray, intrinsic: np.ndarray, extrinsic: np.ndar
         "width_2p5d": width,
         "left_tip_uvd": left_uvd,
         "right_tip_uvd": right_uvd,
-        "gripper_opening": np.clip(np.abs(states[:, 6]) + np.abs(states[:, 7]), 0.0, MAX_GRIPPER_OPENING),
+        "gripper_opening": np.clip(np.abs(states[:, 6]) + np.abs(states[:, 7]), 0.0, LIBERO_GRIPPER_MAX_WIDTH),
     }
 
 

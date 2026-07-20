@@ -18,7 +18,7 @@ from rich.console import Console
 from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
-from src.common.schema import NodeRole, TaskStructure, json_to_taskstructure, taskstructure_to_json
+from src.common.schema import LIBERO_GRIPPER_MAX_WIDTH, NodeRole, TaskStructure, json_to_taskstructure, taskstructure_to_json
 from src.module.binary_segmenter import BinarySegmenter
 from src.module.depth_predictor import DepthPredictorSTream3R
 from src.module.node_locator import NodeLocatorRobo
@@ -574,7 +574,7 @@ class OfflinePipeline:
                 "observation.state must have shape [frames, >=8] to build gripper_openness"
             )
         widths = np.abs(states[:, 6]) + np.abs(states[:, 7])
-        return np.clip(widths / 0.08, 0.0, 1.0).astype(np.float32)
+        return np.clip(widths / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0).astype(np.float32)
 
     def _build_libero_gripper_uvd(self, df: pd.DataFrame, task_index: int) -> list[list[list[float]]]:
         camera = self._load_libero_cameras()[int(task_index)]["agentview"]
@@ -585,10 +585,15 @@ class OfflinePipeline:
         results = []
         for state in df["observation.state"]:
             state = np.asarray(state, dtype=np.float64)
+            if state.size < 8:
+                raise ValueError(
+                    "observation.state must contain at least 8 values to build gripper_uvd"
+                )
             output = geometry.project_gripper_to_uvd(
                 tcp_state=state[:6],
                 intrinsic=intrinsic,
                 extrinsic=extrinsic,
+                gripper_width=abs(float(state[6])) + abs(float(state[7])),
             )
             results.append(self._flatten_gripper_uvd(output))
         return results
@@ -597,7 +602,14 @@ class OfflinePipeline:
     def _flatten_gripper_uvd(output: Mapping[str, object]) -> list[list[float]]:
         return [
             np.asarray(output[key], dtype=np.float64).astype(float).tolist()
-            for key in ("root_uvd", "left_base_uvd", "right_base_uvd")
+            for key in (
+                "root_uvd",
+                "left_base_uvd",
+                "right_base_uvd",
+                "left_fingertip_uvd",
+                "right_fingertip_uvd",
+                "tcp_uvd",
+            )
         ]
 
     def _load_libero_cameras(self) -> dict[int, dict]:
@@ -959,27 +971,31 @@ class OfflinePipeline:
         openness: float,
     ) -> np.ndarray:
         image = image_bgr.copy()
-        root, left, right = np.asarray(uvd, dtype=np.float64)[:3]
-        center = 0.5 * (left + right)
+        root, left_base, right_base, left_tip, right_tip, tcp = np.asarray(
+            uvd, dtype=np.float64,
+        )
 
-        for point, color in (
-            (root, (255, 0, 0)),
-            (center, (0, 0, 255)),
-            (left, (0, 255, 0)),
-            (right, (0, 255, 255)),
+        for point, color, radius in (
+            (root, (255, 0, 0), 5),
+            (left_base, (0, 255, 0), 5),
+            (right_base, (0, 255, 255), 5),
+            (left_tip, (255, 0, 255), 5),
+            (right_tip, (255, 255, 0), 5),
+            (tcp, (0, 0, 255), 6),
         ):
             x, y = int(round(point[0])), int(round(point[1]))
-            cv2.circle(image, (x, y), 5, color, -1, lineType=cv2.LINE_AA)
-            cv2.circle(image, (x, y), 7, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+            cv2.circle(image, (x, y), radius, color, -1, lineType=cv2.LINE_AA)
+            cv2.circle(image, (x, y), radius + 2, (255, 255, 255), 1, lineType=cv2.LINE_AA)
 
-        cv2.line(
-            image,
-            tuple(np.round(left[:2]).astype(int)),
-            tuple(np.round(right[:2]).astype(int)),
-            (255, 255, 255),
-            2,
-            lineType=cv2.LINE_AA,
-        )
+        for left, right in ((left_base, right_base), (left_tip, right_tip)):
+            cv2.line(
+                image,
+                tuple(np.round(left[:2]).astype(int)),
+                tuple(np.round(right[:2]).astype(int)),
+                (255, 255, 255),
+                2,
+                lineType=cv2.LINE_AA,
+            )
         label = f"open={openness:.2f}"
         (text_width, text_height), _ = cv2.getTextSize(
             label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1,
@@ -1125,7 +1141,7 @@ class OfflinePipeline:
             },
             "gripper_uvd": {
                 "dtype": "float32",
-                "shape": [3, 3],
+                "shape": [6, 3],
                 "names": ["point", "uvd"],
             },
             "gripper_openness": {
@@ -1215,11 +1231,11 @@ if __name__ == "__main__":
     api_key = "sk-UZpG2yYwDE5itw7s57eIJA"
 
     config = PipelineConfig(
-        dataset_dir="/data0/luokang/dataset/luokang/lerobot/libero/libero_all_no_noops_1.0.0_lerobot_10hz",
+        dataset_dir="/data0/luokang/dataset/luokang/lerobot/libero/libero_31_no_noops_1.0.0_lerobot_10hz",
         dataset_type="libero",
         episode_selector={
             # 30: [0],
-            31: [0],
+            # 31: [0],
             # 32: [0],
             # 33: [0],
             # 34: [0],
@@ -1228,6 +1244,8 @@ if __name__ == "__main__":
             # 32: ["*"],
             # 33: ["*"],
             # 34: ["*"],
+            0: ["*"],
+            # 0: [0]
         },
         points_per_node=32,
         overwrite={

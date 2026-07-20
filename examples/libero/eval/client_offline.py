@@ -14,6 +14,8 @@ import numpy as np
 import torch
 import websockets
 
+from src.common.schema import dataset_gripper_action_to_libero
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = ROOT / "output_offline"
@@ -101,8 +103,12 @@ def _actor_uvd_for_frame(
 
 def _json_uvd(uvd: dict[str, np.ndarray]) -> dict[str, list[float]]:
     return {
-        name.removesuffix("_uvd"): np.asarray(value, dtype=np.float64).round(6).tolist()
-        for name, value in uvd.items()
+        output_name: np.asarray(uvd[input_name], dtype=np.float64).round(6).tolist()
+        for output_name, input_name in zip(
+            ACTOR_NAMES,
+            ("root_uvd", "left_base_uvd", "right_base_uvd"),
+            strict=True,
+        )
     }
 
 
@@ -110,58 +116,58 @@ def build_actor_diagnostics(
     *,
     response: dict[str, Any],
     gt_gripper_uvd: torch.Tensor | np.ndarray,
+    gt_gripper_openness: torch.Tensor | np.ndarray,
+    gt_action: torch.Tensor | np.ndarray,
     history_horizon: int,
-    intrinsic: np.ndarray,
-    extrinsic: np.ndarray,
-    robot: Any,
-    close_threshold: float,
 ) -> list[dict[str, Any]]:
     points = _first_batch(response["point"]).astype(np.float64)
     metric_depth = _first_batch(response["metric_depth"]).astype(np.float64).reshape(-1)
     object_id = _first_batch(response["object_id"]).astype(np.int64)
     point_id = _first_batch(response["point_id"]).astype(np.int64)
     frame_id = _first_batch(response["frame_id"]).astype(np.int64)
-    gt_array = (
-        gt_gripper_uvd.detach().cpu().numpy()
-        if isinstance(gt_gripper_uvd, torch.Tensor)
-        else np.asarray(gt_gripper_uvd)
-    )
-    actions = np.asarray(response.get("action", []), dtype=np.float64)
+    actor_query_frame_id = _first_batch(response["actor_query_frame_id"]).astype(np.int64)
+    predicted_openness = _first_batch(response["gripper_openness"]).astype(np.float64).reshape(-1)
+    predicted_action = _first_batch(response["gripper_action"]).astype(np.float64).reshape(-1)
+    gt_uvd = np.asarray(gt_gripper_uvd)
+    gt_openness = np.asarray(gt_gripper_openness).reshape(-1)
+    dataset_action = np.asarray(gt_action)[..., -1].reshape(-1)
+    libero_action = dataset_gripper_action_to_libero(dataset_action)
+    executed_actions = np.asarray(response.get("action", []), dtype=np.float64)
 
     rows = []
     for future_frame_id in sorted(int(value) for value in np.unique(frame_id) if value > 0):
-        pred_uvd = _actor_uvd_for_frame(
-            points, metric_depth, object_id, point_id, frame_id, future_frame_id
-        )
+        pred_uvd = _actor_uvd_for_frame(points, metric_depth, object_id, point_id, frame_id, future_frame_id)
         gt_index = future_frame_id + history_horizon
-        if pred_uvd is None or not 0 <= gt_index < len(gt_array):
+        query_indices = np.flatnonzero(actor_query_frame_id == future_frame_id)
+        if pred_uvd is None or not 0 <= gt_index < len(gt_uvd) or len(query_indices) != 1:
             continue
-        gt_uvd = {
-            "root_uvd": np.asarray(gt_array[gt_index, 0], dtype=np.float64),
-            "left_base_uvd": np.asarray(gt_array[gt_index, 1], dtype=np.float64),
-            "right_base_uvd": np.asarray(gt_array[gt_index, 2], dtype=np.float64),
-        }
-        pred_gripper = float(
-            robot.project_uvd_to_gripper(pred_uvd, intrinsic=intrinsic, extrinsic=extrinsic)[6]
-        )
-        gt_gripper = float(
-            robot.project_uvd_to_gripper(gt_uvd, intrinsic=intrinsic, extrinsic=extrinsic)[6]
-        )
+        query_index = int(query_indices[0])
+        action_gt_index = gt_index
+        if not 0 <= action_gt_index < len(libero_action):
+            continue
         action_index = future_frame_id - 1
-        action_gripper = float(actions[action_index, 6]) if action_index < len(actions) else None
-        rows.append(
-            {
-                "frame_id": future_frame_id,
-                "pred_gripper": round(pred_gripper, 6),
-                "gt_gripper": round(gt_gripper, 6),
-                "gripper_abs_error": round(abs(pred_gripper - gt_gripper), 6),
-                "pred_close": pred_gripper < close_threshold,
-                "gt_close": gt_gripper < close_threshold,
-                "action_gripper": action_gripper,
-                "pred_uvd": _json_uvd(pred_uvd),
-                "gt_uvd": _json_uvd(gt_uvd),
-            }
-        )
+        executed_action = float(executed_actions[action_index, 6]) if action_index < len(executed_actions) else None
+        pred_open = float(predicted_openness[query_index])
+        target_open = float(gt_openness[gt_index])
+        pred_action = float(predicted_action[query_index])
+        target_action = float(libero_action[action_gt_index])
+        frame_gt_uvd = {
+            "root_uvd": np.asarray(gt_uvd[gt_index, 0], dtype=np.float64),
+            "left_base_uvd": np.asarray(gt_uvd[gt_index, 1], dtype=np.float64),
+            "right_base_uvd": np.asarray(gt_uvd[gt_index, 2], dtype=np.float64),
+        }
+        rows.append({
+            "frame_id": future_frame_id,
+            "predicted_openness": round(pred_open, 6),
+            "target_openness": round(target_open, 6),
+            "openness_abs_error": round(abs(pred_open - target_open), 6),
+            "predicted_action": round(pred_action, 6),
+            "target_action": round(target_action, 6),
+            "action_abs_error": round(abs(pred_action - target_action), 6),
+            "executed_action": executed_action,
+            "pred_uvd": _json_uvd(pred_uvd),
+            "gt_uvd": _json_uvd(frame_gt_uvd),
+        })
     return rows
 
 
@@ -247,7 +253,13 @@ def make_offline_dataset(dataset_dir: Path, history_horizon: int, future_horizon
     offsets = list(range(-history_horizon, future_horizon + 1))
     delta_timestamps = {
         key: [offset / fps for offset in offsets]
-        for key in ("observation.images.image", "observation.state", "gripper_uvd")
+        for key in (
+            "observation.images.image",
+            "observation.state",
+            "gripper_uvd",
+            "gripper_openness",
+            "action",
+        )
     }
     return make_lerobot_dataset(
         dataset_dir,
@@ -272,7 +284,6 @@ def draw_point_grid(
     label: str,
     point_id: np.ndarray | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
-    future_object: bool = True,
 ) -> None:
     rgb_frames = _images_to_server_rgb(images)
     height, width = rgb_frames.shape[1:3]
@@ -299,8 +310,6 @@ def draw_point_grid(
             tile[:] = cv2.cvtColor(rgb_frames[image_index], cv2.COLOR_RGB2BGR)
 
         mask = point_frame_id == vis_frame_id
-        if not future_object and vis_frame_id > 0:
-            mask &= object_id == 0
         frame_points = points[mask]
         frame_objects = object_id[mask]
         frame_point_ids = point_id[mask] if point_id is not None else None
@@ -334,7 +343,10 @@ def draw_point_grid(
                 if 0 <= xy[0] < width and 0 <= xy[1] < height:
                     cv2.circle(tile, xy, 6, gt_color, 2, lineType=cv2.LINE_AA)
             cv2.line(tile, gt_xy["left"], gt_xy["right"], gt_color, 1, cv2.LINE_AA)
-            status = f" pred={diagnostic['pred_gripper']:.3f} gt={diagnostic['gt_gripper']:.3f}"
+            status = (
+                f" open={diagnostic['predicted_openness']:.3f}/{diagnostic['target_openness']:.3f}"
+                f" action={diagnostic['predicted_action']:.3f}/{diagnostic['target_action']:.1f}"
+            )
         else:
             status = ""
 
@@ -357,7 +369,6 @@ def run_sample(
     tasks: dict[int, str],
     server_uri: str,
     args: argparse.Namespace,
-    robot: Any,
     observation_dataset: Any | None,
     episode_indices: list[int],
 ) -> dict[str, Any]:
@@ -397,6 +408,9 @@ def run_sample(
     required_response_fields = (
         "point",
         "metric_depth",
+        "gripper_openness",
+        "gripper_action",
+        "actor_query_frame_id",
         "object_id",
         "point_id",
         "frame_id",
@@ -422,11 +436,9 @@ def run_sample(
     diagnostics = build_actor_diagnostics(
         response=response,
         gt_gripper_uvd=sample["gripper_uvd"],
+        gt_gripper_openness=sample["gripper_openness"],
+        gt_action=sample["action"],
         history_horizon=args.history_horizon,
-        intrinsic=intrinsic,
-        extrinsic=extrinsic,
-        robot=robot,
-        close_threshold=args.close_threshold,
     )
     stem = f"episode_{args.episode_index:06d}_sample_{local_index:04d}"
     prediction_path = args.output_dir / f"{stem}_prediction.png"
@@ -442,7 +454,6 @@ def run_sample(
         frame_ids=list(range(1, args.future_horizon + 1)),
         history_horizon=args.history_horizon,
         label="prediction",
-        future_object=args.future_object,
     )
     draw_point_grid(
         output_path=tracking_path,
@@ -463,7 +474,6 @@ def run_sample(
         "prompt": tasks[task_index],
         "subtask": response.get("subtask"),
         "subtask_index": response.get("subtask_index"),
-        "close_threshold": args.close_threshold,
         "warmup_from_episode_start": args.warmup_from_episode_start,
         "server_anchor_frame": observation_start_frame,
         "server_observation_frame_range": [observation_start_frame, local_index],
@@ -479,10 +489,14 @@ def run_sample(
     }
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-    mean_error = float(np.mean([row["gripper_abs_error"] for row in diagnostics])) if diagnostics else float("nan")
+    mean_action_error = (
+        float(np.mean([row["action_abs_error"] for row in diagnostics]))
+        if diagnostics
+        else float("nan")
+    )
     print(
         f"sample={local_index} global_index={global_index} frames={len(diagnostics)} "
-        f"mean_gripper_error={mean_error:.6f} output={json_path}"
+        f"mean_action_error={mean_action_error:.6f} output={json_path}"
     )
     return result
 
@@ -512,7 +526,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--history-horizon", type=int, default=LIBERO_HISTORY_HORIZON)
     parser.add_argument("--future-horizon", type=int, default=LIBERO_FUTURE_HORIZON)
     parser.add_argument("--execute-chunk-len", type=int, default=LIBERO_FUTURE_HORIZON)
-    parser.add_argument("--close-threshold", type=float, default=0.04)
     parser.add_argument("--camera-name", default="agentview")
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -522,14 +535,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional .npz path for the exact tensor inputs entering PointQueryModel.infer.",
     )
-    parser.add_argument(
-        "--future-object",
-        choices=("true", "false"),
-        default="true",
-        help="Whether to draw predicted future object points.",
-    )
     args = parser.parse_args()
-    args.future_object = args.future_object == "true"
     if args.num_samples < 1 or args.sample_stride < 1:
         parser.error("--num-samples and --sample-stride must be positive")
     if not 1 <= args.execute_chunk_len <= args.future_horizon:
@@ -539,7 +545,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     from examples.libero.config.data_config import load_lerobot_tasks
-    from examples.libero.embodiment.robot import GeomRobot
 
     args = parse_args()
     dataset = make_offline_dataset(args.dataset_dir, args.history_horizon, args.future_horizon)
@@ -561,7 +566,6 @@ def main() -> None:
         )
 
     tasks = load_lerobot_tasks(args.dataset_dir)
-    robot = GeomRobot(embodiment="franka_panda", with_fingers=True)
     server_uri = f"ws://{args.host}:{args.port}"
     print(f"server_uri={server_uri} episode_index={args.episode_index} sample_indices={local_indices}")
     for local_index in local_indices:
@@ -574,7 +578,6 @@ def main() -> None:
             tasks=tasks,
             server_uri=server_uri,
             args=args,
-            robot=robot,
             observation_dataset=observation_dataset,
             episode_indices=episode_indices,
         )

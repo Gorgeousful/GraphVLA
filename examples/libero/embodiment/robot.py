@@ -25,7 +25,12 @@ class GeomFrankaPanda:
 
     _FINGER_GEOM_NAMES = frozenset({"finger1_visual", "finger2_visual"})
     _GRIPPER_FRAME_BODY = "right_hand"
-    _TCP_OFFSET = np.array([0.0, 0.0, -0.097], dtype=np.float64)
+    # Offline measurement of the center of the inner fingertip contact surface
+    # in the right_hand frame. The fingers move symmetrically along local y.
+    _FINGERTIP_CONTACT_Z = 0.097 # 0.097397454
+    _TCP_OFFSET = np.array([0.0, 0.0, -_FINGERTIP_CONTACT_Z], dtype=np.float64)
+    _MAX_GRIPPER_WIDTH = 0.08
+
 
     def __init__(
         self,
@@ -198,19 +203,34 @@ class GeomFrankaPanda:
         intrinsic: np.ndarray,
         extrinsic: np.ndarray,
         world_transform: np.ndarray | None = None,
+        gripper_width: float | None = None,
     ) -> dict:
         local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
-        points_camera = transform_points(self._pose_keypoints_local, local_to_camera)
+        points_local = self._pose_keypoints_local
+        point_names = ("root_uvd", "left_base_uvd", "right_base_uvd")
+        if gripper_width is not None:
+            width = float(gripper_width)
+            if not np.isfinite(width):
+                raise ValueError(f"gripper_width must be finite, got {gripper_width!r}")
+            width = float(np.clip(width, 0.0, self._MAX_GRIPPER_WIDTH))
+            half_width = width / 2.0
+            fingertips_local = np.asarray(
+                [
+                    [0.0, half_width, self._FINGERTIP_CONTACT_Z],
+                    [0.0, -half_width, self._FINGERTIP_CONTACT_Z],
+                ],
+                dtype=np.float64,
+            )
+            tcp_local = fingertips_local.mean(axis=0, keepdims=True)
+            points_local = np.concatenate([points_local, fingertips_local, tcp_local], axis=0)
+            point_names += ("left_fingertip_uvd", "right_fingertip_uvd", "tcp_uvd")
+
+        points_camera = transform_points(points_local, local_to_camera)
         intrinsic = np.asarray(intrinsic, dtype=np.float64)
         pixels_h = (intrinsic @ points_camera.T).T
         pixels = pixels_h[:, :2] / pixels_h[:, 2:3]
         uvd = np.concatenate([pixels, points_camera[:, 2:3]], axis=1)
-
-        return {
-            "root_uvd": uvd[0],
-            "left_base_uvd": uvd[1],
-            "right_base_uvd": uvd[2],
-        }
+        return dict(zip(point_names, uvd))
 
     def project_uvd_to_gripper(
         self,
@@ -389,6 +409,7 @@ class GeomFrankaPanda:
         gripper_pose = self._tcp_state_to_gripper_pose(tcp_state)
         if world_transform is not None:
             gripper_pose = np.asarray(world_transform, dtype=np.float64) @ gripper_pose
+        # extrinsic is the camera pose in world coordinates: T_world_from_camera.
         return np.linalg.inv(np.asarray(extrinsic, dtype=np.float64)) @ gripper_pose
 
     def _prepare_camera_projection(

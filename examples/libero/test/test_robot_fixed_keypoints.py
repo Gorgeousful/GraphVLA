@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from examples.libero.embodiment.robot import GeomFrankaPanda
 
@@ -59,3 +60,84 @@ def test_fixed_keypoints_recover_pose_with_independent_gripper_width() -> None:
 
     np.testing.assert_allclose(recovered[:6], tcp_state, atol=1e-7)
     np.testing.assert_allclose(recovered[6], expected_width, atol=1e-12)
+
+
+def test_projected_fingertips_and_tcp_follow_gripper_width() -> None:
+    geometry = GeomFrankaPanda()
+    tcp_state = np.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    gripper_width = 0.03
+
+    uvd = geometry.project_gripper_to_uvd(
+        tcp_state=tcp_state,
+        intrinsic=INTRINSIC,
+        extrinsic=EXTRINSIC,
+        gripper_width=gripper_width,
+    )
+    assert tuple(uvd) == (
+        "root_uvd",
+        "left_base_uvd",
+        "right_base_uvd",
+        "left_fingertip_uvd",
+        "right_fingertip_uvd",
+        "tcp_uvd",
+    )
+
+    points_camera = {}
+    for name, (u, v, z) in uvd.items():
+        points_camera[name] = np.asarray([
+            (u - INTRINSIC[0, 2]) * z / INTRINSIC[0, 0],
+            (v - INTRINSIC[1, 2]) * z / INTRINSIC[1, 1],
+            z,
+        ])
+
+    root = points_camera["root_uvd"]
+    left = points_camera["left_fingertip_uvd"]
+    right = points_camera["right_fingertip_uvd"]
+    tcp = points_camera["tcp_uvd"]
+    np.testing.assert_allclose(
+        left - root,
+        [0.0, gripper_width / 2.0, geometry._FINGERTIP_CONTACT_Z],
+        atol=1e-10,
+    )
+    np.testing.assert_allclose(
+        right - root,
+        [0.0, -gripper_width / 2.0, geometry._FINGERTIP_CONTACT_Z],
+        atol=1e-10,
+    )
+    np.testing.assert_allclose(tcp, (left + right) / 2.0, atol=1e-10)
+
+    recovered = geometry.project_uvd_to_gripper(
+        uvd,
+        intrinsic=INTRINSIC,
+        extrinsic=EXTRINSIC,
+        gripper_width=gripper_width,
+    )
+    np.testing.assert_allclose(recovered[:6], tcp_state, atol=1e-7)
+
+
+def test_projected_fingertip_width_is_clipped_and_nonfinite_width_is_rejected() -> None:
+    geometry = GeomFrankaPanda()
+    tcp_state = np.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+
+    clipped = geometry.project_gripper_to_uvd(
+        tcp_state=tcp_state,
+        intrinsic=INTRINSIC,
+        extrinsic=EXTRINSIC,
+        gripper_width=1.0,
+    )
+    max_width = geometry.project_gripper_to_uvd(
+        tcp_state=tcp_state,
+        intrinsic=INTRINSIC,
+        extrinsic=EXTRINSIC,
+        gripper_width=geometry._MAX_GRIPPER_WIDTH,
+    )
+    np.testing.assert_allclose(clipped["left_fingertip_uvd"], max_width["left_fingertip_uvd"])
+    np.testing.assert_allclose(clipped["right_fingertip_uvd"], max_width["right_fingertip_uvd"])
+
+    with pytest.raises(ValueError, match="gripper_width must be finite"):
+        geometry.project_gripper_to_uvd(
+            tcp_state=tcp_state,
+            intrinsic=INTRINSIC,
+            extrinsic=EXTRINSIC,
+            gripper_width=np.nan,
+        )

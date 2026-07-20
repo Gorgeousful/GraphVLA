@@ -1,11 +1,26 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 import json
 import os
+
+
+POINT_FEATURE_DIM = 8
+POINT_RELATIVE_DEPTH_INDEX = 2
+POINT_VISIBILITY_INDEX = 3
+POINT_METRIC_DEPTH_INDEX = 4
+POINT_METRIC_DEPTH_MASK_INDEX = 5
+POINT_GRIPPER_OPENNESS_INDEX = 6
+POINT_GRIPPER_OPENNESS_MASK_INDEX = 7
+LIBERO_GRIPPER_MAX_WIDTH = 0.08
+
+
+def dataset_gripper_action_to_libero(value: Any) -> Any:
+    """Map dataset action 0=close, 1=open to LIBERO +1=close, -1=open."""
+    return 1.0 - 2.0 * value
 
 
 class NodeRole(str, Enum):

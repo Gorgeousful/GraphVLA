@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import torch
 
-from examples.libero.test.client_test import build_actor_diagnostics, build_observation_request, draw_point_grid
+from examples.libero.eval.client_offline import build_actor_diagnostics, build_observation_request, draw_point_grid
 
 
 def test_build_observation_request_sends_only_history_in_server_image_coordinates() -> None:
@@ -38,51 +38,51 @@ def test_build_observation_request_sends_only_history_in_server_image_coordinate
 
 
 
-def test_build_actor_diagnostics_compares_predicted_and_gt_gripper_state() -> None:
-    class TipDistanceProjector:
-        def project_uvd_to_gripper(self, uvd: dict, **_: object) -> np.ndarray:
-            gripper = abs(float(uvd["right_base_uvd"][0] - uvd["left_base_uvd"][0])) / 100.0
-            return np.asarray([0.0] * 6 + [gripper], dtype=np.float64)
-
+def test_build_actor_diagnostics_compares_new_gripper_heads() -> None:
     response = {
         "point": [[
-            [10.0, 20.0, 0.2, 1.0, 0.50, 1.0],
-            [8.0, 20.0, 0.2, 1.0, 0.40, 1.0],
-            [12.0, 20.0, 0.2, 1.0, 0.40, 1.0],
-            [99.0, 99.0, 0.2, 1.0, 0.40, 0.0],
+            [10.0, 20.0, 0.2, 1.0],
+            [8.0, 20.0, 0.2, 1.0],
+            [12.0, 20.0, 0.2, 1.0],
+            [99.0, 99.0, 0.2, 1.0],
         ]],
+        "metric_depth": [[[0.50], [0.40], [0.40], [0.40]]],
         "object_id": [[0, 0, 0, 1]],
         "point_id": [[0, 1, 2, 0]],
         "frame_id": [[1, 1, 1, 1]],
-        "action": [[0.0] * 6 + [-1.0]],
+        "actor_query_frame_id": [[-1, 0, 1]],
+        "gripper_openness": [[[0.1], [0.5], [0.7]]],
+        "gripper_action": [[[0.0], [0.0], [1.4]]],
+        "action": [[0.0] * 6 + [1.0]],
     }
     gt_gripper_uvd = np.zeros((3, 3, 3), dtype=np.float32)
     gt_gripper_uvd[2] = np.asarray(
         [[10.0, 20.0, 0.50], [9.0, 20.0, 0.40], [11.0, 20.0, 0.40]],
         dtype=np.float32,
     )
+    gt_openness = np.asarray([0.2, 0.4, 0.6], dtype=np.float32)
+    gt_action = np.zeros((3, 7), dtype=np.float32)
+    gt_action[:, -1] = np.asarray([1.0, 0.0, 1.0])
 
     rows = build_actor_diagnostics(
         response=response,
         gt_gripper_uvd=gt_gripper_uvd,
+        gt_gripper_openness=gt_openness,
+        gt_action=gt_action,
         history_horizon=1,
-        intrinsic=np.eye(3),
-        extrinsic=np.eye(4),
-        robot=TipDistanceProjector(),
-        close_threshold=0.04,
     )
 
     assert len(rows) == 1
     assert rows[0]["frame_id"] == 1
-    assert rows[0]["pred_gripper"] == 0.04
-    assert rows[0]["gt_gripper"] == 0.02
-    assert rows[0]["gripper_abs_error"] == 0.02
-    assert rows[0]["pred_close"] is False
-    assert rows[0]["gt_close"] is True
-    assert rows[0]["action_gripper"] == -1.0
+    assert rows[0]["predicted_openness"] == 0.7
+    assert rows[0]["target_openness"] == 0.6
+    assert rows[0]["openness_abs_error"] == 0.1
+    assert rows[0]["predicted_action"] == 1.4
+    assert rows[0]["target_action"] == -1.0
+    assert rows[0]["action_abs_error"] == 2.4
+    assert rows[0]["executed_action"] == 1.0
     assert rows[0]["pred_uvd"]["left"] == [8.0, 20.0, 0.4]
     assert rows[0]["gt_uvd"]["right"] == [11.0, 20.0, 0.4]
-
 
 
 def test_draw_point_grid_draws_actor_and_object_points(tmp_path) -> None:

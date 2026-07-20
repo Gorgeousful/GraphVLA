@@ -7,6 +7,12 @@ import json
 import numpy as np
 import torch
 from rich.console import Console
+from src.common.schema import (
+    POINT_FEATURE_DIM,
+    POINT_METRIC_DEPTH_INDEX,
+    POINT_METRIC_DEPTH_MASK_INDEX,
+    dataset_gripper_action_to_libero,
+)
 cs = Console()
 DataDict = dict[str, Any]
 
@@ -55,6 +61,9 @@ class SubtaskBoundryPadding(TransformFn):
         "depths.depth_rel",
         "gripper_uv",
         "gripper_d",
+        "gripper_openness",
+        "gripper_openness_mask",
+        "action",
     )
 
     def __call__(self, data: DataDict) -> DataDict:
@@ -558,9 +567,44 @@ class CustomTransform(TransformFn):
         depth_rel = data["depths.depth_rel"]
         gripper_uv = data["gripper_uv"]
         gripper_d = data["gripper_d"]
+        if gripper_uv.ndim != 3 or gripper_uv.shape[1:] != (6, 2):
+            raise ValueError(f"Expected gripper_uv [T, 6, 2], got {tuple(gripper_uv.shape)}")
+        if gripper_d.shape != gripper_uv.shape[:2]:
+            raise ValueError(f"Expected flattened gripper_d [T, 6], got {tuple(gripper_d.shape)}")
+        gripper_openness = torch.as_tensor(
+            data["gripper_openness"], device=gripper_uv.device, dtype=gripper_uv.dtype
+        )
         is_complete = data["is_complete"]
         history_horizon = int(data["history_horizon"])
         future_horizon = int(data["future_horizon"])
+
+        num_frames = gripper_uv.shape[0]
+        gripper_openness = gripper_openness.reshape(num_frames, -1)
+        if gripper_openness.shape[1] != 1:
+            raise ValueError(f"Expected scalar gripper_openness per frame, got {tuple(gripper_openness.shape)}")
+        openness_mask_value = data.get("gripper_openness_mask")
+        if openness_mask_value is None:
+            gripper_openness_mask = torch.ones(num_frames, dtype=torch.bool, device=gripper_uv.device)
+        else:
+            gripper_openness_mask = torch.as_tensor(
+                openness_mask_value, device=gripper_uv.device
+            ).reshape(num_frames, -1)
+            if gripper_openness_mask.shape[1] != 1:
+                raise ValueError(
+                    f"Expected scalar gripper_openness_mask per frame, got {tuple(gripper_openness_mask.shape)}"
+                )
+            gripper_openness_mask = gripper_openness_mask[:, 0].to(dtype=torch.bool)
+        action = torch.as_tensor(data["action"], device=gripper_uv.device, dtype=gripper_uv.dtype)
+        if action.ndim < 2 or action.shape[0] != num_frames:
+            raise ValueError(f"Expected action [T, D] for {num_frames} frames, got {tuple(action.shape)}")
+        dataset_gripper_action = action[..., -1].reshape(num_frames, 1)
+        if not torch.all((dataset_gripper_action == 0) | (dataset_gripper_action == 1)):
+            values = torch.unique(dataset_gripper_action).detach().cpu().tolist()
+            raise ValueError(
+                "Expected binary dataset gripper action with 0=close and 1=open, "
+                f"got values {values}"
+            )
+        gripper_action_source = dataset_gripper_action_to_libero(dataset_gripper_action)
 
         node_points_mask = None
         if "node_points_mask" in data:
@@ -594,23 +638,37 @@ class CustomTransform(TransformFn):
         node_vis = node_vis * node_in_bounds.to(dtype=node_vis.dtype)
         node_metric = torch.zeros_like(node_depth)
         node_metric_mask = torch.zeros_like(node_depth)
+        node_openness = torch.zeros_like(node_depth)
+        node_openness_mask = torch.zeros_like(node_depth)
         object_points = torch.cat(
-            [node_uv_norm, node_depth, node_vis, node_metric, node_metric_mask],
+            [node_uv_norm, node_depth, node_vis, node_metric, node_metric_mask, node_openness, node_openness_mask],
             dim=-1,
         )
         object_roles = ["patient", "target"]
 
         actor_uv = gripper_uv
         actor_depth, actor_in_bounds = self._sample_flat_depth(depth_rel, actor_uv, height=height, width=width)
+        actor_depth[:, 5] = actor_depth[:, 3:5].mean(dim=1)
         actor_uv_norm = self._normalize_uv(actor_uv, height=height, width=width)
         actor_vis = actor_in_bounds.to(dtype=actor_depth.dtype)
         actor_metric = gripper_d.unsqueeze(-1) if gripper_d.ndim == 2 else gripper_d
         actor_metric_mask = torch.ones_like(actor_metric)
+        actor_openness = gripper_openness[:, None, :].expand(-1, actor_uv.shape[1], -1)
+        actor_openness_mask = gripper_openness_mask[:, None, None].expand(
+            -1,
+            actor_uv.shape[1],
+            -1,
+        ).to(dtype=actor_metric.dtype)
         actor_points = torch.cat(
-            [actor_uv_norm, actor_depth, actor_vis, actor_metric, actor_metric_mask],
+            [actor_uv_norm, actor_depth, actor_vis, actor_metric, actor_metric_mask, actor_openness, actor_openness_mask],
             dim=-1,
         )
         actor_points = actor_points.unsqueeze(1)
+        if object_points.shape[-1] != POINT_FEATURE_DIM or actor_points.shape[-1] != POINT_FEATURE_DIM:
+            raise ValueError(
+                f"Expected {POINT_FEATURE_DIM}-D point features, got "
+                f"object={object_points.shape[-1]} actor={actor_points.shape[-1]}"
+            )
 
         input_horizon = history_horizon + 1
         frame_offsets = torch.arange(
@@ -623,6 +681,14 @@ class CustomTransform(TransformFn):
             raise ValueError(
                 f"Expected {frame_offsets.numel()} frames from horizon, got {object_points.shape[0]}"
             )
+
+        current_is_complete = torch.as_tensor(
+            is_complete,
+            device=object_points.device,
+            dtype=object_points.dtype,
+        )[history_horizon].reshape(1)
+        actor_query_frame_id = frame_offsets
+        gripper_action = gripper_action_source
 
         target_point, target_point_mask, object_id, point_id, frame_id = self._build_point_targets(
             object_points=object_points,
@@ -645,13 +711,16 @@ class CustomTransform(TransformFn):
             "object_id": object_id,
             "point_id": point_id,
             "frame_id": frame_id,
-            "frame_query_frame_id": frame_offsets,
+            "frame_query_frame_id": torch.zeros(1, dtype=torch.long, device=object_points.device),
+            "actor_query_frame_id": actor_query_frame_id,
             "target": {
                 "point": target_point[..., :4],
-                "metric_depth": target_point[..., 4:5],
-                "metric_depth_mask": target_point[..., 5] > 0.5,
+                "metric_depth": target_point[..., POINT_METRIC_DEPTH_INDEX:POINT_METRIC_DEPTH_INDEX + 1],
+                "metric_depth_mask": target_point[..., POINT_METRIC_DEPTH_MASK_INDEX] > 0.5,
                 "point_mask": target_point_mask,
-                "is_complete": is_complete,
+                "is_complete": current_is_complete,
+                "gripper_openness": gripper_openness,
+                "gripper_action": gripper_action,
             },
         }
         for key in ("images", "state", "metadata"):
@@ -708,6 +777,8 @@ class CustomTransform(TransformFn):
             object_ids.append(torch.zeros(actor_frame.shape[0], dtype=torch.long, device=object_points.device))
             point_ids.append(actor_local_ids)
             frame_ids.append(torch.full((actor_frame.shape[0],), int(frame_offset.item()), dtype=torch.long, device=object_points.device))
+            if frame_offset > 0:
+                continue
 
             for node_index, role in enumerate(object_roles):
                 object_frame = object_points[frame_index, node_index]

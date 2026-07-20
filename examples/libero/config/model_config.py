@@ -7,13 +7,15 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 
+from src.common.schema import POINT_FEATURE_DIM
+
 
 @dataclass
 class ModelConfig:
     """Keyword configuration for GraphVLA.src.model.model.PointQueryModel."""
-    point_dim: int = 6
+    point_dim: int = POINT_FEATURE_DIM # [u,v,d,vis,d_metric,m_metric,openness,m_openness]
     num_points: int = 32
-    actor_num_points: int = 3
+    actor_num_points: int = 6
     set_hidden_dim: int = 384
     set_layers: int = 12
     set_heads: int = 6
@@ -34,7 +36,9 @@ class ModelConfig:
     output_dims: dict[str, int] = field(
         default_factory=lambda: {
             "point": 4,
-            "metric_depth": 1,
+            "metric_depth": 1, # optional
+            "gripper_openness": 1,
+            "gripper_action": 1, # optional
             "is_complete": 1
         }
     )
@@ -45,17 +49,18 @@ class ModelConfig:
             "history_object": 1.0,
             "future_weight": 1.0, # future
             "future_actor": 1.0,
-            "future_object": 0.0,
             "point_regression": 1.0, # inside point
             "visibility": 1.0,
             "metric_depth": 1.0,
-            "gripper_width": 1.0,
+            "gripper_openness": 1.0, # actor
+            "gripper_action": 1.0,
             "is_complete": 0.5, # complete
         }
     )
     use_future_point_residual: bool = False
 
     num_query_types: int = 0
+    num_object_query_types: int = 0
     num_frame_query_types: int = 0
     max_objects: int = 3
     min_frame: int = -15

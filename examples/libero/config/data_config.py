@@ -85,6 +85,8 @@ LIBERO_REPACK = {
     "node_points_track": "node_points_track",
     "node_points_mask": "node_points_mask",
     "gripper_uvd": "gripper_uvd",
+    "gripper_openness": "gripper_openness",
+    "action": "action",
 }
 
 LIBERO_HISTORY_HORIZON = 15
@@ -100,6 +102,8 @@ LIBERO_HORIZON = {
     "node_points_track": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "node_points_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "gripper_uvd": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "gripper_openness": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "action": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "depths_rel": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
@@ -120,7 +124,7 @@ LIBERO_TRANSFORM = (
 
     FlipTransform(mode="horizontal"),
     CustomTransform(mode="build_model_input"),
-    # CustomTransform(mode="random_object_permutation"),
+    CustomTransform(mode="random_object_permutation"),
 )
 
 LIBERO_OUT_TRANSFORM = (

@@ -163,16 +163,29 @@ class ObjectQueryEmbedder(nn.Module):
         self,
         hidden_dim: int,
         position_embedding: LearnableFrameObjectPointEmbedding,
+        num_query_types: int = 0,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.position_embedding = position_embedding
+        self.query_type_embed = nn.Embedding(num_query_types, hidden_dim) if num_query_types > 0 else None
         self.out_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False)
 
-    def forward(self, object_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        object_id: torch.Tensor,
+        frame_id: torch.Tensor,
+        query_type: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         if object_id.ndim != 2 or frame_id.ndim != 2:
             raise ValueError(f"Expected object_id/frame_id [B, Q], got {object_id.shape} and {frame_id.shape}")
         token = self.position_embedding.encode_object_query(object_id=object_id, frame_id=frame_id)
+        if query_type is not None:
+            if self.query_type_embed is None:
+                raise ValueError("query_type was provided but num_query_types is 0")
+            if query_type.shape != frame_id.shape:
+                raise ValueError(f"query_type must match frame_id shape, got {query_type.shape} vs {frame_id.shape}")
+            token = token + self.query_type_embed(query_type.long())
         return self.out_norm(token)
 
 

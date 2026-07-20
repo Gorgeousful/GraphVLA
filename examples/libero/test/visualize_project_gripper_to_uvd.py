@@ -87,6 +87,14 @@ def draw_pose_triangle(frame: np.ndarray, uvd: dict[str, np.ndarray]) -> None:
     cv2.polylines(frame, [pixels], True, (255, 255, 255), 1, lineType=cv2.LINE_AA)
 
 
+def draw_fingertip_span(frame: np.ndarray, uvd: dict[str, np.ndarray]) -> None:
+    points = [uvd[name] for name in ("left_fingertip_uvd", "right_fingertip_uvd")]
+    if any(not np.isfinite(point).all() or point[2] <= 1e-6 for point in points):
+        return
+    pixels = np.rint(np.stack(points)[:, :2]).astype(np.int32)
+    cv2.line(frame, tuple(pixels[0]), tuple(pixels[1]), (255, 255, 255), 1, lineType=cv2.LINE_AA)
+
+
 def write_video(
     video_path: Path,
     output_path: Path,
@@ -142,6 +150,9 @@ def write_video(
         "root_uvd": (255, 0, 0),
         "left_base_uvd": (0, 255, 0),
         "right_base_uvd": (0, 255, 255),
+        "left_fingertip_uvd": (255, 0, 255),
+        "right_fingertip_uvd": (255, 255, 0),
+        "tcp_uvd": (0, 0, 255),
     }
 
     frame_count = 0
@@ -154,12 +165,14 @@ def write_video(
             tcp_state=state[:6],
             intrinsic=intrinsic,
             extrinsic=extrinsic,
+            gripper_width=abs(float(state[6])) + abs(float(state[7])),
         )
         if flip_horizontal:
             frame = cv2.flip(frame, 1)
         draw_pose_triangle(frame, uvd)
+        draw_fingertip_span(frame, uvd)
         for name, color in colors.items():
-            draw_point(frame, uvd[name], color, radius)
+            draw_point(frame, uvd[name], color, radius + 1 if name == "tcp_uvd" else radius)
         proc.stdin.write(frame.tobytes())
         frame_count += 1
 
@@ -209,7 +222,10 @@ def main() -> None:
     print(f"trajectory_index: {args.trajectory_index}")
     print(f"episode_index: {episode_index}")
     print(f"video frames written: {frame_count}")
-    print("colors: root=blue, left-base=green, right-base=yellow")
+    print(
+        "colors: root=blue, left-base=green, right-base=yellow, "
+        "left-fingertip=magenta, right-fingertip=cyan, tcp=red"
+    )
     print(f"output: {args.output}")
 
 
