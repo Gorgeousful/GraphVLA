@@ -107,12 +107,12 @@ def test_point_supervision_uses_l1_for_geometry_and_bce_for_visibility() -> None
         },
     )
 
-    torch.testing.assert_close(metrics["loss_future_actor_point_regression"], torch.tensor(1.0))
+    torch.testing.assert_close(metrics["loss_point"], torch.tensor(1.0))
     torch.testing.assert_close(
-        metrics["loss_future_actor_visibility"],
+        metrics["loss_visibility"],
         torch.tensor(math.log(2.0)),
     )
-    assert not any("history" in name or "object" in name for name in metrics)
+    assert set(metrics) == {"loss_point", "loss_visibility", "loss_total"}
 
 
 def test_metric_depth_uses_separate_target_and_mask() -> None:
@@ -139,7 +139,7 @@ def test_metric_depth_uses_separate_target_and_mask() -> None:
     )
     loss.backward()
 
-    torch.testing.assert_close(metrics["loss_future_actor_metric_depth"], torch.tensor(5.0))
+    torch.testing.assert_close(metrics["loss_metric_depth"], torch.tensor(5.0))
     assert model.metric_prediction is not None
     assert model.metric_prediction.grad is not None
     torch.testing.assert_close(
@@ -175,7 +175,7 @@ def test_point_loss_exposes_only_future_actor_metrics() -> None:
         },
     )
 
-    assert not any("history" in name or "object" in name for name in metrics)
+    assert set(metrics) == {"loss_point", "loss_visibility", "loss_metric_depth", "loss_total"}
 
 
 def test_gripper_openness_and_action_use_full_frame_l1() -> None:
@@ -202,12 +202,10 @@ def test_gripper_openness_and_action_use_full_frame_l1() -> None:
     )
     loss.backward()
 
-    torch.testing.assert_close(metrics["loss_future_gripper_openness"], torch.tensor(14.0))
-    torch.testing.assert_close(metrics["loss_gripper_openness"], torch.tensor(14.0))
-    torch.testing.assert_close(metrics["loss_future_gripper_action"], torch.tensor(1.0))
-    torch.testing.assert_close(metrics["loss_gripper_action"], torch.tensor(1.0))
+    torch.testing.assert_close(metrics["loss_openness"], torch.tensor(14.0))
+    torch.testing.assert_close(metrics["loss_action"], torch.tensor(1.0))
     torch.testing.assert_close(metrics["loss_total"], torch.tensor(15.0))
-    assert not any("history" in name for name in metrics)
+    assert set(metrics) == {"loss_openness", "loss_action", "loss_total"}
     assert torch.count_nonzero(model.openness_prediction.grad) == 2
     assert torch.count_nonzero(model.action_prediction.grad) == 2
 
@@ -229,10 +227,8 @@ def test_completion_classifies_current_observation_only() -> None:
     loss.backward()
 
     expected = torch.tensor(2.0 * math.log(2.0))
-    torch.testing.assert_close(metrics["loss_current_is_complete"], expected)
-    assert "loss_history_is_complete" not in metrics
-    assert "loss_future_is_complete" not in metrics
-    torch.testing.assert_close(metrics["loss_is_complete"], expected)
+    torch.testing.assert_close(metrics["loss_complete"], expected)
+    assert set(metrics) == {"loss_complete", "loss_total"}
     torch.testing.assert_close(loss, expected)
     assert torch.count_nonzero(model.prediction.grad) == 1
 

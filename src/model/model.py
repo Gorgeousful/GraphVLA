@@ -473,9 +473,13 @@ class PointQueryModel(nn.Module):
                     * float(weights.get(component_name, 1.0))
                     * future_weight
                 )
-                metrics[f"loss_future_actor_{component_name}"] = component_loss
+                metric_name = {
+                    "point_regression": "loss_point",
+                    "visibility": "loss_visibility",
+                    "metric_depth": "loss_metric_depth",
+                }[component_name]
+                metrics[metric_name] = component_loss
                 point_loss = point_loss + component_loss
-            metrics["loss_future_actor"] = point_loss
             total = point_loss if total is None else total + point_loss
 
         object_head_names = tuple(
@@ -502,8 +506,11 @@ class PointQueryModel(nn.Module):
                     * float(weights.get(name, 1.0))
                     * float(weights.get("future_weight", 1.0))
                 )
-                metrics[f"loss_future_{name}"] = component_loss
-                metrics[f"loss_{name}"] = component_loss
+                metric_name = {
+                    "gripper_openness": "loss_openness",
+                    "gripper_action": "loss_action",
+                }[name]
+                metrics[metric_name] = component_loss
                 total = component_loss if total is None else total + component_loss
 
         if "is_complete" in target:
@@ -531,8 +538,7 @@ class PointQueryModel(nn.Module):
                 complete_err.mean()
                 * float(weights.get("is_complete", 1.0))
             )
-            metrics["loss_current_is_complete"] = complete_loss
-            metrics["loss_is_complete"] = complete_loss
+            metrics["loss_complete"] = complete_loss
             total = complete_loss if total is None else total + complete_loss
 
         if total is None:
