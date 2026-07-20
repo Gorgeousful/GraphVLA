@@ -59,8 +59,8 @@ class ModelConfig:
     num_object_query_types: int = 0
     num_frame_query_types: int = 0
     max_objects: int = 3
-    min_frame: int = -15
-    max_frame: int = 8
+    min_frame: int = -19
+    max_frame: int = 10
     attention_pattern: str | None = "interleaved_local_global"
     dropout: float = 0.1
      
