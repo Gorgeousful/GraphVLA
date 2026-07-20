@@ -18,12 +18,28 @@ except ModuleNotFoundError:
 from .transform import Compose
 
 
-def make_lerobot_dataset(dataset_dir: Path, **kwargs: Any) -> LeRobotDataset:
+class _VideoFreeLeRobotDataset(LeRobotDataset):
+    """LeRobot integration hook that skips camera decoding for feature-only training."""
+    def _query_videos(
+        self,
+        query_timestamps: dict[str, list[float]],
+        ep_idx: int,
+    ) -> dict[str, torch.Tensor]:
+        return {}
+
+
+def make_lerobot_dataset(
+    dataset_dir: Path,
+    *,
+    load_videos: bool = True,
+    **kwargs: Any,
+) -> LeRobotDataset:
     dataset_dir = Path(dataset_dir)
+    dataset_cls = LeRobotDataset if load_videos else _VideoFreeLeRobotDataset
     try:
-        return LeRobotDataset(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
+        return dataset_cls(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
     except TypeError:
-        return LeRobotDataset(repo_id=str(dataset_dir), **kwargs)
+        return dataset_cls(repo_id=str(dataset_dir), **kwargs)
 
 
 class GlobalBatchSampler(Sampler[int]):
@@ -107,6 +123,7 @@ class GenericDataset(Dataset):
         self.dataset_dir = Path(data_config.dataset_dir)
         self.dataset = make_lerobot_dataset(
             self.dataset_dir,
+            load_videos=getattr(data_config, "load_videos", True),
             episodes=data_config.episodes,
             video_backend=data_config.video_backend,
             delta_timestamps=self._build_delta_timestamps(getattr(data_config, "horizon", None)),

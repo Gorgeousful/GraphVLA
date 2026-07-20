@@ -1,4 +1,5 @@
 from examples.libero.config.data_config import (
+    LIBERO_DATA_CONFIG,
     LIBERO_FUTURE_HORIZON,
     LIBERO_HISTORY_HORIZON,
     LIBERO_HORIZON,
@@ -12,3 +13,7 @@ def test_libero_uses_twenty_input_frames_and_ten_future_frames() -> None:
     assert LIBERO_HORIZON["gripper_uvd"] == list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON + 1))
     assert LIBERO_MODEL_CONFIG.min_frame == -LIBERO_HISTORY_HORIZON
     assert LIBERO_MODEL_CONFIG.max_frame == LIBERO_FUTURE_HORIZON
+
+
+def test_libero_training_does_not_load_unused_videos() -> None:
+    assert LIBERO_DATA_CONFIG.load_videos is False

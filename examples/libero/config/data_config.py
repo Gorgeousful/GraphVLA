@@ -47,6 +47,7 @@ class DataConfig:
     tasks: list[int] | None = None
     horizon: dict[str, list[int]] | None = None
     video_backend: str = "pyav"
+    load_videos: bool = True
     transforms: tuple[Any, ...] = ()
     out_transforms: tuple[Any, ...] = ()
 
@@ -57,6 +58,7 @@ class DataConfig:
             "tasks": self.tasks,
             "horizon": self.horizon,
             "video_backend": self.video_backend,
+            "load_videos": self.load_videos,
             "transforms": self.transforms,
             "out_transforms": self.out_transforms,
         }
@@ -144,6 +146,7 @@ LIBERO_OUT_TRANSFORM = (
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
     horizon=LIBERO_HORIZON,
+    load_videos=False,
     transforms=LIBERO_TRANSFORM,
     out_transforms=LIBERO_OUT_TRANSFORM,
 )
