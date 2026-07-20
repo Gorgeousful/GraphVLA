@@ -31,6 +31,7 @@ from rich.console import Console
 from robosuite.utils.camera_utils import get_camera_extrinsic_matrix, get_camera_intrinsic_matrix
 import websockets
 
+from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 from src.common.geom_utils import rot_transform
 
 cs = Console()
@@ -57,7 +58,7 @@ class Args:
     seed: int = 42
     save_video: bool = True
     control_delta: bool = False
-    execute_chunk_len: int = 16
+    execute_chunk_len: int = int(LIBERO_MODEL_CONFIG.max_frame)
 
 
 class ObservationDeltaBuffer:
