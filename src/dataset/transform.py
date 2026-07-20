@@ -630,7 +630,6 @@ class CustomTransform(TransformFn):
             selected_node_indices,
             object_roles=self._object_roles(data["subtaskstructure"], None),
         )
-        object_valid_mask = node_xyv.abs().sum(dim=(0, 2, 3)) > 0
         node_uv = node_xyv[..., :2]
         node_vis = node_xyv[..., 2:3]
         node_depth, node_in_bounds = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
@@ -687,15 +686,12 @@ class CustomTransform(TransformFn):
             device=object_points.device,
             dtype=object_points.dtype,
         )[history_horizon].reshape(1)
-        actor_query_frame_id = frame_offsets
-        gripper_action = gripper_action_source
+        future_frame_offsets = frame_offsets[input_horizon:]
 
-        target_point, target_point_mask, object_id, point_id, frame_id = self._build_point_targets(
-            object_points=object_points,
+        target_point, target_point_mask, object_id, point_id, frame_id = self._build_future_actor_targets(
             actor_points=actor_points,
-            frame_offsets=frame_offsets,
-            object_valid_mask=object_valid_mask,
-            object_roles=object_roles,
+            future_frame_offsets=future_frame_offsets,
+            input_horizon=input_horizon,
         )
         object_condition, actor_condition = self._build_conditions(
             data["subtaskstructure"],
@@ -712,15 +708,15 @@ class CustomTransform(TransformFn):
             "point_id": point_id,
             "frame_id": frame_id,
             "frame_query_frame_id": torch.zeros(1, dtype=torch.long, device=object_points.device),
-            "actor_query_frame_id": actor_query_frame_id,
+            "actor_query_frame_id": future_frame_offsets,
             "target": {
                 "point": target_point[..., :4],
                 "metric_depth": target_point[..., POINT_METRIC_DEPTH_INDEX:POINT_METRIC_DEPTH_INDEX + 1],
                 "metric_depth_mask": target_point[..., POINT_METRIC_DEPTH_MASK_INDEX] > 0.5,
                 "point_mask": target_point_mask,
                 "is_complete": current_is_complete,
-                "gripper_openness": gripper_openness,
-                "gripper_action": gripper_action,
+                "gripper_openness": gripper_openness[input_horizon:],
+                "gripper_action": gripper_action_source[input_horizon:],
             },
         }
         for key in ("images", "state", "metadata"):
@@ -753,48 +749,22 @@ class CustomTransform(TransformFn):
             object_slots[:, slot_index] = node_points_track[:, selected_node_indices[role_index]]
         return object_slots
 
-    def _build_point_targets(
+    def _build_future_actor_targets(
         self,
         *,
-        object_points: torch.Tensor,
         actor_points: torch.Tensor,
-        frame_offsets: torch.Tensor,
-        object_valid_mask: torch.Tensor,
-        object_roles: Sequence[str],
+        future_frame_offsets: torch.Tensor,
+        input_horizon: int,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        target_chunks = []
-        target_masks = []
-        object_ids = []
-        point_ids = []
-        frame_ids = []
-        actor_local_ids = torch.arange(actor_points.shape[2], dtype=torch.long, device=object_points.device)
-        object_local_ids = torch.arange(object_points.shape[2], dtype=torch.long, device=object_points.device)
-
-        for frame_index, frame_offset in enumerate(frame_offsets):
-            actor_frame = actor_points[frame_index, 0]
-            target_chunks.append(actor_frame)
-            target_masks.append(torch.ones(actor_frame.shape[0], dtype=torch.bool, device=object_points.device))
-            object_ids.append(torch.zeros(actor_frame.shape[0], dtype=torch.long, device=object_points.device))
-            point_ids.append(actor_local_ids)
-            frame_ids.append(torch.full((actor_frame.shape[0],), int(frame_offset.item()), dtype=torch.long, device=object_points.device))
-            if frame_offset > 0:
-                continue
-
-            for node_index, role in enumerate(object_roles):
-                object_frame = object_points[frame_index, node_index]
-                object_id = 1 if role == "patient" else 2 if role == "target" else node_index + 1
-                target_chunks.append(object_frame)
-                target_masks.append(torch.full((object_frame.shape[0],), bool(object_valid_mask[node_index].item()), dtype=torch.bool, device=object_points.device))
-                object_ids.append(torch.full((object_frame.shape[0],), object_id, dtype=torch.long, device=object_points.device))
-                point_ids.append(object_local_ids)
-                frame_ids.append(torch.full((object_frame.shape[0],), int(frame_offset.item()), dtype=torch.long, device=object_points.device))
-
+        future_actor = actor_points[input_horizon:, 0]
+        num_future, num_points, point_dim = future_actor.shape
+        device = actor_points.device
         return (
-            torch.cat(target_chunks, dim=0),
-            torch.cat(target_masks, dim=0),
-            torch.cat(object_ids, dim=0),
-            torch.cat(point_ids, dim=0),
-            torch.cat(frame_ids, dim=0),
+            future_actor.reshape(num_future * num_points, point_dim),
+            torch.ones(num_future * num_points, dtype=torch.bool, device=device),
+            torch.zeros(num_future * num_points, dtype=torch.long, device=device),
+            torch.arange(num_points, dtype=torch.long, device=device).repeat(num_future),
+            future_frame_offsets.repeat_interleave(num_points),
         )
 
     def _build_conditions(

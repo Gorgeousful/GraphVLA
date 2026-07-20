@@ -85,7 +85,7 @@ def make_actor_batch(
         "actor_feats": torch.empty(point_prediction.shape[0], 0),
         "object_id": torch.zeros(point_prediction.shape[:2], dtype=torch.long),
         "point_id": torch.tensor([[0, 1, 2, 0, 1, 2]], dtype=torch.long),
-        "frame_id": torch.tensor([[0, 0, 0, 1, 1, 1]], dtype=torch.long),
+        "frame_id": torch.tensor([[1, 1, 1, 2, 2, 2]], dtype=torch.long),
         "target": target,
     }
 
@@ -107,16 +107,12 @@ def test_point_supervision_uses_l1_for_geometry_and_bce_for_visibility() -> None
         },
     )
 
-    torch.testing.assert_close(metrics["loss_history_actor_point_regression"], torch.tensor(1.0))
     torch.testing.assert_close(metrics["loss_future_actor_point_regression"], torch.tensor(1.0))
-    torch.testing.assert_close(
-        metrics["loss_history_actor_visibility"],
-        torch.tensor(math.log(2.0)),
-    )
     torch.testing.assert_close(
         metrics["loss_future_actor_visibility"],
         torch.tensor(math.log(2.0)),
     )
+    assert not any("history" in name or "object" in name for name in metrics)
 
 
 def test_metric_depth_uses_separate_target_and_mask() -> None:
@@ -143,8 +139,7 @@ def test_metric_depth_uses_separate_target_and_mask() -> None:
     )
     loss.backward()
 
-    torch.testing.assert_close(metrics["loss_history_actor_metric_depth"], torch.tensor(3.0))
-    torch.testing.assert_close(metrics["loss_future_actor_metric_depth"], torch.tensor(7.0))
+    torch.testing.assert_close(metrics["loss_future_actor_metric_depth"], torch.tensor(5.0))
     assert model.metric_prediction is not None
     assert model.metric_prediction.grad is not None
     torch.testing.assert_close(
@@ -153,7 +148,7 @@ def test_metric_depth_uses_separate_target_and_mask() -> None:
     )
 
 
-def test_metric_depth_loss_has_no_future_object_group() -> None:
+def test_point_loss_exposes_only_future_actor_metrics() -> None:
     point_prediction = torch.zeros(1, 6, 4)
     metric_prediction = torch.zeros(1, 6, 1)
     batch = {
@@ -161,7 +156,7 @@ def test_metric_depth_loss_has_no_future_object_group() -> None:
         "actor_feats": torch.empty(1, 0),
         "object_id": torch.tensor([[0, 0, 0, 0, 0, 0]]),
         "point_id": torch.tensor([[0, 1, 2, 0, 1, 2]]),
-        "frame_id": torch.tensor([[0, 0, 0, 1, 1, 1]]),
+        "frame_id": torch.tensor([[1, 1, 1, 2, 2, 2]]),
         "target": {
             "point": torch.zeros(1, 6, 4),
             "point_mask": torch.ones(1, 6, dtype=torch.bool),
@@ -180,19 +175,19 @@ def test_metric_depth_loss_has_no_future_object_group() -> None:
         },
     )
 
-    assert not any("future_object" in name for name in metrics)
+    assert not any("history" in name or "object" in name for name in metrics)
 
 
 def test_gripper_openness_and_action_use_full_frame_l1() -> None:
-    openness_prediction = torch.zeros(1, 4, 1)
-    action_prediction = torch.zeros(1, 4, 1)
+    openness_prediction = torch.zeros(1, 2, 1)
+    action_prediction = torch.zeros(1, 2, 1)
     batch = {
         "point_feats": torch.empty(1, 0),
         "actor_feats": torch.empty(1, 0),
-        "actor_query_frame_id": torch.tensor([[-1, 0, 1, 2]]),
+        "actor_query_frame_id": torch.tensor([[1, 2]]),
         "target": {
-            "gripper_openness": torch.tensor([[[1.0], [2.0], [3.0], [4.0]]]),
-            "gripper_action": torch.tensor([[[-1.0], [1.0], [-1.0], [1.0]]]),
+            "gripper_openness": torch.tensor([[[3.0], [4.0]]]),
+            "gripper_action": torch.tensor([[[-1.0], [1.0]]]),
         },
     }
     model = FixedObjectModel(openness_prediction, action_prediction)
@@ -200,25 +195,21 @@ def test_gripper_openness_and_action_use_full_frame_l1() -> None:
     loss, metrics = model(
         batch,
         weights={
-            "history_weight": 0.5,
             "future_weight": 2.0,
-            "history_actor": 2.0,
-            "future_actor": 0.25,
             "gripper_openness": 2.0,
             "gripper_action": 0.5,
         },
     )
     loss.backward()
 
-    torch.testing.assert_close(metrics["loss_history_gripper_openness"], torch.tensor(3.0))
-    torch.testing.assert_close(metrics["loss_future_gripper_openness"], torch.tensor(3.5))
-    torch.testing.assert_close(metrics["loss_gripper_openness"], torch.tensor(6.5))
-    torch.testing.assert_close(metrics["loss_history_gripper_action"], torch.tensor(0.5))
-    torch.testing.assert_close(metrics["loss_future_gripper_action"], torch.tensor(0.25))
-    torch.testing.assert_close(metrics["loss_gripper_action"], torch.tensor(0.75))
-    torch.testing.assert_close(metrics["loss_total"], torch.tensor(7.25))
-    assert torch.count_nonzero(model.openness_prediction.grad) == 4
-    assert torch.count_nonzero(model.action_prediction.grad) == 4
+    torch.testing.assert_close(metrics["loss_future_gripper_openness"], torch.tensor(14.0))
+    torch.testing.assert_close(metrics["loss_gripper_openness"], torch.tensor(14.0))
+    torch.testing.assert_close(metrics["loss_future_gripper_action"], torch.tensor(1.0))
+    torch.testing.assert_close(metrics["loss_gripper_action"], torch.tensor(1.0))
+    torch.testing.assert_close(metrics["loss_total"], torch.tensor(15.0))
+    assert not any("history" in name for name in metrics)
+    assert torch.count_nonzero(model.openness_prediction.grad) == 2
+    assert torch.count_nonzero(model.action_prediction.grad) == 2
 
 
 def test_completion_classifies_current_observation_only() -> None:
@@ -233,15 +224,16 @@ def test_completion_classifies_current_observation_only() -> None:
 
     loss, metrics = model(
         batch,
-        weights={"history_weight": 0.5, "is_complete": 2.0},
+        weights={"is_complete": 2.0},
     )
     loss.backward()
 
-    expected_history = torch.tensor(math.log(2.0))
-    torch.testing.assert_close(metrics["loss_history_is_complete"], expected_history)
+    expected = torch.tensor(2.0 * math.log(2.0))
+    torch.testing.assert_close(metrics["loss_current_is_complete"], expected)
+    assert "loss_history_is_complete" not in metrics
     assert "loss_future_is_complete" not in metrics
-    torch.testing.assert_close(metrics["loss_is_complete"], expected_history)
-    torch.testing.assert_close(loss, expected_history)
+    torch.testing.assert_close(metrics["loss_is_complete"], expected)
+    torch.testing.assert_close(loss, expected)
     assert torch.count_nonzero(model.prediction.grad) == 1
 
 
@@ -252,6 +244,9 @@ def test_model_outputs_shared_points_and_separate_metric_depth() -> None:
     assert config.output_dims["metric_depth"] == 1
     assert config.output_dims["gripper_openness"] == 1
     assert config.output_dims["gripper_action"] == 1
+    assert "history_weight" not in config.weights
+    assert "history_actor" not in config.weights
+    assert "history_object" not in config.weights
 
     transform = CustomTransform(
         mode="build_model_output",

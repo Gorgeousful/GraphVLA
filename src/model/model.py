@@ -63,6 +63,10 @@ class PointQueryModel(nn.Module):
         use_future_point_residual: bool = False,
     ) -> None:
         super().__init__()
+        if encoder_hidden_dim != decoder_hidden_dim:
+            raise ValueError(
+                "encoder_hidden_dim and decoder_hidden_dim must match to share position embeddings"
+            )
         #: pre-encoder
         self.num_points = num_points
         self.actor_num_points = actor_num_points
@@ -102,11 +106,11 @@ class PointQueryModel(nn.Module):
             else nn.Linear(set_hidden_dim, encoder_hidden_dim)
         )
         #: encoder
-        max_points = max(num_points, actor_num_points)
         self.encoder_position_embedding = LearnableFrameObjectPointEmbedding(
             hidden_dim=encoder_hidden_dim,
             max_objects=max_objects,
-            max_points=max_points,
+            max_actor_points=actor_num_points,
+            max_object_points=num_points,
             min_frame=min_frame,
             max_frame=max_frame,
         )
@@ -119,23 +123,9 @@ class PointQueryModel(nn.Module):
             dropout=dropout,
             position_embedding=self.encoder_position_embedding,
         )
-        self.memory_proj = (
-            nn.Identity()
-            if decoder_hidden_dim == encoder_hidden_dim
-            else nn.Linear(encoder_hidden_dim, decoder_hidden_dim)
-        )
+        self.memory_proj = nn.Identity()
         #: decoder
-        self.query_position_embedding = (
-            self.encoder_position_embedding
-            if decoder_hidden_dim == encoder_hidden_dim
-            else LearnableFrameObjectPointEmbedding(
-                hidden_dim=decoder_hidden_dim,
-                max_objects=max_objects,
-                max_points=max_points,
-                min_frame=min_frame,
-                max_frame=max_frame,
-            )
-        )
+        self.query_position_embedding = self.encoder_position_embedding
         self.query_embedder = PointQueryEmbedder(
             hidden_dim=decoder_hidden_dim,
             num_query_types=num_query_types,
@@ -468,37 +458,25 @@ class PointQueryModel(nn.Module):
             else:
                 point_mask = point_mask.to(device=point_regression_err.device, dtype=torch.bool)
 
-            frame_id = batch["frame_id"]
-            loss_masks = {
-                "history_actor": (batch["object_id"] == 0) & (frame_id <= 0) & point_mask,
-                "history_object": (batch["object_id"] > 0) & (frame_id <= 0) & point_mask,
-                "future_actor": (batch["object_id"] == 0) & (frame_id > 0) & point_mask,
-            }
-            frame_weights = {
-                "history_actor": weights.get("history_weight", 1.0),
-                "history_object": weights.get("history_weight", 1.0),
-                "future_actor": weights.get("future_weight", 1.0),
-            }
-            for name, mask in loss_masks.items():
-                group_weight = float(weights.get(name, 1.0)) * float(frame_weights[name])
-                group_loss = point_regression_err.new_zeros(())
-                for component_name, component_err, component_mask in point_components:
-                    selected_mask = mask if component_mask is None else mask & component_mask
-                    selected_err = component_err[selected_mask]
-                    component_loss = (
-                        selected_err.mean()
-                        if selected_err.numel()
-                        else point_regression_err.new_zeros(())
-                    )
-                    component_loss = (
-                        component_loss
-                        * float(weights.get(component_name, 1.0))
-                        * group_weight
-                    )
-                    metrics[f"loss_{name}_{component_name}"] = component_loss
-                    group_loss = group_loss + component_loss
-                metrics[f"loss_{name}"] = group_loss
-                total = group_loss if total is None else total + group_loss
+            future_weight = float(weights.get("future_weight", 1.0))
+            point_loss = point_regression_err.new_zeros(())
+            for component_name, component_err, component_mask in point_components:
+                selected_mask = point_mask if component_mask is None else point_mask & component_mask
+                selected_err = component_err[selected_mask]
+                component_loss = (
+                    selected_err.mean()
+                    if selected_err.numel()
+                    else point_regression_err.new_zeros(())
+                )
+                component_loss = (
+                    component_loss
+                    * float(weights.get(component_name, 1.0))
+                    * future_weight
+                )
+                metrics[f"loss_future_actor_{component_name}"] = component_loss
+                point_loss = point_loss + component_loss
+            metrics["loss_future_actor"] = point_loss
+            total = point_loss if total is None else total + point_loss
 
         object_head_names = tuple(
             name for name in ("gripper_openness", "gripper_action") if name in target
@@ -519,22 +497,12 @@ class PointQueryModel(nn.Module):
                         f"Expected target[{name}] shape {tuple(pred.shape)}, got {tuple(gt.shape)}"
                     )
                 err = (gt - pred).abs().mean(dim=-1)
-                component_loss = err.new_zeros(())
-                actor_frame_id = batch["actor_query_frame_id"]
-                for period, period_mask in (
-                    ("history", actor_frame_id <= 0),
-                    ("future", actor_frame_id > 0),
-                ):
-                    selected_err = err[period_mask]
-                    period_loss = selected_err.mean() if selected_err.numel() else err.new_zeros(())
-                    period_loss = (
-                        period_loss
-                        * float(weights.get(name, 1.0))
-                        * float(weights.get(f"{period}_weight", 1.0))
-                        * float(weights.get(f"{period}_actor", 1.0))
-                    )
-                    metrics[f"loss_{period}_{name}"] = period_loss
-                    component_loss = component_loss + period_loss
+                component_loss = (
+                    err.mean()
+                    * float(weights.get(name, 1.0))
+                    * float(weights.get("future_weight", 1.0))
+                )
+                metrics[f"loss_future_{name}"] = component_loss
                 metrics[f"loss_{name}"] = component_loss
                 total = component_loss if total is None else total + component_loss
 
@@ -562,9 +530,8 @@ class PointQueryModel(nn.Module):
             complete_loss = (
                 complete_err.mean()
                 * float(weights.get("is_complete", 1.0))
-                * float(weights.get("history_weight", 1.0))
             )
-            metrics["loss_history_is_complete"] = complete_loss
+            metrics["loss_current_is_complete"] = complete_loss
             metrics["loss_is_complete"] = complete_loss
             total = complete_loss if total is None else total + complete_loss
 

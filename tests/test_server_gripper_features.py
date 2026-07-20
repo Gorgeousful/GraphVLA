@@ -55,8 +55,8 @@ def test_online_model_input_uses_six_gripper_points_and_fingertip_mean_for_tcp_d
         },
     }))
     preprocessor = LightweightInputPreprocessor(
-        history_horizon=0,
-        future_horizon=1,
+        history_horizon=1,
+        future_horizon=2,
         num_points=2,
         robot_cls=SixPointRobot,
         dataset_dir=tmp_path,
@@ -72,17 +72,18 @@ def test_online_model_input_uses_six_gripper_points_and_fingertip_mean_for_tcp_d
     model_input = preprocessor.build(request, session, {"nodes": []})
 
     actor_feats = np.asarray(model_input["actor_feats"], dtype=np.float32)
-    assert actor_feats.shape == (1, 1, 1, 6, 8)
+    assert actor_feats.shape == (1, 2, 1, 6, 8)
     np.testing.assert_allclose(
         actor_feats[0, 0, 0, :, 2],
         [0.1, 0.2, 0.3, 0.4, 0.5, 0.45],
     )
-    actor_query_mask = np.asarray(model_input["object_id"]) == 0
-    assert np.asarray(model_input["point_id"])[actor_query_mask].reshape(2, 6).tolist() == [
-        [0, 1, 2, 3, 4, 5],
-        [0, 1, 2, 3, 4, 5],
-    ]
-    object_id = np.asarray(model_input["object_id"])
-    frame_id = np.asarray(model_input["frame_id"])
-    assert np.all(object_id[frame_id > 0] == 0)
+    assert model_input["object_id"] == [[0] * 12]
+    assert model_input["point_id"] == [[0, 1, 2, 3, 4, 5] * 2]
+    assert model_input["frame_id"] == [[1] * 6 + [2] * 6]
+    assert model_input["actor_query_frame_id"] == [[1, 2]]
+
+    input_object_id = np.asarray(model_input["input_object_id"])
+    input_frame_id = np.asarray(model_input["input_frame_id"])
+    assert set(input_object_id.reshape(-1).tolist()) == {0, 1, 2}
+    assert set(input_frame_id.reshape(-1).tolist()) == {-1, 0}
     assert model_input["frame_query_frame_id"] == [[0]]

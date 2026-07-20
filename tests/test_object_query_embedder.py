@@ -9,7 +9,8 @@ def test_object_query_embedder_combines_shared_object_and_frame_embeddings() -> 
     position_embedding = LearnableFrameObjectPointEmbedding(
         hidden_dim=4,
         max_objects=3,
-        max_points=2,
+        max_actor_points=2,
+        max_object_points=2,
         min_frame=-1,
         max_frame=1,
     )
@@ -31,7 +32,8 @@ def test_object_query_embedder_validates_query_shape() -> None:
     position_embedding = LearnableFrameObjectPointEmbedding(
         hidden_dim=4,
         max_objects=3,
-        max_points=2,
+        max_actor_points=2,
+        max_object_points=2,
         min_frame=-1,
         max_frame=1,
     )
@@ -48,7 +50,8 @@ def test_object_query_embedder_adds_optional_query_type_embedding() -> None:
     position_embedding = LearnableFrameObjectPointEmbedding(
         hidden_dim=4,
         max_objects=3,
-        max_points=2,
+        max_actor_points=2,
+        max_object_points=2,
         min_frame=-1,
         max_frame=1,
     )
@@ -68,3 +71,86 @@ def test_object_query_embedder_adds_optional_query_type_embedding() -> None:
     )
 
     torch.testing.assert_close(output, expected)
+
+
+def test_point_position_embedding_separates_actor_and_object_identities() -> None:
+    position_embedding = LearnableFrameObjectPointEmbedding(
+        hidden_dim=2,
+        max_objects=3,
+        max_actor_points=2,
+        max_object_points=3,
+        min_frame=0,
+        max_frame=1,
+    )
+    with torch.no_grad():
+        position_embedding.frame_embed.weight.zero_()
+        position_embedding.object_embed.weight.zero_()
+        position_embedding.actor_point_embed.weight.copy_(
+            torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        )
+        position_embedding.object_point_embed.weight.copy_(
+            torch.tensor([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
+        )
+
+    actor_grid = position_embedding.encode_grid(
+        num_frames=1,
+        num_objects=1,
+        num_points=2,
+        device=torch.device("cpu"),
+        object_offset=0,
+        point_type="actor",
+    )
+    object_grid = position_embedding.encode_grid(
+        num_frames=1,
+        num_objects=1,
+        num_points=3,
+        device=torch.device("cpu"),
+        object_offset=1,
+        point_type="object",
+    )
+    query = position_embedding.encode_query(
+        object_id=torch.tensor([[0, 0]]),
+        point_id=torch.tensor([[0, 1]]),
+        frame_id=torch.ones(1, 2, dtype=torch.long),
+    )
+
+    torch.testing.assert_close(actor_grid[0, 0], position_embedding.actor_point_embed.weight)
+    torch.testing.assert_close(object_grid[0, 0], position_embedding.object_point_embed.weight)
+    torch.testing.assert_close(
+        query[0],
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+    )
+
+    with pytest.raises(ValueError, match="only supports actor"):
+        position_embedding.encode_query(
+            object_id=torch.tensor([[1]]),
+            point_id=torch.tensor([[0]]),
+            frame_id=torch.tensor([[1]]),
+        )
+    with pytest.raises(ValueError, match="future frames"):
+        position_embedding.encode_query(
+            object_id=torch.tensor([[0]]),
+            point_id=torch.tensor([[0]]),
+            frame_id=torch.tensor([[0]]),
+        )
+
+
+def test_point_grid_rejects_inconsistent_point_type_and_object_ids() -> None:
+    position_embedding = LearnableFrameObjectPointEmbedding(
+        hidden_dim=2,
+        max_objects=3,
+        max_actor_points=2,
+        max_object_points=3,
+        min_frame=0,
+        max_frame=0,
+    )
+
+    with pytest.raises(ValueError, match="object point grid"):
+        position_embedding.encode_grid(
+            num_frames=1,
+            num_objects=1,
+            num_points=2,
+            device=torch.device("cpu"),
+            object_offset=0,
+            point_type="object",
+        )

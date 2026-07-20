@@ -16,7 +16,7 @@ class LightweightModelInputTransform(CustomTransform):
         return torch.zeros(2, 3, device=device), torch.zeros(1, 3, device=device)
 
 
-def test_build_model_input_adds_openness_and_aligned_action_targets() -> None:
+def test_build_model_input_uses_history_as_memory_and_queries_only_future_actor() -> None:
     num_frames = 4
     node_points_track = torch.zeros(num_frames, 2, 2, 3)
     node_points_track[..., 0] = 64.0
@@ -65,15 +65,19 @@ def test_build_model_input_adds_openness_and_aligned_action_targets() -> None:
     )
     torch.testing.assert_close(output["actor_feats"][..., 7], torch.ones(2, 1, 6))
 
-    future_query_mask = output["frame_id"] > 0
-    assert torch.all(output["object_id"][future_query_mask] == 0)
+    torch.testing.assert_close(output["object_id"], torch.zeros(12, dtype=torch.long))
+    torch.testing.assert_close(
+        output["point_id"],
+        torch.tensor([0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5]),
+    )
+    torch.testing.assert_close(output["frame_id"], torch.tensor([1] * 6 + [2] * 6))
     torch.testing.assert_close(output["frame_query_frame_id"], torch.tensor([0]))
     torch.testing.assert_close(output["target"]["is_complete"], torch.tensor([1.0]))
-    torch.testing.assert_close(output["actor_query_frame_id"], torch.tensor([-1, 0, 1, 2]))
+    torch.testing.assert_close(output["actor_query_frame_id"], torch.tensor([1, 2]))
     torch.testing.assert_close(
         output["target"]["gripper_openness"],
-        torch.tensor([[0.1], [0.2], [0.3], [0.4]]),
+        torch.tensor([[0.3], [0.4]]),
     )
-    torch.testing.assert_close(output["target"]["gripper_action"], torch.tensor([[-1.0], [1.0], [-1.0], [1.0]]))
+    torch.testing.assert_close(output["target"]["gripper_action"], torch.tensor([[-1.0], [1.0]]))
     assert "gripper_openness_mask" not in output["target"]
     assert "gripper_action_mask" not in output["target"]

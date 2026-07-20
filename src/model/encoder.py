@@ -368,6 +368,7 @@ class PointMemoryEncoder(nn.Module):
         self,
         tokens: torch.Tensor,
         object_offset: int,
+        point_type: Literal["actor", "object"],
     ) -> torch.Tensor:
         if tokens.ndim != 5:
             raise ValueError(f"Expected point tokens [B, T, N, P, C], got {tokens.shape}")
@@ -382,6 +383,7 @@ class PointMemoryEncoder(nn.Module):
             num_points=num_points,
             device=tokens.device,
             object_offset=object_offset,
+            point_type=point_type,
         ).to(dtype=tokens.dtype)
         return tokens + pos.unsqueeze(0)
 
@@ -390,12 +392,12 @@ class PointMemoryEncoder(nn.Module):
         object_tokens: torch.Tensor,
         actor_tokens: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        object_tokens = self._with_position(object_tokens, object_offset=1)
+        object_tokens = self._with_position(object_tokens, object_offset=1, point_type="object")
         bsz, steps, num_objects, num_points, hidden = object_tokens.shape
         per_step = [object_tokens.reshape(bsz, steps, num_objects * num_points, hidden)]
 
         if actor_tokens is not None:
-            actor_tokens = self._with_position(actor_tokens, object_offset=0)
+            actor_tokens = self._with_position(actor_tokens, object_offset=0, point_type="actor")
             if actor_tokens.shape[0] != bsz or actor_tokens.shape[1] != steps or actor_tokens.shape[-1] != hidden:
                 raise ValueError(
                     "actor/object tokens must match batch/time/hidden dims: "

@@ -50,9 +50,9 @@ def test_build_actor_diagnostics_compares_new_gripper_heads() -> None:
         "object_id": [[0, 0, 0, 1]],
         "point_id": [[0, 1, 2, 0]],
         "frame_id": [[1, 1, 1, 1]],
-        "actor_query_frame_id": [[-1, 0, 1]],
-        "gripper_openness": [[[0.1], [0.5], [0.7]]],
-        "gripper_action": [[[0.0], [0.0], [1.4]]],
+        "actor_query_frame_id": [[1]],
+        "gripper_openness": [[[0.7]]],
+        "gripper_action": [[[1.4]]],
         "action": [[0.0] * 6 + [1.0]],
     }
     gt_gripper_uvd = np.zeros((3, 3, 3), dtype=np.float32)

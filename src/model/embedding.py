@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -27,23 +28,43 @@ def sinusoidal_scalar_embedding(values: torch.Tensor, dim: int) -> torch.Tensor:
 class LearnableFrameObjectPointEmbedding(nn.Module):
     """Learnable embeddings indexed by frame id, object id, and point id."""
 
-    def __init__(self, hidden_dim: int, max_objects: int, max_points: int, min_frame: int, max_frame: int) -> None:
+    def __init__(
+        self,
+        hidden_dim: int,
+        max_objects: int,
+        max_actor_points: int,
+        max_object_points: int,
+        min_frame: int,
+        max_frame: int,
+    ) -> None:
         super().__init__()
         if max_objects <= 0:
             raise ValueError(f"max_objects must be positive, got {max_objects}")
-        if max_points <= 0:
-            raise ValueError(f"max_points must be positive, got {max_points}")
+        if max_actor_points <= 0 or max_object_points <= 0:
+            raise ValueError(
+                "max_actor_points and max_object_points must be positive, "
+                f"got {max_actor_points} and {max_object_points}"
+            )
         if min_frame > max_frame:
             raise ValueError(f"min_frame must be <= max_frame, got {min_frame} > {max_frame}")
         self.hidden_dim = hidden_dim
         self.max_objects = int(max_objects)
-        self.max_points = int(max_points)
+        self.max_actor_points = int(max_actor_points)
+        self.max_object_points = int(max_object_points)
         self.min_frame = int(min_frame)
         self.max_frame = int(max_frame)
         self.num_frame_embeddings = self.max_frame - self.min_frame + 1
         self.frame_embed = nn.Embedding(self.num_frame_embeddings, hidden_dim)
         self.object_embed = nn.Embedding(self.max_objects, hidden_dim)
-        self.point_embed = nn.Embedding(self.max_points, hidden_dim)
+        self.actor_point_embed = nn.Embedding(self.max_actor_points, hidden_dim)
+        self.object_point_embed = nn.Embedding(self.max_object_points, hidden_dim)
+
+    def _point_embedding(self, point_type: Literal["actor", "object"]) -> tuple[nn.Embedding, int]:
+        if point_type == "actor":
+            return self.actor_point_embed, self.max_actor_points
+        if point_type == "object":
+            return self.object_point_embed, self.max_object_points
+        raise ValueError(f"Unsupported point_type: {point_type!r}")
 
     def _check_object_id(self, object_id: torch.Tensor) -> torch.Tensor:
         object_id = object_id.long()
@@ -56,13 +77,21 @@ class LearnableFrameObjectPointEmbedding(nn.Module):
                 )
         return object_id
 
-    def _check_point_id(self, point_id: torch.Tensor) -> torch.Tensor:
+    def _check_point_id(
+        self,
+        point_id: torch.Tensor,
+        point_type: Literal["actor", "object"],
+    ) -> torch.Tensor:
         point_id = point_id.long()
         if point_id.numel() > 0:
             min_id = int(point_id.min().item())
             max_id = int(point_id.max().item())
-            if min_id < 0 or max_id >= self.max_points:
-                raise ValueError(f"point_id must be in [0, {self.max_points - 1}], got range [{min_id}, {max_id}]")
+            _, max_points = self._point_embedding(point_type)
+            if min_id < 0 or max_id >= max_points:
+                raise ValueError(
+                    f"{point_type} point_id must be in [0, {max_points - 1}], "
+                    f"got range [{min_id}, {max_id}]"
+                )
         return point_id
 
     def _frame_to_index(self, frame_id: torch.Tensor) -> torch.Tensor:
@@ -84,15 +113,22 @@ class LearnableFrameObjectPointEmbedding(nn.Module):
         num_objects: int,
         num_points: int,
         device: torch.device,
-        object_offset: int = 0,
+        *,
+        object_offset: int,
+        point_type: Literal["actor", "object"],
     ) -> torch.Tensor:
         frame_id = torch.arange(-num_frames + 1, 1, device=device)
         object_id = torch.arange(object_offset, object_offset + num_objects, device=device)
         point_id = torch.arange(num_points, device=device)
+        point_embed, _ = self._point_embedding(point_type)
+        if point_type == "actor" and (object_offset != 0 or num_objects != 1):
+            raise ValueError("actor point grid requires exactly object_id 0")
+        if point_type == "object" and object_offset <= 0:
+            raise ValueError("object point grid requires positive object ids")
         return (
             self.frame_embed(self._frame_to_index(frame_id))[:, None, None, :]
             + self.object_embed(self._check_object_id(object_id))[None, :, None, :]
-            + self.point_embed(self._check_point_id(point_id))[None, None, :, :]
+            + point_embed(self._check_point_id(point_id, point_type))[None, None, :, :]
         )
 
     def encode_query(self, object_id: torch.Tensor, point_id: torch.Tensor, frame_id: torch.Tensor) -> torch.Tensor:
@@ -101,9 +137,16 @@ class LearnableFrameObjectPointEmbedding(nn.Module):
                 "object_id, point_id, and frame_id must have the same shape, "
                 f"got {object_id.shape}, {point_id.shape}, {frame_id.shape}"
             )
+        object_id = self._check_object_id(object_id)
+        if object_id.numel() > 0 and torch.any(object_id != 0).item():
+            raise ValueError("point query only supports actor object_id 0")
+        frame_id = frame_id.long()
+        if frame_id.numel() > 0 and torch.any(frame_id <= 0).item():
+            raise ValueError("point query only supports future frames")
+        point_id = self._check_point_id(point_id, "actor")
         return (
-            self.object_embed(self._check_object_id(object_id))
-            + self.point_embed(self._check_point_id(point_id))
+            self.object_embed(object_id)
+            + self.actor_point_embed(point_id)
             + self.frame_embed(self._frame_to_index(frame_id))
         )
 

@@ -454,19 +454,17 @@ class InputPreprocessor:
             ],
             axis=0,
         )[:, None]
-        frame_offsets = np.arange(-self.history_horizon, self.future_horizon + 1, dtype=np.int64)
+        future_frame_offsets = np.arange(1, self.future_horizon + 1, dtype=np.int64)
         input_frame_offsets = np.arange(-self.history_horizon, 1, dtype=np.int64)
-        object_id, point_id, frame_id = self._build_query_ids(
-            frame_offsets,
-            object_points.shape[1],
-            object_points.shape[2],
-            actor_points.shape[2],
-        )
-        input_object_id, input_point_id, input_frame_id = self._build_query_ids(
+        actor_num_points = actor_points.shape[2]
+        object_id = np.zeros(future_frame_offsets.size * actor_num_points, dtype=np.int64)
+        point_id = np.tile(np.arange(actor_num_points, dtype=np.int64), future_frame_offsets.size)
+        frame_id = np.repeat(future_frame_offsets, actor_num_points)
+        input_object_id, input_point_id, input_frame_id = self._build_input_point_ids(
             input_frame_offsets,
             object_points.shape[1],
             object_points.shape[2],
-            actor_points.shape[2],
+            actor_num_points,
         )
         input_point = self._input_points_from_feats(object_points, actor_points, height, width)
         action_type = str(subtaskstructure.get("action_type", ""))
@@ -490,7 +488,7 @@ class InputPreprocessor:
             "point_id": point_id[None].tolist(),
             "frame_id": frame_id[None].tolist(),
             "frame_query_frame_id": np.zeros((1, 1), dtype=np.int64).tolist(),
-            "actor_query_frame_id": frame_offsets[None].tolist(),
+            "actor_query_frame_id": future_frame_offsets[None].tolist(),
             "input_point": input_point[None].tolist(),
             "input_object_id": input_object_id[None].tolist(),
             "input_point_id": input_point_id[None].tolist(),
@@ -715,7 +713,7 @@ class InputPreprocessor:
         return points
 
     @staticmethod
-    def _build_query_ids(frame_offsets: np.ndarray, object_count: int, object_points: int, actor_points: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _build_input_point_ids(frame_offsets: np.ndarray, object_count: int, object_points: int, actor_points: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         object_ids = []
         point_ids = []
         frame_ids = []
@@ -725,8 +723,6 @@ class InputPreprocessor:
             object_ids.append(np.zeros(actor_points, dtype=np.int64))
             point_ids.append(actor_local_ids)
             frame_ids.append(np.full(actor_points, int(frame_offset), dtype=np.int64))
-            if frame_offset > 0:
-                continue
             for object_index in range(object_count):
                 object_ids.append(np.full(object_points, object_index + 1, dtype=np.int64))
                 point_ids.append(object_local_ids)

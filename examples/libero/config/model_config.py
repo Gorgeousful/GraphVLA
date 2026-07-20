@@ -44,12 +44,8 @@ class ModelConfig:
     )
     weights: dict[str, float] = field(
         default_factory=lambda: {
-            "history_weight": 0.5, # history
-            "history_actor": 1.0,
-            "history_object": 1.0,
-            "future_weight": 1.0, # future
-            "future_actor": 1.0,
-            "point_regression": 1.0, # inside point
+            "future_weight": 1.0,
+            "point_regression": 1.0, # point
             "visibility": 1.0,
             "metric_depth": 1.0,
             "gripper_openness": 1.0, # actor
