@@ -22,7 +22,6 @@ def test_advancing_subtask_discards_previous_subtask_history(tmp_path):
     switched = planner.update_after_inference(
         outputs={"is_complete": [[0.9]]},
         session=session,
-        model_input={"frame_query_frame_id": [[0]]},
         gripper_widths=[0.08],
         actions=[[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0]],
     )
@@ -45,24 +44,18 @@ def test_completion_window_counts_consecutive_current_observations(tmp_path):
         language="one-step task",
         taskstructure={"subtasks": [{"subtask": "first"}]},
     )
-    frame_ids = [[0]]
     outputs = {"is_complete": [[[0.9]]]}
 
-    frame_scores = planner._completion_frame_scores(
-        outputs,
-        {"frame_query_frame_id": frame_ids},
-    )
+    frame_scores = planner._completion_frame_scores(outputs)
     first_switched = planner.update_after_inference(
         outputs=outputs,
         session=session,
-        model_input={"frame_query_frame_id": frame_ids},
         gripper_widths=[0.08],
         actions=[[0.0] * 7],
     )
     second_switched = planner.update_after_inference(
         outputs=outputs,
         session=session,
-        model_input={"frame_query_frame_id": frame_ids},
         gripper_widths=[0.08],
         actions=[[0.0] * 7],
     )

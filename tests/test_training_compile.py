@@ -21,7 +21,7 @@ def test_build_model_compiles_with_static_shapes(monkeypatch) -> None:
         compile_kwargs.update(kwargs)
         return model
 
-    monkeypatch.setattr(training, "PointQueryModel", FakeModel)
+    monkeypatch.setattr(training, "GraphFlowModel", FakeModel)
     monkeypatch.setattr(torch, "compile", fake_compile)
     model_config = SimpleNamespace(to_kwargs=lambda: {})
     training_config = SimpleNamespace(

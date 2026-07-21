@@ -6,78 +6,45 @@ from src.dataset.transform import CustomTransform
 
 
 class LightweightModelInputTransform(CustomTransform):
-    def _build_conditions(
-        self,
-        subtaskstructure,
-        *,
-        object_roles,
-        device,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _build_conditions(self, subtaskstructure, *, object_roles, device):
         return torch.zeros(2, 3, device=device), torch.zeros(1, 3, device=device)
 
+    def _camera_intrinsic(self, data, *, device, dtype):
+        return torch.tensor([[100.0, 0.0, 128.0], [0.0, 100.0, 128.0], [0.0, 0.0, 1.0]], device=device, dtype=dtype)
 
-def test_build_model_input_uses_history_as_memory_and_queries_only_future_actor() -> None:
-    num_frames = 4
-    node_points_track = torch.zeros(num_frames, 2, 2, 3)
-    node_points_track[..., 0] = 64.0
-    node_points_track[..., 1] = 64.0
-    node_points_track[..., 2] = 1.0
-    gripper_uv = torch.tensor(
-        [[10.0, 10.0], [20.0, 20.0], [30.0, 30.0], [40.0, 40.0], [50.0, 50.0], [60.0, 60.0]]
-    ).repeat(num_frames, 1, 1)
-    depth_rel = torch.zeros(num_frames, 256 * 256)
-    for point_index, (u, v) in enumerate(gripper_uv[0].long()):
-        depth_rel[:, v * 256 + u] = 0.1 * (point_index + 1)
-    action = torch.zeros(num_frames, 7)
-    action[:, -1] = torch.tensor([1.0, 0.0, 0.25, 0.75])
+
+def test_build_model_input_produces_entity_rays_and_residual_flow_targets() -> None:
+    frames = 4
+    tracks = torch.zeros(frames, 2, 4, 3)
+    tracks[..., :2] = 128.0
+    tracks[..., 2] = 1.0
+    uv = torch.tensor([
+        [128.0, 128.0], [138.0, 128.0], [118.0, 128.0],
+        [128.0, 138.0], [128.0, 118.0], [128.0, 148.0],
+    ]).repeat(frames, 1, 1)
+    uv[2:, :, 0] += 10.0
+    depth = torch.zeros(frames, 256 * 256)
+    for frame in range(frames):
+        for index, (u, v) in enumerate(uv[frame].long()):
+            depth[frame, v * 256 + u] = 0.1 * (index + 1)
     data = {
-        "node_points_track": node_points_track,
-        "node_points_mask": torch.ones(num_frames, 2, dtype=torch.bool),
-        "depths.depth_rel": depth_rel,
-        "gripper_uv": gripper_uv,
-        "gripper_d": torch.full((num_frames, 6), 0.25),
+        "node_points_track": tracks,
+        "node_points_mask": torch.ones(frames, 2, dtype=torch.bool),
+        "depths.depth_rel": depth,
+        "gripper_uv": uv,
+        "gripper_d": torch.arange(frames, dtype=torch.float32)[:, None].expand(-1, 6),
         "gripper_openness": torch.tensor([0.1, 0.2, 0.3, 0.4]),
-        "action": action,
         "is_complete": torch.tensor([0.0, 1.0, 0.0, 1.0]),
         "history_horizon": 1,
         "future_horizon": 2,
-        "subtaskstructure": {
-            "nodes": [
-                {"role": "actor"},
-                {"role": "patient"},
-                {"role": "target"},
-            ]
-        },
+        "subtaskstructure": {"nodes": [{"role": role} for role in ("actor", "patient", "target")]},
     }
-
     output = LightweightModelInputTransform(mode="build_model_input")(data)
-
-    assert output["point_feats"].shape == (2, 2, 2, 8)
-    assert output["actor_feats"].shape == (2, 1, 6, 8)
-    torch.testing.assert_close(
-        output["actor_feats"][0, 0, :, 2],
-        torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.45]),
-    )
-    torch.testing.assert_close(output["point_feats"][..., 6:], torch.zeros(2, 2, 2, 2))
-    torch.testing.assert_close(
-        output["actor_feats"][:, 0, :, 6],
-        torch.tensor([[0.1] * 6, [0.2] * 6]),
-    )
-    torch.testing.assert_close(output["actor_feats"][..., 7], torch.ones(2, 1, 6))
-
-    torch.testing.assert_close(output["object_id"], torch.zeros(12, dtype=torch.long))
-    torch.testing.assert_close(
-        output["point_id"],
-        torch.tensor([0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5]),
-    )
-    torch.testing.assert_close(output["frame_id"], torch.tensor([1] * 6 + [2] * 6))
-    torch.testing.assert_close(output["frame_query_frame_id"], torch.tensor([0]))
+    assert output["entity_points"].shape == (2, 3, 4, 3)
+    assert output["entity_point_mask"].shape == (2, 3, 4)
+    assert output["actor_metric_history"].shape == (2, 4, 3)
+    torch.testing.assert_close(output["entity_points"][0, 0, 0, :2], torch.tensor([0.0, 0.0]))
+    torch.testing.assert_close(output["target"]["relative_plan"][:, :, 0], torch.full((2, 4), 0.1))
+    torch.testing.assert_close(output["target"]["metric_z_plan"][:, :, 0], torch.tensor([[1.0] * 4, [2.0] * 4]))
+    torch.testing.assert_close(output["target"]["gripper_width_plan"], torch.tensor([[0.024], [0.032]]))
     torch.testing.assert_close(output["target"]["is_complete"], torch.tensor([1.0]))
-    torch.testing.assert_close(output["actor_query_frame_id"], torch.tensor([1, 2]))
-    torch.testing.assert_close(
-        output["target"]["gripper_openness"],
-        torch.tensor([[0.3], [0.4]]),
-    )
-    torch.testing.assert_close(output["target"]["gripper_action"], torch.tensor([[0.5], [-0.5]]))
-    assert "gripper_openness_mask" not in output["target"]
-    assert "gripper_action_mask" not in output["target"]

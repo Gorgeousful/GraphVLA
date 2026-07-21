@@ -24,23 +24,19 @@ from PIL import Image
 from rich.console import Console
 from scipy.spatial.transform import Rotation as R
 
-from src.model.model import PointQueryModel
+from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
 from src.module.node_locator import NodeLocatorRobo
 from src.module.depth_predictor import DepthPredictorSTream3R
 from src.module.node_segmenter import NodeSegmenter
 from src.module.point_tracker import PointTracker
-from src.common.geom_utils import sample_points_from_mask
+from src.common.geom_utils import sample_points_from_mask, uv_to_normalized_ray
 from src.common.schema import (
+    ACTOR_NUM_POINTS,
+    ACTOR_POINT_INDICES,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
-    POINT_GRIPPER_OPENNESS_INDEX,
-    POINT_GRIPPER_OPENNESS_MASK_INDEX,
-    POINT_METRIC_DEPTH_INDEX,
-    POINT_METRIC_DEPTH_MASK_INDEX,
-    POINT_RELATIVE_DEPTH_INDEX,
-    POINT_VISIBILITY_INDEX,
     taskstructure_to_json,
 )
 from src.module.scale_estimator import RawDepthShiftCalibrator
@@ -92,6 +88,7 @@ class InferenceSession:
     subtask_index: int = 0
     task_complete: bool = False
     complete_streak: int = 0
+    gripper_command: float = 0.0
     feature_history: list[dict[str, np.ndarray]] = field(default_factory=list)
     frame_index: int = 0
     object_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -113,6 +110,7 @@ class InferenceSession:
         self.subtask_index = 0
         self.task_complete = False
         self.complete_streak = 0
+        self.gripper_command = 0.0
         self.reset_preprocessor()
 
     def reset_preprocessor(self) -> None:
@@ -167,14 +165,13 @@ class TopLevelTaskPlanner:
         self,
         outputs: Mapping[str, Any],
         session: InferenceSession,
-        model_input: Mapping[str, Any],
         gripper_widths: Sequence[float],
         actions: Sequence[Sequence[float]],
     ) -> bool:
         if session.task_complete or session.taskstructure is None:
             return False
 
-        frame_scores = self._completion_frame_scores(outputs, model_input)
+        frame_scores = self._completion_frame_scores(outputs)
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for index, (frame_id, score) in enumerate(frame_scores):
@@ -235,7 +232,6 @@ class TopLevelTaskPlanner:
     def _completion_frame_scores(
         self,
         outputs: Mapping[str, Any],
-        model_input: Mapping[str, Any],
     ) -> list[tuple[int, float]]:
         complete_value = outputs.get("is_complete")
         if complete_value is None:
@@ -251,20 +247,7 @@ class TopLevelTaskPlanner:
         else:
             scores = scores.reshape(scores.shape[0], -1).max(axis=1)
 
-        frame_ids = np.asarray(model_input.get("frame_query_frame_id", []), dtype=np.int64)
-        if frame_ids.ndim >= 2 and frame_ids.shape[0] == 1:
-            frame_ids = frame_ids[0]
-        frame_ids = frame_ids.reshape(-1)
-        if frame_ids.size != scores.size:
-            raise ValueError(
-                "is_complete and frame_query_frame_id must contain the same number of frames: "
-                f"got {scores.size} scores and {frame_ids.size} frame ids"
-            )
-        return [
-            (int(frame_id), float(score))
-            for score, frame_id in zip(scores, frame_ids, strict=True)
-            if frame_id == 0
-        ]
+        return [(0, float(scores.max()))]
 
 
 class InputPreprocessor:
@@ -319,6 +302,7 @@ class InputPreprocessor:
             "depth": np.asarray(depth, dtype=np.float32),
             "gripper_uvd": np.asarray(gripper_uvd, dtype=np.float32),
             "gripper_openness": self._state_to_gripper_openness(frame),
+            "intrinsic": np.asarray(frame.intrinsic, dtype=np.float32),
         }
         session.frame_index += 1
         return features
@@ -433,11 +417,12 @@ class InputPreprocessor:
     ) -> dict[str, Any]:
         height, width = frames[-1]["depth"].shape
         session.active_object_indices = self._subtask_object_indices(session, subtaskstructure)
+        active_roles = [str(node.get("role", "")) for node in self._object_nodes(subtaskstructure)][:2]
         object_points = np.stack(
             [
                 self._object_feats(
                     self._active_tracks(item["tracks"], session.active_object_indices),
-                    item["depth"],
+                    active_roles, item["depth"], item["intrinsic"],
                     height,
                     width,
                 )
@@ -445,57 +430,39 @@ class InputPreprocessor:
             ],
             axis=0,
         )
-        actor_points = np.stack(
-            [
-                self._actor_feats(
-                    item["gripper_uvd"], item["gripper_openness"], item["depth"], height, width
-                )
-                for item in frames
-            ],
-            axis=0,
-        )[:, None]
-        future_frame_offsets = np.arange(1, self.future_horizon + 1, dtype=np.int64)
-        input_frame_offsets = np.arange(-self.history_horizon, 1, dtype=np.int64)
-        actor_num_points = actor_points.shape[2]
-        object_id = np.zeros(future_frame_offsets.size * actor_num_points, dtype=np.int64)
-        point_id = np.tile(np.arange(actor_num_points, dtype=np.int64), future_frame_offsets.size)
-        frame_id = np.repeat(future_frame_offsets, actor_num_points)
-        input_object_id, input_point_id, input_frame_id = self._build_input_point_ids(
-            input_frame_offsets,
-            object_points.shape[1],
-            object_points.shape[2],
-            actor_num_points,
+        actor_features = [
+            self._actor_feats(item["gripper_uvd"], item["depth"], item["intrinsic"], height, width)
+            for item in frames
+        ]
+        actor_relative = np.stack([item[0] for item in actor_features], axis=0)
+        actor_metric = np.stack([item[1] for item in actor_features], axis=0)
+        entity_points = np.zeros(
+            (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
-        input_point = self._input_points_from_feats(object_points, actor_points, height, width)
+        entity_mask = np.zeros((len(frames), 3, self.num_points), dtype=bool)
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_relative
+        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
+        entity_points[:, 1:3] = object_points
+        for object_index in range(2):
+            entity_mask[:, object_index + 1] = np.any(object_points[:, object_index] != 0)
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
-        object_roles = self._object_roles(subtaskstructure, expected_count=object_points.shape[1])
-        object_condition_texts = [
+        object_roles = ["patient", "target"]
+        entity_condition_texts = [{
+            "role": "actor", "action_type": action_type, "action_degree": action_degree,
+        }] + [
             {"role": role, "action_type": action_type, "action_degree": action_degree}
             for role in object_roles
         ]
-        actor_condition_text = {
-            "role": "actor",
-            "action_type": action_type,
-            "action_degree": action_degree,
-        }
         return {
-            "point_feats": object_points[None].tolist(),
-            "actor_feats": actor_points[None].tolist(),
-            "object_condition_texts": object_condition_texts,
-            "actor_condition_text": actor_condition_text,
-            "object_id": object_id[None].tolist(),
-            "point_id": point_id[None].tolist(),
-            "frame_id": frame_id[None].tolist(),
-            "frame_query_frame_id": np.zeros((1, 1), dtype=np.int64).tolist(),
-            "actor_query_frame_id": future_frame_offsets[None].tolist(),
-            "input_point": input_point[None].tolist(),
-            "input_object_id": input_object_id[None].tolist(),
-            "input_point_id": input_point_id[None].tolist(),
-            "input_frame_id": input_frame_id[None].tolist(),
-            "head_names": ("point", "metric_depth"),
-            "actor_head_names": ("gripper_openness", "gripper_action"),
-            "frame_head_names": "is_complete",
+            "entity_points": entity_points[None].tolist(),
+            "entity_point_mask": entity_mask[None].tolist(),
+            "actor_metric_history": actor_metric[None].tolist(),
+            "gripper_width_history": np.asarray([
+                item["gripper_openness"] * LIBERO_GRIPPER_MAX_WIDTH for item in frames
+            ], dtype=np.float32).reshape(1, len(frames), 1).tolist(),
+            "robot_metric_mask": [[True]],
+            "entity_condition_texts": entity_condition_texts,
         }
 
     def _frames_from_request(
@@ -672,82 +639,48 @@ class InputPreprocessor:
             roles.append(fallback[len(roles)] if len(roles) < len(fallback) else f"object_{len(roles)}")
         return roles[:expected_count]
 
-    def _object_feats(self, tracks: np.ndarray, depth: np.ndarray, height: int, width: int) -> np.ndarray:
+    def _object_feats(
+        self,
+        tracks: np.ndarray,
+        roles: Sequence[str],
+        depth: np.ndarray,
+        intrinsic: np.ndarray,
+        height: int,
+        width: int,
+    ) -> np.ndarray:
         points = np.zeros((2, self.num_points, POINT_FEATURE_DIM), dtype=np.float32)
         count = min(tracks.shape[0], 2)
         if count == 0:
             return points
         uv = tracks[:count, :, :2]
-        vis = tracks[:count, :, 2:3]
-        sampled_depth, in_bounds = self._sample_depth(depth, uv, height, width)
-        points[:count, :, :2] = self._normalize_uv(uv, height, width)
-        points[:count, :, POINT_RELATIVE_DEPTH_INDEX:POINT_RELATIVE_DEPTH_INDEX + 1] = sampled_depth
-        points[:count, :, POINT_VISIBILITY_INDEX:POINT_VISIBILITY_INDEX + 1] = vis * in_bounds
+        sampled_depth, _ = self._sample_depth(depth, uv, height, width)
+        rays = uv_to_normalized_ray(uv, intrinsic)
+        for source_index, role in enumerate(roles[:count]):
+            target_index = 0 if role == "patient" else (1 if role == "target" else source_index)
+            if target_index >= 2:
+                continue
+            points[target_index, :, :2] = rays[source_index]
+            points[target_index, :, 2:3] = sampled_depth[source_index]
         return points
 
     def _actor_feats(
         self,
         gripper_uvd: np.ndarray,
-        gripper_openness: np.ndarray,
         depth: np.ndarray,
+        intrinsic: np.ndarray,
         height: int,
         width: int,
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, np.ndarray]:
         if gripper_uvd.shape != (6, 3):
             raise ValueError(f"Expected gripper_uvd [6, 3], got {gripper_uvd.shape}")
         uv = gripper_uvd[:, :2]
-        sampled_depth, in_bounds = self._sample_depth(depth, uv, height, width)
+        sampled_depth, _ = self._sample_depth(depth, uv, height, width)
         sampled_depth[5] = sampled_depth[3:5].mean(axis=0)
-        points = np.zeros((gripper_uvd.shape[0], POINT_FEATURE_DIM), dtype=np.float32)
-        points[:, :2] = self._normalize_uv(uv, height, width)
-        points[:, POINT_RELATIVE_DEPTH_INDEX:POINT_RELATIVE_DEPTH_INDEX + 1] = sampled_depth
-        points[:, POINT_VISIBILITY_INDEX:POINT_VISIBILITY_INDEX + 1] = in_bounds
-        points[:, POINT_METRIC_DEPTH_INDEX:POINT_METRIC_DEPTH_INDEX + 1] = self._normalize_field(
-            gripper_uvd[:, 2:3], "gripper_d"
-        )
-        points[:, POINT_METRIC_DEPTH_MASK_INDEX:POINT_METRIC_DEPTH_MASK_INDEX + 1] = 1.0
-        points[:, POINT_GRIPPER_OPENNESS_INDEX:POINT_GRIPPER_OPENNESS_INDEX + 1] = float(
-            gripper_openness
-        )
-        points[:, POINT_GRIPPER_OPENNESS_MASK_INDEX:POINT_GRIPPER_OPENNESS_MASK_INDEX + 1] = 1.0
-        return points
-
-    @staticmethod
-    def _build_input_point_ids(frame_offsets: np.ndarray, object_count: int, object_points: int, actor_points: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        object_ids = []
-        point_ids = []
-        frame_ids = []
-        actor_local_ids = np.arange(actor_points, dtype=np.int64)
-        object_local_ids = np.arange(object_points, dtype=np.int64)
-        for frame_offset in frame_offsets:
-            object_ids.append(np.zeros(actor_points, dtype=np.int64))
-            point_ids.append(actor_local_ids)
-            frame_ids.append(np.full(actor_points, int(frame_offset), dtype=np.int64))
-            for object_index in range(object_count):
-                object_ids.append(np.full(object_points, object_index + 1, dtype=np.int64))
-                point_ids.append(object_local_ids)
-                frame_ids.append(np.full(object_points, int(frame_offset), dtype=np.int64))
-        return np.concatenate(object_ids), np.concatenate(point_ids), np.concatenate(frame_ids)
-
-    @staticmethod
-    def _input_points_from_feats(object_points: np.ndarray, actor_points: np.ndarray, height: int, width: int) -> np.ndarray:
-        rows = []
-        for frame_index in range(object_points.shape[0]):
-            actor = actor_points[frame_index, 0]
-            actor_uv = InputPreprocessor._denormalize_uv(actor[:, :2], height, width)
-            rows.append(np.concatenate([actor_uv, actor[:, 4:5], actor[:, 3:4]], axis=-1))
-            for object_index in range(object_points.shape[1]):
-                item = object_points[frame_index, object_index]
-                uv = InputPreprocessor._denormalize_uv(item[:, :2], height, width)
-                rows.append(np.concatenate([uv, item[:, 2:3], item[:, 3:4]], axis=-1))
-        return np.concatenate(rows, axis=0).astype(np.float32)
-
-    @staticmethod
-    def _denormalize_uv(uv_norm: np.ndarray, height: int, width: int) -> np.ndarray:
-        uv = np.asarray(uv_norm, dtype=np.float32).copy()
-        uv[..., 0] = uv[..., 0] * (width / 2.0) + width / 2.0
-        uv[..., 1] = uv[..., 1] * (height / 2.0) + height / 2.0
-        return uv
+        indices = np.asarray(ACTOR_POINT_INDICES, dtype=np.int64)
+        ray = uv_to_normalized_ray(uv, intrinsic)[indices]
+        relative = np.concatenate([ray, sampled_depth[indices]], axis=-1)
+        metric_z = self._normalize_field(gripper_uvd[:, 2:3], "gripper_d")[indices]
+        return relative, np.concatenate([ray, metric_z], axis=-1)
 
     @staticmethod
     def _sample_depth(depth: np.ndarray, uv: np.ndarray, height: int, width: int) -> tuple[np.ndarray, np.ndarray]:
@@ -760,13 +693,6 @@ class InputPreprocessor:
         sampled[..., 0] = depth[safe_v, safe_u]
         sampled[..., 0] = np.where(in_bounds, sampled[..., 0], 0.0)
         return sampled, in_bounds[..., None].astype(np.float32)
-
-    @staticmethod
-    def _normalize_uv(uv: np.ndarray, height: int, width: int) -> np.ndarray:
-        uv_norm = np.asarray(uv, dtype=np.float32).copy()
-        uv_norm[..., 0] = (uv_norm[..., 0] - width / 2.0) / (width / 2.0)
-        uv_norm[..., 1] = (uv_norm[..., 1] - height / 2.0) / (height / 2.0)
-        return uv_norm
 
     @staticmethod
     def _pack_tracks(result: dict[str, np.ndarray]) -> np.ndarray:
@@ -831,54 +757,41 @@ class EmbodimentAdapter:
     ) -> tuple[list[list[float]], list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        required_outputs = {"point", "metric_depth", "gripper_openness", "gripper_action"}
+        required_outputs = {"relative_plan", "metric_z_plan", "gripper_width_plan"}
         missing_outputs = required_outputs.difference(outputs)
         if missing_outputs:
             raise KeyError(f"Model outputs are missing required heads: {sorted(missing_outputs)}")
 
-        points = np.asarray(outputs["point"], dtype=np.float32)[0]
-        metric_depth = np.asarray(outputs["metric_depth"], dtype=np.float32)[0].reshape(-1)
-        gripper_openness = np.asarray(outputs["gripper_openness"], dtype=np.float32)[0].reshape(-1)
-        gripper_action = np.asarray(outputs["gripper_action"], dtype=np.float32)[0].reshape(-1)
-        actor_query_frame_id = np.asarray(model_input["actor_query_frame_id"], dtype=np.int64)[0]
-        object_id = np.asarray(model_input["object_id"], dtype=np.int64)[0]
-        point_id = np.asarray(model_input["point_id"], dtype=np.int64)[0]
-        frame_id = np.asarray(model_input["frame_id"], dtype=np.int64)[0]
-        intrinsic = self._current_camera_matrix(request, "camera.intrinsics", (3, 3))
+        relative = np.asarray(outputs["relative_plan"], dtype=np.float32)[0]
+        metric_z = np.asarray(outputs["metric_z_plan"], dtype=np.float32)[0]
+        widths = np.asarray(outputs["gripper_width_plan"], dtype=np.float32)[0].reshape(-1)
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
+        state = np.asarray(request["observation.state"], dtype=np.float64)
+        state = state[-1] if state.ndim == 2 else state
+        current_width = abs(float(state[6])) + abs(float(state[7]))
 
         actions = []
         gripper_widths = []
-        for future_frame_id in range(1, self.future_horizon + 1):
-            mask = (object_id == 0) & (frame_id == future_frame_id)
-            actor_points = points[mask]
-            actor_metric_depth = metric_depth[mask]
-            actor_point_ids = point_id[mask]
-            by_id = {int(pid): actor_points[index] for index, pid in enumerate(actor_point_ids)}
-            metric_by_id = {int(pid): actor_metric_depth[index] for index, pid in enumerate(actor_point_ids)}
-            missing = [index for index in (0, 1, 2) if index not in by_id]
-            if missing:
-                raise ValueError(f"Missing actor point ids {missing} for future_frame_id={future_frame_id}")
-            uvd_dict = {
-                "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
-                "left_base_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
-                "right_base_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
-            }
-            self._validate_uvd(uvd_dict, future_frame_id=future_frame_id)
-            actor_mask = actor_query_frame_id == future_frame_id
-            if int(actor_mask.sum()) != 1:
-                raise ValueError(f"Expected one actor query for future_frame_id={future_frame_id}")
-            predicted_openness = float(np.clip(gripper_openness[actor_mask][0], 0.0, 1.0))
-            predicted_action = float(np.clip(gripper_action[actor_mask][0], -1.0, 1.0))
-            action = self._robot().project_uvd_to_gripper(
-                uvd_dict,
-                intrinsic=intrinsic,
-                gripper_width=predicted_openness * LIBERO_GRIPPER_MAX_WIDTH,
+        for future_index in range(self.future_horizon):
+            ray_depth = np.concatenate([relative[future_index, :, :2], metric_z[future_index]], axis=-1)
+            if not np.isfinite(ray_depth).all() or np.any(ray_depth[:, 2] <= 1e-6):
+                raise ValueError(f"Invalid actor ray-depth at future index {future_index}: {ray_depth}")
+            desired_width = float(np.clip(widths[future_index], 0.0, LIBERO_GRIPPER_MAX_WIDTH))
+            action = self._robot().project_ray_depth_to_gripper(
+                ray_depth,
+                gripper_width=desired_width,
                 extrinsic=extrinsic,
             )
-            gripper_widths.append(float(action[6]))
+            gripper_widths.append(desired_width)
             action = self._to_libero_pose(action)
-            action[6] = predicted_action
+            width_error = desired_width - current_width
+            if width_error > 0.002:
+                session.gripper_command = -1.0
+            elif width_error < -0.002:
+                session.gripper_command = 1.0
+            elif abs(width_error) <= 0.0005:
+                session.gripper_command = 0.0
+            action[6] = session.gripper_command
             actions.append(action.astype(np.float32).tolist())
 
         if len(actions) != self.future_horizon:
@@ -918,18 +831,6 @@ class EmbodimentAdapter:
             return value[-1]
         raise ValueError(f"{key} must have shape {shape} or Tx{shape}, got {value.shape}")
 
-    @staticmethod
-    def _validate_uvd(uvd_dict: Mapping[str, np.ndarray], *, future_frame_id: int) -> None:
-        for name, value in uvd_dict.items():
-            value = np.asarray(value, dtype=np.float32)
-            if value.shape != (3,):
-                raise ValueError(f"{name} must have shape (3,), got {value.shape} at future_frame_id={future_frame_id}")
-            if not np.isfinite(value).all():
-                raise ValueError(f"{name} contains non-finite values at future_frame_id={future_frame_id}: {value}")
-            if float(value[2]) <= 1e-6:
-                raise ValueError(f"{name} depth must be positive at future_frame_id={future_frame_id}: {value}")
-
-
 class InferenceModel:
     """Model wrapper with optional BGE text condition encoding."""
 
@@ -951,7 +852,7 @@ class InferenceModel:
         self.bge_model = None
         self.embedding_cache: dict[str, torch.Tensor] = {}
 
-        self.model = PointQueryModel(**dict(model_kwargs)).to(device)
+        self.model = GraphFlowModel(**dict(model_kwargs)).to(device)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
         self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
         cs.print(f"[green]loaded checkpoint from {ckpt_path}[/green]")
@@ -967,47 +868,28 @@ class InferenceModel:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
 
-        def optional_tensor(name: str, dtype: torch.dtype) -> torch.Tensor | None:
-            if name not in input_data or input_data[name] is None:
-                return None
-            return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
-
-        object_condition = optional_tensor("object_condition", torch.float32)
-        if object_condition is None and input_data.get("object_condition_texts") is not None:
-            text_conditions = input_data["object_condition_texts"]
+        entity_condition = input_data.get("entity_condition")
+        if entity_condition is None:
+            text_conditions = input_data.get("entity_condition_texts")
             if not isinstance(text_conditions, Sequence) or isinstance(text_conditions, str | bytes):
-                raise TypeError("object_condition_texts must be a list")
-            object_condition = torch.stack([self.encode_condition(item) for item in text_conditions], dim=0).unsqueeze(0)
-        elif object_condition is not None and object_condition.ndim == 2:
-            object_condition = object_condition.unsqueeze(0)
-
-        actor_condition = optional_tensor("actor_condition", torch.float32)
-        if actor_condition is None and input_data.get("actor_condition_text") is not None:
-            actor_condition = self.encode_condition(input_data["actor_condition_text"]).unsqueeze(0).unsqueeze(0)
-        elif actor_condition is not None and actor_condition.ndim == 2:
-            actor_condition = actor_condition.unsqueeze(0)
+                raise TypeError("entity_condition_texts must be a list")
+            entity_condition = torch.stack([
+                self.encode_condition(item) for item in text_conditions
+            ], dim=0).unsqueeze(0)
+        else:
+            entity_condition = torch.as_tensor(entity_condition, device=self.device, dtype=torch.float32)
+            if entity_condition.ndim == 2:
+                entity_condition = entity_condition.unsqueeze(0)
 
         infer_inputs = {
-            "point_feats": tensor("point_feats", torch.float32),
-            "actor_feats": tensor("actor_feats", torch.float32),
-            "object_id": tensor("object_id", torch.long),
-            "point_id": tensor("point_id", torch.long),
-            "frame_id": tensor("frame_id", torch.long),
-            "object_condition": object_condition,
-            "actor_condition": actor_condition,
-            "query_type": optional_tensor("query_type", torch.long),
-            "head_names": input_data.get("head_names"),
-            "frame_query_frame_id": optional_tensor("frame_query_frame_id", torch.long),
-            "frame_query_type": optional_tensor("frame_query_type", torch.long),
-            "frame_head_names": input_data.get("frame_head_names"),
-            "actor_query_frame_id": optional_tensor("actor_query_frame_id", torch.long),
-            "actor_query_type": optional_tensor("actor_query_type", torch.long),
-            "actor_head_names": input_data.get("actor_head_names"),
+            "entity_points": tensor("entity_points", torch.float32),
+            "entity_point_mask": tensor("entity_point_mask", torch.bool),
+            "entity_condition": entity_condition,
+            "actor_metric_history": tensor("actor_metric_history", torch.float32),
+            "gripper_width_history": tensor("gripper_width_history", torch.float32),
+            "robot_metric_mask": tensor("robot_metric_mask", torch.bool),
         }
-        outputs = self.model.infer(
-            **infer_inputs,
-            return_residual=bool(input_data.get("return_residual", False)),
-        )
+        outputs = self.model.sample(infer_inputs)
         output_data = {"outputs": outputs, "batch": infer_inputs}
         for transform in self.out_transforms:
             output_data = transform(output_data)
@@ -1132,8 +1014,7 @@ class InferenceServer:
         inference_result = self.inference.infer(model_input, return_model_input=return_model_input)
         if return_model_input:
             outputs, captured_model_input = inference_result
-            captured_model_input["object_condition_texts"] = model_input.get("object_condition_texts")
-            captured_model_input["actor_condition_text"] = model_input.get("actor_condition_text")
+            captured_model_input["entity_condition_texts"] = model_input.get("entity_condition_texts")
         else:
             outputs = inference_result
             captured_model_input = None
@@ -1141,21 +1022,13 @@ class InferenceServer:
         subtask_switched = self.planner.update_after_inference(
             outputs,
             session,
-            model_input,
             gripper_widths,
             actions,
         )
         response = {
             **outputs,
-            "object_id": self.inference.to_json(model_input["object_id"]),
-            "point_id": self.inference.to_json(model_input["point_id"]),
-            "frame_id": self.inference.to_json(model_input["frame_id"]),
-            "frame_query_frame_id": self.inference.to_json(model_input["frame_query_frame_id"]),
-            "actor_query_frame_id": self.inference.to_json(model_input["actor_query_frame_id"]),
-            "input_point": self.inference.to_json(model_input["input_point"]),
-            "input_object_id": self.inference.to_json(model_input["input_object_id"]),
-            "input_point_id": self.inference.to_json(model_input["input_point_id"]),
-            "input_frame_id": self.inference.to_json(model_input["input_frame_id"]),
+            "entity_points": self.inference.to_json(model_input["entity_points"]),
+            "entity_point_mask": self.inference.to_json(model_input["entity_point_mask"]),
             "robobrain_point": self.inference.to_json(response_robobrain_points),
             "robobrain_object_id": self.inference.to_json(response_robobrain_object_id),
             "subtask": response_subtask,

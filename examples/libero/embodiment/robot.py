@@ -7,6 +7,7 @@ file_dir = Path(__file__).resolve().parent
 from src.common.geom_utils import (
     bbox_from_mask,
     make_pose,
+    normalized_ray_depth_to_xyz,
     project_meshes_to_depth,
     project_meshes_to_mask,
     sample_mesh_pcd,
@@ -253,7 +254,47 @@ class GeomFrankaPanda:
             (uvd[:, 1] - intrinsic[1, 2]) * z / intrinsic[1, 1],
             z,
         ], axis=1)
-        points_local = self._pose_keypoints_local
+        return self._fit_points_to_gripper(
+            points_camera,
+            self._pose_keypoints_local,
+            gripper_width=gripper_width,
+            extrinsic=extrinsic,
+            world_transform=world_transform,
+        )
+
+    def project_ray_depth_to_gripper(
+        self,
+        ray_depth: np.ndarray,
+        gripper_width: float,
+        extrinsic: np.ndarray | None = None,
+        world_transform: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Recover a legal gripper pose from wrist/base/TCP ``[x_n,y_n,z]`` points."""
+        ray_depth = np.asarray(ray_depth, dtype=np.float64)
+        if ray_depth.shape != (4, 3):
+            raise ValueError(f"Expected four ray-depth keypoints [4,3], got {ray_depth.shape}")
+        points_local = np.concatenate([
+            self._pose_keypoints_local,
+            np.asarray([[0.0, 0.0, self._FINGERTIP_CONTACT_Z]], dtype=np.float64),
+        ])
+        return self._fit_points_to_gripper(
+            normalized_ray_depth_to_xyz(ray_depth),
+            points_local,
+            gripper_width=gripper_width,
+            extrinsic=extrinsic,
+            world_transform=world_transform,
+        )
+
+    def _fit_points_to_gripper(
+        self,
+        points_camera: np.ndarray,
+        points_local: np.ndarray,
+        *,
+        gripper_width: float,
+        extrinsic: np.ndarray | None,
+        world_transform: np.ndarray | None,
+    ) -> np.ndarray:
+        """Fit corresponding camera/local points and return the benchmark TCP state."""
 
         local_center = points_local.mean(axis=0)
         camera_center = points_camera.mean(axis=0)

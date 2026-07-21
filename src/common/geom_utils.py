@@ -10,6 +10,43 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 
+def uv_to_normalized_ray(uv: np.ndarray, intrinsic: np.ndarray) -> np.ndarray:
+    """Convert pixel coordinates to camera rays ``[x_n, y_n]``."""
+    uv = np.asarray(uv)
+    intrinsic = np.asarray(intrinsic, dtype=np.float64)
+    if uv.shape[-1] != 2 or intrinsic.shape != (3, 3):
+        raise ValueError(f"Expected uv [...,2] and intrinsic [3,3], got {uv.shape}, {intrinsic.shape}")
+    ray = uv.astype(np.float64, copy=True)
+    ray[..., 0] = (ray[..., 0] - intrinsic[0, 2]) / intrinsic[0, 0]
+    ray[..., 1] = (ray[..., 1] - intrinsic[1, 2]) / intrinsic[1, 1]
+    return ray.astype(uv.dtype, copy=False)
+
+
+def uv_to_normalized_ray_torch(uv, intrinsic):
+    """Torch equivalent of :func:`uv_to_normalized_ray` preserving gradients."""
+    import torch
+
+    if not isinstance(uv, torch.Tensor) or not isinstance(intrinsic, torch.Tensor):
+        raise TypeError("uv and intrinsic must be torch tensors")
+    if uv.shape[-1] != 2 or intrinsic.shape != (3, 3):
+        raise ValueError(f"Expected uv [...,2] and intrinsic [3,3], got {uv.shape}, {intrinsic.shape}")
+    ray = uv.clone()
+    ray[..., 0] = (uv[..., 0] - intrinsic[0, 2]) / intrinsic[0, 0]
+    ray[..., 1] = (uv[..., 1] - intrinsic[1, 2]) / intrinsic[1, 1]
+    return ray
+
+
+def normalized_ray_depth_to_xyz(ray_depth: np.ndarray) -> np.ndarray:
+    """Convert ``[x_n, y_n, z]`` camera rays to camera-space XYZ."""
+    ray_depth = np.asarray(ray_depth)
+    if ray_depth.shape[-1] != 3:
+        raise ValueError(f"Expected ray_depth [...,3], got {ray_depth.shape}")
+    xyz = ray_depth.copy()
+    xyz[..., 0] *= ray_depth[..., 2]
+    xyz[..., 1] *= ray_depth[..., 2]
+    return xyz
+
+
 def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     """Apply a 4x4 homogeneous transform to (N, 3) or (N, 6) points."""
     points = np.asarray(points)

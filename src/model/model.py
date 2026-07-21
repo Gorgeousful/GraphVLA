@@ -1,547 +1,311 @@
-"""D4RT-style token query model for GraphVLA."""
+"""Entity-centric coupled Flow Matching model for GraphVLA."""
 
 from __future__ import annotations
+
+import math
+from typing import Any
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
-from src.model.decoder import IndependentQueryDecoder
-from src.model.encoder import SetEncoderViT
-from src.model.heads import PredictionHeads
-
-from src.model.embedding import FrameQueryEmbedder
-from src.model.embedding import LearnableFrameObjectPointEmbedding
-from src.model.embedding import ObjectQueryEmbedder
-from src.model.embedding import PointQueryEmbedder
-from src.model.encoder import PointMemoryEncoder
-from src.common.schema import POINT_FEATURE_DIM, POINT_METRIC_DEPTH_INDEX, POINT_METRIC_DEPTH_MASK_INDEX
+from src.common.schema import ACTOR_NUM_POINTS
+from src.model.encoder import EntityEncoder
+from src.model.flow_matching import make_scheduler, sample_time, training_path
 
 
-class PointQueryModel(nn.Module):
-    """D4RT-style frame-object-point query model for tracked object points.
+def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
+    half = dim // 2
+    frequency = torch.exp(
+        torch.arange(half, device=time.device, dtype=time.dtype)
+        * -(math.log(10000.0) / max(half - 1, 1))
+    )
+    embedding = time[:, None] * frequency[None]
+    embedding = torch.cat([embedding.sin(), embedding.cos()], dim=-1)
+    return F.pad(embedding, (0, dim - embedding.shape[-1]))
 
-    SetEncoderViT keeps per-point tokens. The memory contains actor point
-    tokens plus object point tokens over the history-to-now window. Queries ask
-    for object_id/point_id at a relative frame_id and produce query-level
-    head outputs, e.g. [B, Q, 4] for output_dims={"point": 4}.
-    """
 
+def _decoder_layer(hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> nn.Module:
+    return nn.TransformerDecoderLayer(
+        hidden_dim,
+        num_heads,
+        int(hidden_dim * mlp_ratio),
+        dropout,
+        activation="gelu",
+        batch_first=True,
+        norm_first=True,
+    )
+
+
+class RelativeTrajectoryFlow(nn.Module):
+    def __init__(self, hidden_dim: int, horizon: int, layers: int, heads: int, mlp_ratio: float, dropout: float):
+        super().__init__()
+        self.horizon = horizon
+        self.input_projection = nn.Linear(3, hidden_dim)
+        self.horizon_embedding = nn.Embedding(horizon, hidden_dim)
+        self.keypoint_embedding = nn.Embedding(ACTOR_NUM_POINTS, hidden_dim)
+        self.time_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.SiLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.blocks = nn.ModuleList([
+            _decoder_layer(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
+        ])
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.output_projection = nn.Linear(hidden_dim, 3)
+        self.gradient_checkpointing = False
+
+    def forward(self, state: torch.Tensor, time: torch.Tensor, memory: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        batch = state.shape[0]
+        token = self.input_projection(state)
+        token = token + self.horizon_embedding(torch.arange(self.horizon, device=state.device))[None, :, None]
+        token = token + self.keypoint_embedding(torch.arange(ACTOR_NUM_POINTS, device=state.device))[None, None]
+        token = token.reshape(batch, self.horizon * ACTOR_NUM_POINTS, -1)
+        token = token + self.time_mlp(_sinusoidal_time(time, token.shape[-1]))[:, None]
+        for block in self.blocks:
+            token = checkpoint(
+                block, token, memory, use_reentrant=False, preserve_rng_state=False,
+            ) if self.gradient_checkpointing and self.training else block(token, memory)
+        hidden = self.norm(token)
+        velocity = self.output_projection(hidden).view(batch, self.horizon, ACTOR_NUM_POINTS, 3)
+        return velocity, hidden
+
+
+class RobotMetricFlow(nn.Module):
     def __init__(
         self,
-        point_dim: int = POINT_FEATURE_DIM,
-        num_points: int = 32,
-        actor_num_points: int = 6,
-        set_hidden_dim: int = 384,
-        set_layers: int = 12,
-        set_heads: int = 6,
-        set_mlp_ratio: float = 4.0,
-        set_register_tokens: int = 0,
-        condition_dim: int | None = 384*3,
-
-        encoder_hidden_dim: int = 1024,
-        encoder_layers: int = 24,
-        encoder_heads: int = 16,
-        encoder_mlp_ratio: float = 4.0,
-
-        decoder_hidden_dim: int = 1024,
-        decoder_layers: int = 8,
-        decoder_heads: int = 16,
-        decoder_mlp_ratio: float = 4.0,
-
-        output_dims: dict[str, int] | None = None,
-
-        num_query_types: int = 0,
-        num_object_query_types: int = 0,
-        num_frame_query_types: int = 0,
-        max_objects: int = 3, # 1+2
-        min_frame: int = -15,
-        max_frame: int = 15,
-        attention_pattern: str | None = "interleaved_local_global",
-        dropout: float = 0.1,
-        weights: dict[str, float] | None = None,
-        use_future_point_residual: bool = False,
-    ) -> None:
+        hidden_dim: int,
+        horizon: int,
+        history_steps: int,
+        layers: int,
+        heads: int,
+        mlp_ratio: float,
+        dropout: float,
+    ):
         super().__init__()
-        if encoder_hidden_dim != decoder_hidden_dim:
-            raise ValueError(
-                "encoder_hidden_dim and decoder_hidden_dim must match to share position embeddings"
-            )
-        #: pre-encoder
-        self.num_points = num_points
-        self.actor_num_points = actor_num_points
-        self.max_objects = max_objects
-        self.weights = {} if weights is None else dict(weights)
-        self.use_future_point_residual = bool(use_future_point_residual)
-        self.object_encoder = SetEncoderViT(
-            point_dim=point_dim,
-            hidden_dim=set_hidden_dim,
-            num_points=num_points,
-            num_heads=set_heads,
-            num_layers=set_layers,
-            mlp_ratio=set_mlp_ratio,
-            num_register_tokens=set_register_tokens,
-            condition_dim=condition_dim,
-            use_cls_token=False,
-        )
-        self.actor_encoder = SetEncoderViT(
-            point_dim=point_dim,
-            hidden_dim=set_hidden_dim,
-            num_points=actor_num_points,
-            num_heads=set_heads,
-            num_layers=set_layers,
-            mlp_ratio=set_mlp_ratio,
-            num_register_tokens=set_register_tokens,
-            condition_dim=condition_dim,
-            use_cls_token=False,
-        )
-        self.object_set_proj = (
-            nn.Identity()
-            if set_hidden_dim == encoder_hidden_dim
-            else nn.Linear(set_hidden_dim, encoder_hidden_dim)
-        )
-        self.actor_set_proj = (
-            nn.Identity()
-            if set_hidden_dim == encoder_hidden_dim
-            else nn.Linear(set_hidden_dim, encoder_hidden_dim)
-        )
-        #: encoder
-        self.encoder_position_embedding = LearnableFrameObjectPointEmbedding(
-            hidden_dim=encoder_hidden_dim,
-            max_objects=max_objects,
-            max_actor_points=actor_num_points,
-            max_object_points=num_points,
-            min_frame=min_frame,
-            max_frame=max_frame,
-        )
-        self.encoder = PointMemoryEncoder(
-            hidden_dim=encoder_hidden_dim,
-            num_layers=encoder_layers,
-            num_heads=encoder_heads,
-            mlp_ratio=encoder_mlp_ratio,
-            attention_pattern=attention_pattern,
-            dropout=dropout,
-            position_embedding=self.encoder_position_embedding,
-        )
-        self.memory_proj = nn.Identity()
-        #: decoder
-        self.query_position_embedding = self.encoder_position_embedding
-        self.query_embedder = PointQueryEmbedder(
-            hidden_dim=decoder_hidden_dim,
-            num_query_types=num_query_types,
-            position_embedding=self.query_position_embedding,
-        )
-        self.object_query_embedder = ObjectQueryEmbedder(
-            hidden_dim=decoder_hidden_dim,
-            position_embedding=self.query_position_embedding,
-            num_query_types=num_object_query_types,
-        )
-        self.frame_query_embedder = FrameQueryEmbedder(
-            hidden_dim=decoder_hidden_dim,
-            num_query_types=num_frame_query_types,
-            position_embedding=self.query_position_embedding,
-        )
-        self.decoder = IndependentQueryDecoder(
-            hidden_dim=decoder_hidden_dim,
-            num_layers=decoder_layers,
-            num_heads=decoder_heads,
-            mlp_ratio=decoder_mlp_ratio,
-            dropout=dropout,
-        )
-        #: heads
-        if output_dims is None:
-            raise ValueError("output_dims must be provided")
-        self.heads = PredictionHeads(hidden_dim=decoder_hidden_dim, output_dims=output_dims)
-
-    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
-        self.object_encoder.set_gradient_checkpointing(enabled)
-        self.actor_encoder.set_gradient_checkpointing(enabled)
-        self.encoder.set_gradient_checkpointing(enabled)
-        self.decoder.set_gradient_checkpointing(enabled)
-
-    def encode_sets(
-        self,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_condition: torch.Tensor | None = None,
-        actor_condition: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        object_tokens = self.object_encoder(point_feats, condition=object_condition)
-        actor_tokens = self.actor_encoder(actor_feats, condition=actor_condition)
-        object_tokens = self.object_set_proj(object_tokens)
-        actor_tokens = self.actor_set_proj(actor_tokens)
-        if actor_tokens.shape[:2] != object_tokens.shape[:2] or actor_tokens.shape[-1] != object_tokens.shape[-1]:
-            raise ValueError(
-                "actor/object point tokens must match batch/time/hidden dims: "
-                f"actor={actor_tokens.shape}, object={object_tokens.shape}"
-            )
-        return object_tokens, actor_tokens
-
-    def encode(
-        self,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_condition: torch.Tensor | None = None,
-        actor_condition: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        object_tokens, actor_tokens = self.encode_sets(
-            point_feats=point_feats,
-            actor_feats=actor_feats,
-            object_condition=object_condition,
-            actor_condition=actor_condition,
-        )
-        memory = self.encoder(object_tokens=object_tokens, actor_tokens=actor_tokens)
-        return self.memory_proj(memory)
-
-    def decode(
-        self,
-        memory: torch.Tensor,
-        object_id: torch.Tensor,
-        point_id: torch.Tensor,
-        frame_id: torch.Tensor,
-        query_type: torch.Tensor | None = None,
-        head_names: str | list[str] | tuple[str, ...] | None = None,
-    ) -> dict[str, torch.Tensor]:
-        query_tokens = self.query_embedder(
-            object_id=object_id,
-            point_id=point_id,
-            frame_id=frame_id,
-            query_type=query_type,
-        )
-        decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
-        return self.heads(decoded, head_names=head_names)
-
-    def decode_object(
-        self,
-        memory: torch.Tensor,
-        object_id: torch.Tensor,
-        frame_id: torch.Tensor,
-        query_type: torch.Tensor | None = None,
-        head_names: str | list[str] | tuple[str, ...] | None = None,
-    ) -> dict[str, torch.Tensor]:
-        query_tokens = self.object_query_embedder(
-            object_id=object_id,
-            frame_id=frame_id,
-            query_type=query_type,
-        )
-        decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
-        return self.heads(decoded, head_names=head_names)
-
-    def decode_frame(
-        self,
-        memory: torch.Tensor,
-        frame_id: torch.Tensor,
-        query_type: torch.Tensor | None = None,
-        head_names: str | list[str] | tuple[str, ...] | None = None,
-    ) -> dict[str, torch.Tensor]:
-        query_tokens = self.frame_query_embedder(frame_id=frame_id, query_type=query_type)
-        decoded = self.decoder(query_tokens=query_tokens, memory_tokens=memory)
-        return self.heads(decoded, head_names=head_names)
-
-    def _point_anchors(
-        self,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_id: torch.Tensor,
-        point_id: torch.Tensor,
-    ) -> torch.Tensor:
-        current_objects = point_feats[:, -1]
-        current_actor = actor_feats[:, -1, 0]
-        dim = current_actor.shape[-1]
-
-        actor_index = point_id.clamp(0, current_actor.shape[1] - 1)
-        actor_anchor = current_actor.gather(1, actor_index.unsqueeze(-1).expand(-1, -1, dim))
-
-        object_count, points_per_object = current_objects.shape[1:3]
-        object_index = (object_id - 1).clamp(0, object_count - 1)
-        object_point_index = point_id.clamp(0, points_per_object - 1)
-        flat_index = object_index * points_per_object + object_point_index
-        flat_objects = current_objects.reshape(current_objects.shape[0], object_count * points_per_object, dim)
-        object_anchor = flat_objects.gather(1, flat_index.unsqueeze(-1).expand(-1, -1, dim))
-
-        return torch.where((object_id == 0).unsqueeze(-1), actor_anchor, object_anchor)
-
-    def _apply_future_point_residual(
-        self,
-        raw_point: torch.Tensor,
-        *,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_id: torch.Tensor,
-        point_id: torch.Tensor,
-        frame_id: torch.Tensor,
-    ) -> torch.Tensor:
-        if not self.use_future_point_residual:
-            return raw_point
-        anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(dtype=raw_point.dtype)
-        output = raw_point.clone()
-        future_mask = (frame_id > 0).unsqueeze(-1)
-        output[..., :3] = torch.where(
-            future_mask,
-            anchors[..., :3] + raw_point[..., :3],
-            raw_point[..., :3],
-        ).to(dtype=output.dtype)
-        return output
-
-    def _apply_future_metric_depth_residual(
-        self,
-        raw_metric_depth: torch.Tensor,
-        *,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_id: torch.Tensor,
-        point_id: torch.Tensor,
-        frame_id: torch.Tensor,
-    ) -> torch.Tensor:
-        if not self.use_future_point_residual:
-            return raw_metric_depth
-        anchors = self._point_anchors(point_feats, actor_feats, object_id, point_id).to(
-            dtype=raw_metric_depth.dtype
-        )
-        residual_mask = (frame_id > 0).unsqueeze(-1) & (anchors[..., POINT_METRIC_DEPTH_MASK_INDEX:POINT_METRIC_DEPTH_MASK_INDEX + 1] > 0.5)
-        return torch.where(
-            residual_mask,
-            anchors[..., POINT_METRIC_DEPTH_INDEX:POINT_METRIC_DEPTH_INDEX + 1] + raw_metric_depth,
-            raw_metric_depth,
-        )
-
-    def infer(
-        self,
-        point_feats: torch.Tensor,
-        actor_feats: torch.Tensor,
-        object_id: torch.Tensor,
-        point_id: torch.Tensor,
-        frame_id: torch.Tensor,
-        object_condition: torch.Tensor | None = None,
-        actor_condition: torch.Tensor | None = None,
-        query_type: torch.Tensor | None = None,
-        head_names: str | list[str] | tuple[str, ...] | None = None,
-
-        frame_query_frame_id: torch.Tensor | None = None,
-        frame_query_type: torch.Tensor | None = None,
-        frame_head_names: str | list[str] | tuple[str, ...] | None = None,
-        actor_query_frame_id: torch.Tensor | None = None,
-        actor_query_type: torch.Tensor | None = None,
-        actor_head_names: str | list[str] | tuple[str, ...] | None = None,
-        return_residual: bool = False,
-    ) -> dict[str, torch.Tensor]:
-        memory = self.encode(
-            point_feats=point_feats,
-            actor_feats=actor_feats,
-            object_condition=object_condition,
-            actor_condition=actor_condition,
-        )
-        outputs = self.decode(
-            memory=memory,
-            object_id=object_id,
-            point_id=point_id,
-            frame_id=frame_id,
-            query_type=query_type,
-            head_names=head_names,
-        )
-        if "point" in outputs:
-            raw_point = outputs["point"]
-            outputs["point"] = self._apply_future_point_residual(
-                raw_point,
-                point_feats=point_feats,
-                actor_feats=actor_feats,
-                object_id=object_id,
-                point_id=point_id,
-                frame_id=frame_id,
-            )
-            if return_residual:
-                outputs["point_residual"] = raw_point
-        if "metric_depth" in outputs:
-            raw_metric_depth = outputs["metric_depth"]
-            outputs["metric_depth"] = self._apply_future_metric_depth_residual(
-                raw_metric_depth,
-                point_feats=point_feats,
-                actor_feats=actor_feats,
-                object_id=object_id,
-                point_id=point_id,
-                frame_id=frame_id,
-            )
-            if return_residual:
-                outputs["metric_depth_residual"] = raw_metric_depth
-        if frame_query_frame_id is not None:
-            outputs.update(
-                self.decode_frame(
-                    memory=memory,
-                    frame_id=frame_query_frame_id,
-                    query_type=frame_query_type,
-                    head_names=frame_head_names,
-                )
-            )
-        if actor_query_frame_id is not None:
-            outputs.update(
-                self.decode_object(
-                    memory=memory,
-                    object_id=torch.zeros_like(actor_query_frame_id),
-                    frame_id=actor_query_frame_id,
-                    query_type=actor_query_type,
-                    head_names=actor_head_names,
-                )
-            )
-        return outputs
+        self.horizon = horizon
+        self.input_projection = nn.Linear(1, hidden_dim)
+        self.metric_history_projection = nn.Linear(3, hidden_dim)
+        self.width_history_projection = nn.Linear(1, hidden_dim)
+        self.horizon_embedding = nn.Embedding(horizon, hidden_dim)
+        self.value_type_embedding = nn.Embedding(ACTOR_NUM_POINTS + 1, hidden_dim)
+        self.history_time_embedding = nn.Embedding(history_steps, hidden_dim)
+        self.metric_keypoint_embedding = nn.Embedding(ACTOR_NUM_POINTS, hidden_dim)
+        self.time_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.SiLU(), nn.Linear(hidden_dim, hidden_dim))
+        self.blocks = nn.ModuleList([
+            _decoder_layer(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
+        ])
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.output_projection = nn.Linear(hidden_dim, 1)
+        self.gradient_checkpointing = False
 
     def forward(
         self,
-        batch: dict[str, torch.Tensor | dict[str, torch.Tensor]],
+        metric_z: torch.Tensor,
+        width: torch.Tensor,
+        time: torch.Tensor,
+        memory: torch.Tensor,
+        relative_hidden: torch.Tensor,
+        metric_history: torch.Tensor,
+        width_history: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        batch = metric_z.shape[0]
+        state = torch.cat([metric_z, width.unsqueeze(2)], dim=2)
+        token = self.input_projection(state)
+        token = token + self.horizon_embedding(torch.arange(self.horizon, device=state.device))[None, :, None]
+        token = token + self.value_type_embedding(
+            torch.arange(ACTOR_NUM_POINTS + 1, device=state.device)
+        )[None, None]
+        token = token.reshape(batch, self.horizon * (ACTOR_NUM_POINTS + 1), -1)
+        token = token + self.time_mlp(_sinusoidal_time(time, token.shape[-1]))[:, None]
+        history_steps = metric_history.shape[1]
+        history_time = self.history_time_embedding(
+            torch.arange(history_steps, device=metric_history.device)
+        )
+        metric_history_token = self.metric_history_projection(metric_history)
+        metric_history_token = metric_history_token + history_time[None, :, None]
+        metric_history_token = metric_history_token + self.metric_keypoint_embedding(
+            torch.arange(ACTOR_NUM_POINTS, device=metric_history.device)
+        )[None, None]
+        width_history_token = self.width_history_projection(width_history) + history_time[None]
+        private_memory = torch.cat([
+            memory,
+            relative_hidden.detach(),
+            metric_history_token.flatten(1, 2),
+            width_history_token,
+        ], dim=1)
+        for block in self.blocks:
+            token = checkpoint(
+                block, token, private_memory, use_reentrant=False, preserve_rng_state=False,
+            ) if self.gradient_checkpointing and self.training else block(token, private_memory)
+        velocity = self.output_projection(self.norm(token)).view(
+            batch, self.horizon, ACTOR_NUM_POINTS + 1, 1
+        )
+        return velocity[:, :, :ACTOR_NUM_POINTS], velocity[:, :, ACTOR_NUM_POINTS]
+
+
+class GraphFlowModel(nn.Module):
+    """Joint relative/robot-metric trajectory model with an actor-free complete head."""
+
+    def __init__(
+        self,
+        num_points: int = 32,
+        history_horizon: int = 19,
+        future_horizon: int = 10,
+        condition_dim: int = 1152,
+        hidden_dim: int = 512,
+        encoder_layers: int = 8,
+        flow_layers: int = 6,
+        num_heads: int = 8,
+        mlp_ratio: float = 4.0,
+        dropout: float = 0.1,
+        sample_steps: int = 10,
         weights: dict[str, float] | None = None,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    ) -> None:
+        super().__init__()
+        if num_points < ACTOR_NUM_POINTS:
+            raise ValueError(f"num_points must be at least {ACTOR_NUM_POINTS}, got {num_points}")
+        self.num_points = num_points
+        self.history_horizon = history_horizon
+        self.future_horizon = future_horizon
+        self.sample_steps = sample_steps
+        self.weights = dict(weights or {})
+        self.encoder = EntityEncoder(
+            hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
+            max_history=history_horizon + 1, dropout=dropout,
+        )
+        self.relative_flow = RelativeTrajectoryFlow(
+            hidden_dim, future_horizon, flow_layers, num_heads, mlp_ratio, dropout
+        )
+        self.metric_flow = RobotMetricFlow(
+            hidden_dim, future_horizon, history_horizon + 1,
+            flow_layers, num_heads, mlp_ratio, dropout,
+        )
+        self.complete_head = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 1)
+        )
+
+    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
+        self.encoder.gradient_checkpointing = enabled
+        self.relative_flow.gradient_checkpointing = enabled
+        self.metric_flow.gradient_checkpointing = enabled
+
+    def _encode(self, batch: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+        if batch["entity_points"].shape[3] != self.num_points:
+            raise ValueError(
+                f"Expected {self.num_points} points per entity, got {batch['entity_points'].shape[3]}"
+            )
+        return self.encoder(
+            batch["entity_points"], batch["entity_point_mask"], batch["entity_condition"]
+        )
+
+    def _velocities(
+        self,
+        batch: dict[str, Any],
+        memory: torch.Tensor,
+        relative_state: torch.Tensor,
+        metric_state: torch.Tensor,
+        width_state: torch.Tensor,
+        time: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        relative_velocity, relative_hidden = self.relative_flow(relative_state, time, memory)
+        metric_velocity, width_velocity = self.metric_flow(
+            metric_state,
+            width_state,
+            time,
+            memory,
+            relative_hidden,
+            batch["actor_metric_history"],
+            batch["gripper_width_history"],
+        )
+        return relative_velocity, metric_velocity, width_velocity
+
+    def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         target = batch["target"]
-        if not isinstance(target, dict):
-            raise ValueError("batch[target] must be a dict")
-
-        weights = self.weights if weights is None else weights
-        metrics: dict[str, torch.Tensor] = {}
-        total: torch.Tensor | None = None
-
-        memory = self.encode(
-            point_feats=batch["point_feats"],
-            actor_feats=batch["actor_feats"],
-            object_condition=batch.get("object_condition"),
-            actor_condition=batch.get("actor_condition"),
+        memory, relation_local = self._encode(batch)
+        complete_logits = self.complete_head(relation_local.flatten(1))
+        time = sample_time(batch["entity_points"].shape[0], batch["entity_points"].device)
+        relative_state, relative_target_velocity, _ = training_path(target["relative_plan"], time)
+        relative_velocity, relative_hidden = self.relative_flow(relative_state, time, memory)
+        loss_relative = F.mse_loss(relative_velocity, relative_target_velocity)
+        robot_mask_value = batch.get("robot_metric_mask")
+        robot_mask = (
+            robot_mask_value.reshape(-1).bool()
+            if robot_mask_value is not None
+            else torch.zeros(relative_state.shape[0], dtype=torch.bool, device=relative_state.device)
         )
-
-        if "point" in target:
-            point_head_names = ("point", "metric_depth") if "metric_depth" in target else "point"
-            point_outputs = self.decode(
-                memory=memory,
-                object_id=batch["object_id"],
-                point_id=batch["point_id"],
-                frame_id=batch["frame_id"],
-                query_type=batch.get("query_type"),
-                head_names=point_head_names,
+        zero = loss_relative.new_zeros(())
+        if robot_mask.any():
+            required = ("actor_metric_history", "gripper_width_history")
+            missing = [name for name in required if name not in batch]
+            missing += [name for name in ("metric_z_plan", "gripper_width_plan") if name not in target]
+            if missing:
+                raise KeyError(f"Robot samples require metric fields: {missing}")
+            metric_state, metric_target_velocity, _ = training_path(target["metric_z_plan"], time)
+            width_state, width_target_velocity, _ = training_path(target["gripper_width_plan"], time)
+            metric_velocity, width_velocity = self.metric_flow(
+                metric_state, width_state, time, memory, relative_hidden,
+                batch["actor_metric_history"], batch["gripper_width_history"],
             )
-            point = self._apply_future_point_residual(
-                point_outputs["point"],
-                point_feats=batch["point_feats"],
-                actor_feats=batch["actor_feats"],
-                object_id=batch["object_id"],
-                point_id=batch["point_id"],
-                frame_id=batch["frame_id"],
-            )
-            target_point = target["point"].to(dtype=point.dtype)
-            point_regression_err = (target_point[..., :3] - point[..., :3]).abs().mean(dim=-1)
-            visibility_err = F.binary_cross_entropy_with_logits(
-                point[..., 3],
-                target_point[..., 3],
-                reduction="none",
-            )
-            point_components = [
-                ("point_regression", point_regression_err, None),
-                ("visibility", visibility_err, None),
-            ]
-            if "metric_depth" in target:
-                predicted_metric_depth = self._apply_future_metric_depth_residual(
-                    point_outputs["metric_depth"],
-                    point_feats=batch["point_feats"],
-                    actor_feats=batch["actor_feats"],
-                    object_id=batch["object_id"],
-                    point_id=batch["point_id"],
-                    frame_id=batch["frame_id"],
-                ).squeeze(-1)
-                target_metric_depth = target["metric_depth"].to(
-                    device=predicted_metric_depth.device,
-                    dtype=predicted_metric_depth.dtype,
-                ).squeeze(-1)
-                metric_depth_err = (target_metric_depth - predicted_metric_depth).abs()
-                metric_depth_mask = target["metric_depth_mask"].to(
-                    device=predicted_metric_depth.device,
-                    dtype=torch.bool,
-                )
-                point_components.append(("metric_depth", metric_depth_err, metric_depth_mask))
-            point_mask = target.get("point_mask")
-            if point_mask is None:
-                point_mask = torch.ones_like(point_regression_err, dtype=torch.bool)
-            else:
-                point_mask = point_mask.to(device=point_regression_err.device, dtype=torch.bool)
-
-            future_weight = float(weights.get("future_weight", 1.0))
-            point_loss = point_regression_err.new_zeros(())
-            for component_name, component_err, component_mask in point_components:
-                selected_mask = point_mask if component_mask is None else point_mask & component_mask
-                selected_err = component_err[selected_mask]
-                component_loss = (
-                    selected_err.mean()
-                    if selected_err.numel()
-                    else point_regression_err.new_zeros(())
-                )
-                component_loss = (
-                    component_loss
-                    * float(weights.get(component_name, 1.0))
-                    * future_weight
-                )
-                metric_name = {
-                    "point_regression": "loss_point",
-                    "visibility": "loss_visibility",
-                    "metric_depth": "loss_metric_depth",
-                }[component_name]
-                metrics[metric_name] = component_loss
-                point_loss = point_loss + component_loss
-            total = point_loss if total is None else total + point_loss
-
-        object_head_names = tuple(
-            name for name in ("gripper_openness", "gripper_action") if name in target
+            loss_metric = F.mse_loss(metric_velocity[robot_mask], metric_target_velocity[robot_mask])
+            loss_width = F.mse_loss(width_velocity[robot_mask], width_target_velocity[robot_mask])
+        else:
+            # Keep robot-private parameters in the DDP autograd graph even when a
+            # rank receives an all-human batch.
+            loss_metric = sum(parameter.sum() for parameter in self.metric_flow.parameters()) * 0.0
+            loss_width = zero
+        loss_complete = F.binary_cross_entropy_with_logits(
+            complete_logits, target["is_complete"].to(dtype=complete_logits.dtype)
         )
-        if object_head_names:
-            object_outputs = self.decode_object(
-                memory=memory,
-                object_id=torch.zeros_like(batch["actor_query_frame_id"]),
-                frame_id=batch["actor_query_frame_id"],
-                query_type=batch.get("actor_query_type"),
-                head_names=object_head_names,
-            )
-            for name in object_head_names:
-                pred = object_outputs[name]
-                gt = target[name].to(device=pred.device, dtype=pred.dtype)
-                if gt.shape != pred.shape:
-                    raise ValueError(
-                        f"Expected target[{name}] shape {tuple(pred.shape)}, got {tuple(gt.shape)}"
-                    )
-                err = (gt - pred).abs().mean(dim=-1)
-                component_loss = (
-                    err.mean()
-                    * float(weights.get(name, 1.0))
-                    * float(weights.get("future_weight", 1.0))
-                )
-                metric_name = {
-                    "gripper_openness": "loss_openness",
-                    "gripper_action": "loss_action",
-                }[name]
-                metrics[metric_name] = component_loss
-                total = component_loss if total is None else total + component_loss
+        metrics = {
+            "loss_relative": loss_relative,
+            "loss_metric_z": loss_metric,
+            "loss_gripper_width": loss_width,
+            "loss_complete": loss_complete,
+        }
+        total = sum(metrics[name] * float(self.weights.get(name, 1.0)) for name in metrics)
+        return total, {"loss": total.detach(), **{name: value.detach() for name, value in metrics.items()}}
 
-        if "is_complete" in target:
-            complete_frame_id = batch["frame_query_frame_id"]
-            frame_outputs = self.decode_frame(
-                memory=memory,
-                frame_id=complete_frame_id,
-                query_type=batch.get("frame_query_type"),
-                head_names="is_complete",
+    @torch.no_grad()
+    def sample(
+        self,
+        batch: dict[str, Any],
+        num_steps: int | None = None,
+        noise: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        memory, relation_local = self._encode(batch)
+        batch_size = batch["entity_points"].shape[0]
+        rel_size = self.future_horizon * ACTOR_NUM_POINTS * 3
+        metric_size = self.future_horizon * ACTOR_NUM_POINTS
+        width_size = self.future_horizon
+        flat = noise
+        if flat is None:
+            flat = torch.randn(
+                batch_size, rel_size + metric_size + width_size,
+                device=memory.device, dtype=memory.dtype,
             )
-            pred = frame_outputs["is_complete"]
-            gt = target["is_complete"].to(dtype=pred.dtype)
-            if pred.shape[-1:] == (1,) and gt.shape == pred.shape[:-1]:
-                pred = pred.squeeze(-1)
-            if gt.shape[-1:] == (1,) and pred.shape == gt.shape[:-1]:
-                gt = gt.squeeze(-1)
-
-            complete_err = F.binary_cross_entropy_with_logits(pred, gt, reduction="none")
-            if complete_err.shape != complete_frame_id.shape:
-                raise ValueError(
-                    f"Expected completion frame ids shape {tuple(complete_err.shape)}, "
-                    f"got {tuple(complete_frame_id.shape)}"
-                )
-            complete_loss = (
-                complete_err.mean()
-                * float(weights.get("is_complete", 1.0))
+        scheduler = make_scheduler(num_steps or self.sample_steps, memory.device)
+        for timestep in scheduler.timesteps:
+            relative_state = flat[:, :rel_size].view(batch_size, self.future_horizon, ACTOR_NUM_POINTS, 3)
+            metric_state = flat[:, rel_size:rel_size + metric_size].view(
+                batch_size, self.future_horizon, ACTOR_NUM_POINTS, 1
             )
-            metrics["loss_complete"] = complete_loss
-            total = complete_loss if total is None else total + complete_loss
+            width_state = flat[:, -width_size:].view(batch_size, self.future_horizon, 1)
+            time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
+            velocities = self._velocities(
+                batch, memory, relative_state, metric_state, width_state, time
+            )
+            flat_velocity = torch.cat([value.reshape(batch_size, -1) for value in velocities], dim=1)
+            flat = scheduler.step(flat_velocity, timestep, flat).prev_sample
 
-        if total is None:
-            raise ValueError("No supported loss targets found in batch[target]")
-        metrics["loss_total"] = total
-        return total, metrics
+        relative_delta = flat[:, :rel_size].view(batch_size, self.future_horizon, ACTOR_NUM_POINTS, 3)
+        metric_delta = flat[:, rel_size:rel_size + metric_size].view(
+            batch_size, self.future_horizon, ACTOR_NUM_POINTS, 1
+        )
+        width = flat[:, -width_size:].view(batch_size, self.future_horizon, 1)
+        current_relative = batch["entity_points"][:, -1, 0, :ACTOR_NUM_POINTS]
+        current_metric = batch["actor_metric_history"][:, -1, :, 2:3]
+        return {
+            "relative_plan": current_relative[:, None] + relative_delta,
+            "metric_z_plan": current_metric[:, None] + metric_delta,
+            "gripper_width_plan": width,
+            "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
+        }

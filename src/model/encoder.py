@@ -1,432 +1,113 @@
-"""D4RT-style token memory encoder for EEF/object embeddings."""
+"""Shared entity encoder with CLS-mediated cross-entity communication."""
 
 from __future__ import annotations
 
-import math
-from typing import Literal
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from src.model.embedding import LearnableFrameObjectPointEmbedding
-
-def _normalize_attention_pattern(pattern: str | None) -> str:
-    raw = (pattern or "global").strip().lower()
-    aliases = {
-        "interleaved_local_framewise_and_global": "interleaved_local_global",
-        "interleaved_local_framewise_global": "interleaved_local_global",
-        "interleaved_local_and_global": "interleaved_local_global",
-        "global": "global",
-        "full_global": "global",
-    }
-    return aliases.get(raw, raw)
+from src.common.schema import ACTOR_NUM_POINTS, NUM_ENTITIES, POINT_FEATURE_DIM
 
 
-#: ===========================================
-class _DropPath(nn.Module):
-    """DINO/timm-style stochastic depth."""
-
-    def __init__(self, drop_prob: float = 0.0) -> None:
-        super().__init__()
-        self.drop_prob = drop_prob
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.drop_prob == 0.0 or not self.training:
-            return x
-        keep_prob = 1 - self.drop_prob
-        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-        random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
-        if keep_prob > 0.0:
-            random_tensor.div_(keep_prob)
-        return x * random_tensor
+def _encoder_block(hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> nn.Module:
+    return nn.TransformerEncoderLayer(
+        hidden_dim,
+        num_heads,
+        int(hidden_dim * mlp_ratio),
+        dropout,
+        activation="gelu",
+        batch_first=True,
+        norm_first=True,
+    )
 
 
-class _LayerScale(nn.Module):
-    """DINO-style residual branch scaling."""
-
-    def __init__(self, dim: int, init_values: float = 1e-5) -> None:
-        super().__init__()
-        self.gamma = nn.Parameter(init_values * torch.ones(dim))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x * self.gamma
-
-
-class _DinoAttention(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int,
-        qkv_bias: bool = True,
-        proj_bias: bool = True,
-        qk_norm: bool = False,
-    ) -> None:
-        super().__init__()
-        if dim % num_heads != 0:
-            raise ValueError(f"hidden_dim must be divisible by num_heads, got {dim} and {num_heads}")
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.q_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
-        self.k_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
-        self.proj = nn.Linear(dim, dim, bias=proj_bias)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        bsz, num_tokens, dim = x.shape
-        qkv = self.qkv(x).reshape(bsz, num_tokens, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-        q = self.q_norm(q)
-        k = self.k_norm(k)
-        x = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0)
-        x = x.transpose(1, 2).reshape(bsz, num_tokens, dim)
-        return self.proj(x)
-
-
-class _DinoBlock(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int,
-        mlp_ratio: float = 4.0,
-        qkv_bias: bool = True,
-        proj_bias: bool = True,
-        ffn_bias: bool = True,
-        drop_path: float = 0.0,
-        init_values: float | None = 1e-5,
-        qk_norm: bool = False,
-    ) -> None:
-        super().__init__()
-        self.norm1 = nn.LayerNorm(dim)
-        self.attn = _DinoAttention(
-            dim=dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            proj_bias=proj_bias,
-            qk_norm=qk_norm,
-        )
-        self.ls1 = _LayerScale(dim, init_values) if init_values else nn.Identity()
-        self.drop_path1 = _DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = nn.LayerNorm(dim)
-        hidden = int(dim * mlp_ratio)
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, hidden, bias=ffn_bias),
-            nn.GELU(),
-            nn.Linear(hidden, dim, bias=ffn_bias),
-        )
-        self.ls2 = _LayerScale(dim, init_values) if init_values else nn.Identity()
-        self.drop_path2 = _DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
-        x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
-        return x
-
-
-class SetEncoderViT(nn.Module):
-    """DINO-style ViT encoder for per-object tracked point tokens.
-
-    The point MLP replaces DINO conv patch embedding. Each object at each time
-    step is encoded independently without point-index positional embeddings, so
-    point-token outputs are permutation equivariant. By default the encoder
-    keeps point tokens as the main output path; a cls token can be enabled for
-    object-level pooling.
-    """
-
-    def __init__(
-        self,
-        point_dim: int,
-        num_points: int = 128,
-        hidden_dim: int = 384,
-        num_heads: int = 6,
-        num_layers: int = 12,
-        mlp_ratio: float = 4.0,
-        use_cls_token: bool = False,
-        num_register_tokens: int = 0,
-        condition_dim: int | None = 384,
-        qkv_bias: bool = True,
-        proj_bias: bool = True,
-        ffn_bias: bool = True,
-        drop_path_rate: float = 0.0,
-        drop_path_uniform: bool = False,
-        init_values: float | None = 0.01,
-        qk_norm: bool = True,
-    ) -> None:
-        super().__init__()
-        if num_register_tokens < 0:
-            raise ValueError(f"num_register_tokens must be non-negative, got {num_register_tokens}")
-        self.point_dim = point_dim
-        self.hidden_dim = hidden_dim
-        self.num_points = num_points
-        self.num_register_tokens = num_register_tokens
-        self.use_cls_token = use_cls_token
-        self.condition_dim = condition_dim
-        self.point_mlp = nn.Sequential(
-            nn.Linear(point_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, hidden_dim),
-        )
-        self.condition_proj = None
-        self.condition_film = None
-        if condition_dim is not None:
-            self.condition_proj = nn.Identity() if condition_dim == hidden_dim else nn.Linear(condition_dim, hidden_dim)
-            self.condition_film = nn.Linear(hidden_dim, hidden_dim * 2)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) if use_cls_token else None
-        self.register_tokens = (
-            nn.Parameter(torch.zeros(1, num_register_tokens, hidden_dim)) if num_register_tokens else None
-        )
-
-        if drop_path_uniform:
-            dpr = [drop_path_rate] * num_layers
-        else:
-            dpr = torch.linspace(0, drop_path_rate, num_layers).tolist()
-        self.blocks = nn.ModuleList(
-            [
-                _DinoBlock(
-                    dim=hidden_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    proj_bias=proj_bias,
-                    ffn_bias=ffn_bias,
-                    drop_path=dpr[i],
-                    init_values=init_values,
-                    qk_norm=qk_norm,
-                )
-                for i in range(num_layers)
-            ]
-        )
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.gradient_checkpointing = False
-        self.init_weights()
-
-    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
-        self.gradient_checkpointing = enabled
-
-    def init_weights(self) -> None:
-        if self.cls_token is not None:
-            nn.init.normal_(self.cls_token, std=1e-6)
-        if self.register_tokens is not None:
-            nn.init.normal_(self.register_tokens, std=1e-6)
-        self.apply(self._init_weights)
-        if self.condition_film is not None:
-            nn.init.zeros_(self.condition_film.weight)
-            nn.init.zeros_(self.condition_film.bias)
-
-    @staticmethod
-    def _init_weights(module: nn.Module) -> None:
-        if isinstance(module, nn.Linear):
-            nn.init.trunc_normal_(module.weight, std=0.02)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.LayerNorm):
-            nn.init.ones_(module.weight)
-            nn.init.zeros_(module.bias)
-
-    def prepare_tokens(self, point_feats: torch.Tensor, condition: torch.Tensor | None = None) -> torch.Tensor:
-        bsz, steps, num_objects, num_points, _ = point_feats.shape
-        x = self.point_mlp(point_feats)
-        if condition is not None:
-            if self.condition_proj is None or self.condition_film is None:
-                raise ValueError("condition_dim must be provided when passing condition to SetEncoderViT")
-            if condition.ndim != 3:
-                raise ValueError(f"Expected condition [B, N, C], got {condition.shape}")
-            if condition.shape[0] != bsz or condition.shape[1] != num_objects:
-                raise ValueError(
-                    "condition must match batch/object dims: "
-                    f"condition={condition.shape}, point_feats={point_feats.shape}"
-                )
-            cond = self.condition_proj(condition)
-            gamma, beta = self.condition_film(cond).chunk(2, dim=-1)
-            gamma = gamma[:, None, :, None, :].to(dtype=x.dtype)
-            beta = beta[:, None, :, None, :].to(dtype=x.dtype)
-            x = x * (1.0 + gamma) + beta
-        x = x.reshape(bsz * steps * num_objects, num_points, self.hidden_dim)
-        if self.cls_token is not None:
-            cls = self.cls_token.expand(x.shape[0], -1, -1)
-            x = torch.cat([cls, x], dim=1)
-        if self.register_tokens is not None:
-            registers = self.register_tokens.expand(x.shape[0], -1, -1)
-            if self.use_cls_token:
-                x = torch.cat([x[:, :1], registers, x[:, 1:]], dim=1)
-            else:
-                x = torch.cat([registers, x], dim=1)
-        return x
-
-    def forward(
-        self,
-        point_feats: torch.Tensor,
-        condition: torch.Tensor | None = None,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        if point_feats.ndim != 5:
-            raise ValueError(f"Expected point_feats [B, T, N, P, F], got {point_feats.shape}")
-        bsz, steps, num_objects, num_points, point_dim = point_feats.shape
-        if point_dim != self.point_dim:
-            raise ValueError(f"Expected point dim {self.point_dim}, got {point_dim}")
-
-        x = self.prepare_tokens(point_feats, condition=condition)
-        for block in self.blocks:
-            if self.gradient_checkpointing and self.training:
-                x = checkpoint(block, x, use_reentrant=False)
-            else:
-                x = block(x)
-        x = self.norm(x)
-        point_start = self.num_register_tokens + int(self.use_cls_token)
-        point_tokens = x[:, point_start : point_start + num_points].reshape(
-            bsz, steps, num_objects, num_points, self.hidden_dim
-        )
-        if not self.use_cls_token:
-            return point_tokens
-        cls = x[:, 0].reshape(bsz, steps, num_objects, self.hidden_dim)
-        return point_tokens, cls
-
-
-#: ===========================================
-class SelfAttentionBlock(nn.Module):
-    """Pre-norm transformer block with self-attention + MLP.
-
-    This is adapted from Open-d4rt's encoder block.
-    """
-
-    def __init__(self, hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float = 0.1) -> None:
-        super().__init__()
-        ff_dim = int(math.ceil(hidden_dim * mlp_ratio))
-        self.norm_attn = nn.LayerNorm(hidden_dim)
-        self.attn = nn.MultiheadAttention(
-            embed_dim=hidden_dim,
-            num_heads=num_heads,
-            batch_first=True,
-        )
-        self.norm_ff = nn.LayerNorm(hidden_dim)
-        self.ff = nn.Sequential(
-            nn.Linear(hidden_dim, ff_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(ff_dim, hidden_dim),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
-        q = self.norm_attn(tokens)
-        attn_out, _ = self.attn(q, q, q, need_weights=False)
-        x = tokens + attn_out
-        x = x + self.ff(self.norm_ff(x))
-        return x
-
-
-class PointMemoryEncoder(nn.Module):
-    """Encode point tokens into flat D4RT-style memory.
-
-    Actor object_id is 0. Object ids are 1..N. Local attention is applied
-    within each time step over all actor/object point tokens; global attention
-    is applied over the flattened time-token sequence.
-    """
+class EntityEncoder(nn.Module):
+    """Encode point sets locally and exchange information globally through entity CLS tokens."""
 
     def __init__(
         self,
         hidden_dim: int,
         num_layers: int,
         num_heads: int,
-        mlp_ratio: float = 4.0,
-        attention_pattern: str | None = "interleaved_local_global",
-        dropout: float = 0.1,
-        position_embedding: LearnableFrameObjectPointEmbedding | None = None,
+        mlp_ratio: float,
+        condition_dim: int,
+        max_history: int,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
-        self.hidden_dim = hidden_dim
-        self.attention_pattern = _normalize_attention_pattern(attention_pattern)
-        self.position_embedding = position_embedding
-        self.blocks = nn.ModuleList(
-            [
-                SelfAttentionBlock(
-                    hidden_dim=hidden_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    dropout=dropout,
-                )
-                for _ in range(num_layers)
-            ]
+        self.point_stem = nn.Sequential(
+            nn.Linear(POINT_FEATURE_DIM, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
         )
-        self.block_modes = self._build_block_modes(num_layers)
-        self.final_norm = nn.LayerNorm(hidden_dim)
+        self.role_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
+        self.time_embedding = nn.Embedding(max_history, hidden_dim)
+        self.actor_keypoint_embedding = nn.Embedding(ACTOR_NUM_POINTS, hidden_dim)
+        self.condition_projection = nn.Linear(condition_dim, hidden_dim)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, hidden_dim))
+        self.local_blocks = nn.ModuleList([
+            _encoder_block(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
+        ])
+        self.global_blocks = nn.ModuleList([
+            _encoder_block(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
+        ])
+        self.norm = nn.LayerNorm(hidden_dim)
         self.gradient_checkpointing = False
-
-    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
-        self.gradient_checkpointing = enabled
-
-    def _build_block_modes(self, num_layers: int) -> list[Literal["local", "global"]]:
-        if self.attention_pattern == "interleaved_local_global":
-            return ["local" if (i % 2 == 0) else "global" for i in range(num_layers)]
-        if self.attention_pattern == "global":
-            return ["global"] * num_layers
-        raise ValueError(f"Unsupported attention_pattern: {self.attention_pattern}")
-
-    def _with_position(
-        self,
-        tokens: torch.Tensor,
-        object_offset: int,
-        point_type: Literal["actor", "object"],
-    ) -> torch.Tensor:
-        if tokens.ndim != 5:
-            raise ValueError(f"Expected point tokens [B, T, N, P, C], got {tokens.shape}")
-        if self.position_embedding is None:
-            raise ValueError("position_embedding must be provided for PointMemoryEncoder")
-        bsz, steps, num_tokens, num_points, hidden = tokens.shape
-        if hidden != self.hidden_dim:
-            raise ValueError(f"Expected hidden dim {self.hidden_dim}, got {hidden}")
-        pos = self.position_embedding.encode_grid(
-            num_frames=steps,
-            num_objects=num_tokens,
-            num_points=num_points,
-            device=tokens.device,
-            object_offset=object_offset,
-            point_type=point_type,
-        ).to(dtype=tokens.dtype)
-        return tokens + pos.unsqueeze(0)
+        nn.init.normal_(self.cls_token, std=0.02)
 
     def forward(
         self,
-        object_tokens: torch.Tensor,
-        actor_tokens: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        object_tokens = self._with_position(object_tokens, object_offset=1, point_type="object")
-        bsz, steps, num_objects, num_points, hidden = object_tokens.shape
-        per_step = [object_tokens.reshape(bsz, steps, num_objects * num_points, hidden)]
+        points: torch.Tensor,
+        point_mask: torch.Tensor,
+        condition: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
+            raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
+        batch, steps, entities, num_points, _ = points.shape
+        if point_mask.shape != points.shape[:-1]:
+            raise ValueError(f"point mask {point_mask.shape} does not match points {points.shape}")
+        if condition.shape[:2] != (batch, entities):
+            raise ValueError(f"Expected entity_condition [B,{entities},C], got {condition.shape}")
 
-        if actor_tokens is not None:
-            actor_tokens = self._with_position(actor_tokens, object_offset=0, point_type="actor")
-            if actor_tokens.shape[0] != bsz or actor_tokens.shape[1] != steps or actor_tokens.shape[-1] != hidden:
-                raise ValueError(
-                    "actor/object tokens must match batch/time/hidden dims: "
-                    f"actor={actor_tokens.shape}, object={object_tokens.shape}"
-                )
-            per_step.insert(0, actor_tokens.reshape(bsz, steps, -1, hidden))
+        roles = torch.arange(entities, device=points.device)
+        times = torch.arange(steps, device=points.device)
+        role_emb = self.role_embedding(roles)[None, None, :, None]
+        time_emb = self.time_embedding(times)[None, :, None, None]
+        tokens = self.point_stem(points) + role_emb + time_emb
+        actor_ids = torch.arange(ACTOR_NUM_POINTS, device=points.device)
+        tokens[:, :, 0, :ACTOR_NUM_POINTS] += self.actor_keypoint_embedding(actor_ids)[None, None]
 
-        step_tokens = torch.cat(per_step, dim=2)
-        tokens_per_step = step_tokens.shape[2]
-        flat_tokens = step_tokens.reshape(bsz, steps * tokens_per_step, hidden)
+        cls = self.cls_token.expand(batch, steps, entities, -1)
+        cls = cls + role_emb.squeeze(3) + time_emb.squeeze(3)
+        cls = cls + self.condition_projection(condition)[:, None]
+        relation_local: torch.Tensor | None = None
 
-        for mode, block in zip(self.block_modes, self.blocks):
-            if mode == "local":
-                local = flat_tokens.reshape(bsz, steps, tokens_per_step, hidden).reshape(
-                    bsz * steps, tokens_per_step, hidden
-                )
-                if self.gradient_checkpointing and self.training:
-                    local = checkpoint(block, local, use_reentrant=False)
-                else:
-                    local = block(local)
-                flat_tokens = local.reshape(bsz, steps, tokens_per_step, hidden).reshape(
-                    bsz, steps * tokens_per_step, hidden
-                )
-                continue
-
+        for local_block, global_block in zip(self.local_blocks, self.global_blocks, strict=True):
+            local = torch.cat([cls.unsqueeze(3), tokens], dim=3)
+            local = local.reshape(batch * steps * entities, num_points + 1, -1)
+            padding = torch.cat([
+                torch.zeros(batch, steps, entities, 1, dtype=torch.bool, device=points.device),
+                ~point_mask.bool(),
+            ], dim=3).reshape(batch * steps * entities, num_points + 1)
             if self.gradient_checkpointing and self.training:
-                flat_tokens = checkpoint(block, flat_tokens, use_reentrant=False)
+                local = checkpoint(
+                    local_block, local, src_key_padding_mask=padding,
+                    use_reentrant=False, preserve_rng_state=False,
+                )
             else:
-                flat_tokens = block(flat_tokens)
-        return self.final_norm(flat_tokens)
+                local = local_block(local, src_key_padding_mask=padding)
+            local = local.view(batch, steps, entities, num_points + 1, -1)
+            cls, tokens = local[:, :, :, 0], local[:, :, :, 1:]
+            if relation_local is None:
+                relation_local = cls[:, -1, 1:3].clone()
+            global_cls = cls.reshape(batch, steps * entities, -1)
+            if self.gradient_checkpointing and self.training:
+                global_cls = checkpoint(
+                    global_block, global_cls, use_reentrant=False, preserve_rng_state=False,
+                )
+            else:
+                global_cls = global_block(global_cls)
+            cls = global_cls.view(batch, steps, entities, -1)
 
-
+        assert relation_local is not None
+        return self.norm(cls.reshape(batch, steps * entities, -1)), self.norm(relation_local)

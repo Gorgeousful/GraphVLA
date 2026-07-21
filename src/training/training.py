@@ -25,7 +25,7 @@ import torch
 from rich.console import Console
 
 from src.dataset.dataset import GenericDataLoader
-from src.model.model import PointQueryModel
+from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.training.distributed import TrainingDistributed
 from src.training.logger import TrainingLogger
@@ -47,7 +47,7 @@ def move_to_device(value: Any, device: torch.device) -> Any:
 
 
 def build_model(model_config: Any, training_config: Any, device: torch.device) -> torch.nn.Module:
-    model = PointQueryModel(**model_config.to_kwargs()).to(device)
+    model = GraphFlowModel(**model_config.to_kwargs()).to(device)
     if getattr(training_config, "gradient_checkpointing", False):
         model.set_gradient_checkpointing(True)
     if getattr(training_config, "compile_model", False):

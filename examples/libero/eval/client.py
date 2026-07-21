@@ -277,24 +277,12 @@ def _draw_text_rgb_right(
 
 def _current_complete_score(response: dict[str, Any]) -> float | None:
     complete_value = response.get("is_complete")
-    frame_ids_value = response.get("frame_query_frame_id")
-    if complete_value is None or frame_ids_value is None:
+    if complete_value is None:
         return None
 
     scores = _first_batch(complete_value).astype(np.float32).reshape(-1)
-    frame_ids = _first_batch(frame_ids_value).astype(np.int64).reshape(-1)
-    if scores.shape[0] != frame_ids.shape[0]:
-        return None
-
-    matched_scores = scores[frame_ids == 0]
-    matched_scores = matched_scores[np.isfinite(matched_scores)]
-    if matched_scores.size == 0:
-        return None
-    return float(np.max(matched_scores))
-
-
-def _light_color_rgb(color: tuple[int, int, int]) -> tuple[int, int, int]:
-    return tuple(int(round(channel * 0.35 + 255 * 0.65)) for channel in color)
+    finite_scores = scores[np.isfinite(scores)]
+    return None if finite_scores.size == 0 else float(np.max(finite_scores))
 
 
 def _draw_response_points(
@@ -323,23 +311,6 @@ def _draw_response_points(
     count = 0
 
     if mode == "tracking":
-        if all(key in response for key in ("input_point", "input_object_id", "input_frame_id")):
-            input_points = _first_batch(response["input_point"]).astype(np.float32)
-            input_object_id = _first_batch(response["input_object_id"]).astype(np.int64)
-            input_frame_id = _first_batch(response["input_frame_id"]).astype(np.int64)
-            if input_points.ndim == 2 and input_object_id.ndim == 1 and input_frame_id.ndim == 1:
-                mask = input_frame_id == 0
-                for point, obj_id in zip(input_points[mask], input_object_id[mask]):
-                    if point.shape[0] < 2 or not np.isfinite(point[:2]).all():
-                        continue
-                    x, y = np.rint(point[:2]).astype(int)
-                    if 0 <= x < width and 0 <= y < height:
-                        color = colors.get(int(obj_id), (160, 80, 160))
-                        if point.shape[0] > 3 and float(point[3]) <= 0.5:
-                            color = (145, 145, 145)
-                        cv2.circle(image, (x, y), 1, color, -1, lineType=cv2.LINE_AA)
-                        count += 1
-
         rb_count = 0
         if "robobrain_point" in response and response["robobrain_point"] is not None:
             rb_points = np.asarray(response["robobrain_point"], dtype=np.float32).reshape(-1, 2)
@@ -368,25 +339,6 @@ def _draw_response_points(
             complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
         _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
         return image
-
-    if frame_id is not None and all(key in response for key in ("point", "object_id", "frame_id")):
-        points = _first_batch(response["point"]).astype(np.float32)
-        object_id = _first_batch(response["object_id"]).astype(np.int64)
-        point_frame_id = _first_batch(response["frame_id"]).astype(np.int64)
-        if points.ndim == 2 and object_id.ndim == 1 and point_frame_id.ndim == 1:
-            mask = point_frame_id == int(frame_id)
-            for actor_layer in (False, True):
-                for point, obj_id in zip(points[mask], object_id[mask]):
-                    is_actor = int(obj_id) == 0
-                    if is_actor != actor_layer or point.shape[0] < 2 or not np.isfinite(point[:2]).all():
-                        continue
-                    x, y = np.rint(point[:2]).astype(int)
-                    if 0 <= x < width and 0 <= y < height:
-                        color = colors.get(int(obj_id), (160, 80, 160))
-                        if point.shape[0] > 3 and float(point[3]) <= 0.5:
-                            color = _light_color_rgb(color)
-                        cv2.circle(image, (x, y), 3, color, -1, lineType=cv2.LINE_AA)
-                        count += 1
 
     label_frame = "-" if frame_id is None else str(frame_id)
     _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))

@@ -13,7 +13,6 @@ from src.dataset.transform import (
     CustomTransform,
     FlattenTransform,
     SubtaskBoundryPadding,
-    FlipTransform
 )
 
 
@@ -124,8 +123,7 @@ LIBERO_TRANSFORM = (
     ),
     SubtaskBoundryPadding(),
 
-    FlipTransform(mode="horizontal"),
-    CustomTransform(mode="build_model_input"),
+    CustomTransform(mode="build_model_input", dataset_dir=LIBERO_DATASET_DIR),
     CustomTransform(mode="random_object_permutation"),
 )
 
@@ -136,9 +134,6 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
-            "height": 256,
-            "width": 256,
-            "sigmoid_is_complete": True,
         },
     ),
 )
