@@ -53,24 +53,24 @@ def test_build_model_input_uses_history_as_memory_and_queries_only_future_actor(
     output = LightweightModelInputTransform(mode="build_model_input")(data)
 
     assert output["point_feats"].shape == (2, 2, 2, 8)
-    assert output["actor_feats"].shape == (2, 1, 6, 8)
+    assert output["actor_feats"].shape == (2, 1, 4, 8)
     torch.testing.assert_close(
         output["actor_feats"][0, 0, :, 2],
-        torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.45]),
+        torch.tensor([0.1, 0.2, 0.3, 0.45]),
     )
     torch.testing.assert_close(output["point_feats"][..., 6:], torch.zeros(2, 2, 2, 2))
     torch.testing.assert_close(
         output["actor_feats"][:, 0, :, 6],
-        torch.tensor([[0.1] * 6, [0.2] * 6]),
+        torch.tensor([[0.1] * 4, [0.2] * 4]),
     )
-    torch.testing.assert_close(output["actor_feats"][..., 7], torch.ones(2, 1, 6))
+    torch.testing.assert_close(output["actor_feats"][..., 7], torch.ones(2, 1, 4))
 
-    torch.testing.assert_close(output["object_id"], torch.zeros(12, dtype=torch.long))
+    torch.testing.assert_close(output["object_id"], torch.zeros(8, dtype=torch.long))
     torch.testing.assert_close(
         output["point_id"],
-        torch.tensor([0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5]),
+        torch.tensor([0, 1, 2, 3, 0, 1, 2, 3]),
     )
-    torch.testing.assert_close(output["frame_id"], torch.tensor([1] * 6 + [2] * 6))
+    torch.testing.assert_close(output["frame_id"], torch.tensor([1] * 4 + [2] * 4))
     torch.testing.assert_close(output["frame_query_frame_id"], torch.tensor([0]))
     torch.testing.assert_close(output["target"]["is_complete"], torch.tensor([1.0]))
     torch.testing.assert_close(output["actor_query_frame_id"], torch.tensor([1, 2]))

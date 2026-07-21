@@ -33,6 +33,7 @@ from src.module.node_segmenter import NodeSegmenter
 from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
+    LIBERO_ACTOR_POINT_INDICES,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     POINT_GRIPPER_OPENNESS_INDEX,
@@ -177,17 +178,20 @@ class TopLevelTaskPlanner:
         frame_scores = self._completion_frame_scores(outputs, model_input)
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
-        for index, (frame_id, score) in enumerate(frame_scores):
+        gripper_width_text = ", ".join(f"{width:.4f}" for width in gripper_widths)
+        gripper_action_text = ", ".join(f"{float(action[6]):.4f}" for action in actions)
+        for _, score in frame_scores:
             score_text = (
-                f"{subtask_label} f={frame_id} complete_score={score:.4f} "
-                f"gripper_width={gripper_widths[index]:.4f} "
-                f"gripper_action={float(actions[index][6]):.4f}"
+                f"{subtask_label} complete_score={score:.4f} "
+                f"chunk_len={len(actions)}\n"
+                f"gripper_widths=[{gripper_width_text}] "
+                f"gripper_actions=[{gripper_action_text}]"
             )
             if score >= self.complete_threshold:
-                cs.print(f"[green]{score_text}[/green]")
+                cs.print(f"[green]{score_text}[/green]", soft_wrap=True)
                 session.complete_streak += 1
             else:
-                cs.print(score_text)
+                cs.print(score_text, soft_wrap=True)
                 session.complete_streak = 0
 
             if session.complete_streak >= self.complete_window:
@@ -404,7 +408,7 @@ class InputPreprocessor:
             extrinsic=frame.extrinsic,
             gripper_width=gripper_width,
         )
-        return np.stack([
+        gripper_points = np.stack([
             np.asarray(output[key], dtype=np.float32)
             for key in (
                 "root_uvd",
@@ -415,6 +419,7 @@ class InputPreprocessor:
                 "tcp_uvd",
             )
         ])
+        return gripper_points
 
     @staticmethod
     def _state_to_gripper_openness(frame: ObservationFrame) -> np.ndarray:
@@ -698,6 +703,10 @@ class InputPreprocessor:
         uv = gripper_uvd[:, :2]
         sampled_depth, in_bounds = self._sample_depth(depth, uv, height, width)
         sampled_depth[5] = sampled_depth[3:5].mean(axis=0)
+        gripper_uvd = gripper_uvd[list(LIBERO_ACTOR_POINT_INDICES)]
+        sampled_depth = sampled_depth[list(LIBERO_ACTOR_POINT_INDICES)]
+        in_bounds = in_bounds[list(LIBERO_ACTOR_POINT_INDICES)]
+        uv = gripper_uvd[:, :2]
         points = np.zeros((gripper_uvd.shape[0], POINT_FEATURE_DIM), dtype=np.float32)
         points[:, :2] = self._normalize_uv(uv, height, width)
         points[:, POINT_RELATIVE_DEPTH_INDEX:POINT_RELATIVE_DEPTH_INDEX + 1] = sampled_depth
@@ -1138,12 +1147,14 @@ class InferenceServer:
             outputs = inference_result
             captured_model_input = None
         actions, gripper_widths = self.embodiment.to_action(outputs, model_input, request, session)
+        action_chunk = actions[:execute_chunk_len]
+        gripper_width_chunk = gripper_widths[:execute_chunk_len]
         subtask_switched = self.planner.update_after_inference(
             outputs,
             session,
             model_input,
-            gripper_widths,
-            actions,
+            gripper_width_chunk,
+            action_chunk,
         )
         response = {
             **outputs,
@@ -1161,7 +1172,7 @@ class InferenceServer:
             "subtask": response_subtask,
             "subtask_index": response_subtask_index,
             "subtask_switched": subtask_switched,
-            "action": actions[:execute_chunk_len],
+            "action": action_chunk,
         }
         if captured_model_input is not None:
             response["model_input"] = captured_model_input

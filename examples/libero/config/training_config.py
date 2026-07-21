@@ -34,22 +34,22 @@ class TrainingConfig:
     ckpt_path: str | Path | None = None    
     save_dir: str | Path | None = "examples/libero/result"
     log_interval: int = 10 # 100
-    save_interval: int = 1_000
+    save_interval: int = 500
     keep_period: int = 5_000
 
     # others
     seed: int = 42
-    num_workers: int = 8
+    num_workers: int = 16
     pin_memory: bool = True
     persistent_workers: bool = True
     use_ddp: bool = True
     distributed_backend: str = "nccl"
     use_amp: bool = True
-    compile_model: bool = True
+    compile_model: bool = False
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0720"
+    wandb_name: str | None = "0721"
 
 
     def to_kwargs(self) -> dict[str, Any]:

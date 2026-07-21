@@ -6,31 +6,41 @@
   "prompt": "put the white mug on the plate and put the chocolate pudding to the right of the plate",
   "subtask": "put the white mug on the plate",
   "subtask_index": 0,
-  "close_threshold": 0.04,
+  "warmup_from_episode_start": true,
+  "server_anchor_frame": 0,
+  "server_observation_frame_range": [
+    0,
+    28
+  ],
+  "model_history_frame_range": [
+    9,
+    28
+  ],
   "diagnostics": [
     {
       "frame_id": 1,
-      "pred_gripper": 0.029051,
-      "gt_gripper": 0.021948,
-      "gripper_abs_error": 0.007103,
-      "pred_close": true,
-      "gt_close": true,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.65625,
+      "target_openness": 0.274348,
+      "openness_abs_error": 0.381902,
+      "predicted_action": -1.015625,
+      "target_action": -1.0,
+      "action_abs_error": 0.015625,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          95.0,
-          91.0,
+          92.5,
+          85.5,
           0.734375
         ],
         "left": [
-          92.0,
-          123.0,
-          0.796875
+          78.0,
+          103.0,
+          0.761719
         ],
         "right": [
-          103.0,
-          123.5,
-          0.792969
+          109.5,
+          102.5,
+          0.765625
         ]
       },
       "gt_uvd": {
@@ -40,40 +50,41 @@
           0.734116
         ],
         "left": [
-          86.53907,
-          116.727486,
-          0.802137
+          73.715172,
+          99.345535,
+          0.766791
         ],
         "right": [
-          94.984116,
-          116.952484,
-          0.802709
+          105.99369,
+          100.252472,
+          0.768881
         ]
       }
     },
     {
       "frame_id": 2,
-      "pred_gripper": 0.028701,
-      "gt_gripper": 0.039194,
-      "gripper_abs_error": 0.010492,
-      "pred_close": true,
-      "gt_close": true,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.707031,
+      "target_openness": 0.489919,
+      "openness_abs_error": 0.217112,
+      "predicted_action": -1.015625,
+      "target_action": -1.0,
+      "action_abs_error": 0.015625,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          97.5,
-          89.5,
-          0.734375
+          92.0,
+          84.5,
+          0.738281
         ],
         "left": [
-          94.0,
-          123.0,
-          0.796875
+          77.5,
+          102.5,
+          0.769531
         ],
         "right": [
-          105.0,
-          124.5,
-          0.796875
+          109.0,
+          102.0,
+          0.773438
         ]
       },
       "gt_uvd": {
@@ -83,40 +94,41 @@
           0.73774
         ],
         "left": [
-          83.23674,
-          114.670074,
-          0.805757
+          73.931526,
+          97.363083,
+          0.77045
         ],
         "right": [
-          98.267136,
-          115.178879,
-          0.806875
+          106.053459,
+          98.501068,
+          0.772735
         ]
       }
     },
     {
       "frame_id": 3,
-      "pred_gripper": 0.033695,
-      "gt_gripper": 0.058323,
-      "gripper_abs_error": 0.024628,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.769531,
+      "target_openness": 0.729042,
+      "openness_abs_error": 0.040489,
+      "predicted_action": -1.015625,
+      "target_action": -1.0,
+      "action_abs_error": 0.015625,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          101.5,
-          89.0,
-          0.734375
+          93.0,
+          84.0,
+          0.742188
         ],
         "left": [
-          96.0,
-          124.5,
-          0.796875
+          77.0,
+          101.5,
+          0.777344
         ],
         "right": [
           109.0,
-          125.5,
-          0.796875
+          101.0,
+          0.78125
         ]
       },
       "gt_uvd": {
@@ -126,40 +138,41 @@
           0.743359
         ],
         "left": [
-          79.550957,
-          113.006508,
-          0.81131
+          74.030113,
+          95.907509,
+          0.776148
         ],
         "right": [
-          101.769264,
-          113.839859,
-          0.813027
+          105.914062,
+          97.154808,
+          0.778506
         ]
       }
     },
     {
       "frame_id": 4,
-      "pred_gripper": 0.035115,
-      "gt_gripper": 0.071655,
-      "gripper_abs_error": 0.03654,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.824219,
+      "target_openness": 0.895688,
+      "openness_abs_error": 0.071469,
+      "predicted_action": -1.023438,
+      "target_action": -1.0,
+      "action_abs_error": 0.023438,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          104.0,
-          88.0,
-          0.734375
+          92.0,
+          82.0,
+          0.753906
         ],
         "left": [
-          98.5,
-          125.0,
-          0.796875
+          76.5,
+          100.0,
+          0.785156
         ],
         "right": [
-          112.0,
-          126.5,
-          0.800781
+          108.5,
+          99.5,
+          0.789062
         ]
       },
       "gt_uvd": {
@@ -169,40 +182,41 @@
           0.751352
         ],
         "left": [
-          76.801636,
-          112.094879,
-          0.819295
+          73.869408,
+          95.260345,
+          0.784233
         ],
         "right": [
-          103.83226,
-          113.15004,
-          0.821414
+          105.424599,
+          96.542633,
+          0.7866
         ]
       }
     },
     {
       "frame_id": 5,
-      "pred_gripper": 0.036307,
-      "gt_gripper": 0.076012,
-      "gripper_abs_error": 0.039705,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.898438,
+      "target_openness": 0.950152,
+      "openness_abs_error": 0.051714,
+      "predicted_action": -1.023438,
+      "target_action": -1.0,
+      "action_abs_error": 0.023438,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          106.5,
-          88.5,
-          0.734375
+          92.0,
+          82.0,
+          0.765625
         ],
         "left": [
+          77.5,
           100.5,
-          126.0,
           0.796875
         ],
         "right": [
-          114.5,
-          127.0,
-          0.800781
+          108.5,
+          99.5,
+          0.804688
         ]
       },
       "gt_uvd": {
@@ -212,40 +226,41 @@
           0.762154
         ],
         "left": [
-          75.667198,
-          112.55645,
-          0.83008
+          73.583626,
+          96.011314,
+          0.795061
         ],
         "right": [
-          103.969185,
-          113.68132,
-          0.832316
+          104.710068,
+          97.297241,
+          0.797415
         ]
       }
     },
     {
       "frame_id": 6,
-      "pred_gripper": 0.036175,
-      "gt_gripper": 0.077378,
-      "gripper_abs_error": 0.041203,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.921875,
+      "target_openness": 0.967221,
+      "openness_abs_error": 0.045346,
+      "predicted_action": -1.023438,
+      "target_action": -1.0,
+      "action_abs_error": 0.023438,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          110.5,
-          89.0,
-          0.726562
+          91.5,
+          81.5,
+          0.773438
         ],
         "left": [
-          104.0,
-          128.0,
-          0.796875
+          77.0,
+          100.5,
+          0.804688
         ],
         "right": [
-          118.0,
-          128.0,
-          0.796875
+          108.5,
+          99.0,
+          0.8125
         ]
       },
       "gt_uvd": {
@@ -255,40 +270,41 @@
           0.775655
         ],
         "left": [
-          75.421806,
-          114.157463,
-          0.843655
+          73.593361,
+          97.976883,
+          0.80863
         ],
         "right": [
-          103.769257,
-          115.250771,
-          0.84585
+          104.198593,
+          99.202568,
+          0.810901
         ]
       }
     },
     {
       "frame_id": 7,
-      "pred_gripper": 0.033366,
-      "gt_gripper": 0.077805,
-      "gripper_abs_error": 0.04444,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.945312,
+      "target_openness": 0.972568,
+      "openness_abs_error": 0.027255,
+      "predicted_action": -1.015625,
+      "target_action": -1.0,
+      "action_abs_error": 0.015625,
+      "executed_action": -1.0,
       "pred_uvd": {
         "root": [
-          114.0,
-          89.0,
-          0.71875
+          92.0,
+          81.5,
+          0.78125
         ],
         "left": [
-          108.0,
-          129.0,
-          0.789062
+          77.5,
+          100.5,
+          0.8125
         ],
         "right": [
-          121.0,
-          130.0,
-          0.789062
+          109.5,
+          98.0,
+          0.816406
         ]
       },
       "gt_uvd": {
@@ -298,40 +314,41 @@
           0.790301
         ],
         "left": [
-          75.746269,
-          116.341347,
-          0.858367
+          73.992058,
+          100.545151,
+          0.823345
         ],
         "right": [
-          103.761871,
-          117.357185,
-          0.86045
+          104.050568,
+          101.676086,
+          0.825488
         ]
       }
     },
     {
       "frame_id": 8,
-      "pred_gripper": 0.032232,
-      "gt_gripper": 0.077994,
-      "gripper_abs_error": 0.045762,
-      "pred_close": true,
-      "gt_close": false,
-      "action_gripper": 1.0,
+      "predicted_openness": 0.953125,
+      "target_openness": 0.974926,
+      "openness_abs_error": 0.021801,
+      "predicted_action": -0.142578,
+      "target_action": 1.0,
+      "action_abs_error": 1.142578,
+      "executed_action": -0.142578125,
       "pred_uvd": {
         "root": [
-          117.0,
-          91.0,
-          0.710938
+          93.0,
+          80.5,
+          0.78125
         ],
         "left": [
-          111.0,
-          132.0,
-          0.785156
+          77.0,
+          100.0,
+          0.816406
         ],
         "right": [
-          123.5,
-          131.0,
-          0.78125
+          111.0,
+          98.0,
+          0.824219
         ]
       },
       "gt_uvd": {
@@ -341,14 +358,102 @@
           0.804317
         ],
         "left": [
-          76.40123,
-          118.607346,
-          0.872358
+          74.711105,
+          103.163094,
+          0.837364
         ],
         "right": [
-          104.034119,
-          119.565895,
-          0.874394
+          104.266243,
+          104.226799,
+          0.839453
+        ]
+      }
+    },
+    {
+      "frame_id": 9,
+      "predicted_openness": 0.929688,
+      "target_openness": 0.924008,
+      "openness_abs_error": 0.005679,
+      "predicted_action": 0.917969,
+      "target_action": 1.0,
+      "action_abs_error": 0.082031,
+      "executed_action": 0.91796875,
+      "pred_uvd": {
+        "root": [
+          93.5,
+          80.5,
+          0.789062
+        ],
+        "left": [
+          77.0,
+          100.5,
+          0.824219
+        ],
+        "right": [
+          112.0,
+          98.0,
+          0.828125
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.343185,
+          89.858437,
+          0.815787
+        ],
+        "left": [
+          75.471901,
+          105.322075,
+          0.848772
+        ],
+        "right": [
+          104.629646,
+          106.367874,
+          0.850904
+        ]
+      }
+    },
+    {
+      "frame_id": 10,
+      "predicted_openness": 0.921875,
+      "target_openness": 0.744575,
+      "openness_abs_error": 0.1773,
+      "predicted_action": 0.953125,
+      "target_action": 1.0,
+      "action_abs_error": 0.046875,
+      "executed_action": 0.953125,
+      "pred_uvd": {
+        "root": [
+          95.0,
+          79.0,
+          0.789062
+        ],
+        "left": [
+          78.0,
+          99.0,
+          0.820312
+        ],
+        "right": [
+          113.5,
+          97.0,
+          0.828125
+        ]
+      },
+      "gt_uvd": {
+        "root": [
+          89.758018,
+          90.655403,
+          0.821039
+        ],
+        "left": [
+          75.925537,
+          105.992836,
+          0.853929
+        ],
+        "right": [
+          104.908379,
+          107.044418,
+          0.856193
         ]
       }
     }

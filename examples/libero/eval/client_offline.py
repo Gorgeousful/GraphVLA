@@ -19,7 +19,9 @@ from src.common.schema import dataset_gripper_action_to_libero
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = ROOT / "output_offline"
-ACTOR_NAMES = ("root", "left", "right")
+ACTOR_NAMES = ("root", "left", "right", "tcp")
+ACTOR_UVD_NAMES = ("root_uvd", "left_base_uvd", "right_base_uvd", "tcp_uvd")
+ACTOR_GT_INDICES = (0, 1, 2, 5)
 
 
 def _images_to_server_rgb(images: torch.Tensor | np.ndarray) -> np.ndarray:
@@ -92,23 +94,18 @@ def _actor_uvd_for_frame(
         int(pid): depth
         for pid, depth in zip(point_id[mask], metric_depth[mask], strict=True)
     }
-    if not all(index in by_id for index in (0, 1, 2)):
+    if not all(index in by_id for index in range(len(ACTOR_NAMES))):
         return None
     return {
-        "root_uvd": np.asarray([by_id[0][0], by_id[0][1], metric_by_id[0]]),
-        "left_base_uvd": np.asarray([by_id[1][0], by_id[1][1], metric_by_id[1]]),
-        "right_base_uvd": np.asarray([by_id[2][0], by_id[2][1], metric_by_id[2]]),
+        name: np.asarray([by_id[index][0], by_id[index][1], metric_by_id[index]])
+        for index, name in enumerate(ACTOR_UVD_NAMES)
     }
 
 
 def _json_uvd(uvd: dict[str, np.ndarray]) -> dict[str, list[float]]:
     return {
         output_name: np.asarray(uvd[input_name], dtype=np.float64).round(6).tolist()
-        for output_name, input_name in zip(
-            ACTOR_NAMES,
-            ("root_uvd", "left_base_uvd", "right_base_uvd"),
-            strict=True,
-        )
+        for output_name, input_name in zip(ACTOR_NAMES, ACTOR_UVD_NAMES, strict=True)
     }
 
 
@@ -152,9 +149,8 @@ def build_actor_diagnostics(
         pred_action = float(predicted_action[query_index])
         target_action = float(libero_action[action_gt_index])
         frame_gt_uvd = {
-            "root_uvd": np.asarray(gt_uvd[gt_index, 0], dtype=np.float64),
-            "left_base_uvd": np.asarray(gt_uvd[gt_index, 1], dtype=np.float64),
-            "right_base_uvd": np.asarray(gt_uvd[gt_index, 2], dtype=np.float64),
+            name: np.asarray(gt_uvd[gt_index, source_index], dtype=np.float64)
+            for name, source_index in zip(ACTOR_UVD_NAMES, ACTOR_GT_INDICES, strict=True)
         }
         rows.append({
             "frame_id": future_frame_id,

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from rich.console import Console
 from src.common.schema import (
+    LIBERO_ACTOR_POINT_INDICES,
     POINT_FEATURE_DIM,
     POINT_METRIC_DEPTH_INDEX,
     POINT_METRIC_DEPTH_MASK_INDEX,
@@ -571,6 +572,7 @@ class CustomTransform(TransformFn):
             raise ValueError(f"Expected gripper_uv [T, 6, 2], got {tuple(gripper_uv.shape)}")
         if gripper_d.shape != gripper_uv.shape[:2]:
             raise ValueError(f"Expected flattened gripper_d [T, 6], got {tuple(gripper_d.shape)}")
+        gripper_d = gripper_d[:, LIBERO_ACTOR_POINT_INDICES]
         gripper_openness = torch.as_tensor(
             data["gripper_openness"], device=gripper_uv.device, dtype=gripper_uv.dtype
         )
@@ -639,9 +641,13 @@ class CustomTransform(TransformFn):
         )
         object_roles = ["patient", "target"]
 
-        actor_uv = gripper_uv
-        actor_depth, actor_in_bounds = self._sample_flat_depth(depth_rel, actor_uv, height=height, width=width)
-        actor_depth[:, 5] = actor_depth[:, 3:5].mean(dim=1)
+        all_actor_depth, all_actor_in_bounds = self._sample_flat_depth(
+            depth_rel, gripper_uv, height=height, width=width
+        )
+        all_actor_depth[:, 5] = all_actor_depth[:, 3:5].mean(dim=1)
+        actor_uv = gripper_uv[:, LIBERO_ACTOR_POINT_INDICES]
+        actor_depth = all_actor_depth[:, LIBERO_ACTOR_POINT_INDICES]
+        actor_in_bounds = all_actor_in_bounds[:, LIBERO_ACTOR_POINT_INDICES]
         actor_uv_norm = self._normalize_uv(actor_uv, height=height, width=width)
         actor_vis = actor_in_bounds.to(dtype=actor_depth.dtype)
         actor_metric = gripper_d.unsqueeze(-1) if gripper_d.ndim == 2 else gripper_d

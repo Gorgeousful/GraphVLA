@@ -16,6 +16,7 @@ POINT_METRIC_DEPTH_MASK_INDEX = 5
 POINT_GRIPPER_OPENNESS_INDEX = 6
 POINT_GRIPPER_OPENNESS_MASK_INDEX = 7
 LIBERO_GRIPPER_MAX_WIDTH = 0.08
+LIBERO_ACTOR_POINT_INDICES = (0, 1, 2, 5)  # root, left base, right base, tcp
 
 
 def dataset_gripper_action_to_libero(value: Any) -> Any:

@@ -31,7 +31,7 @@ class PointQueryModel(nn.Module):
         self,
         point_dim: int = POINT_FEATURE_DIM,
         num_points: int = 32,
-        actor_num_points: int = 6,
+        actor_num_points: int = 4,
         set_hidden_dim: int = 384,
         set_layers: int = 12,
         set_heads: int = 6,

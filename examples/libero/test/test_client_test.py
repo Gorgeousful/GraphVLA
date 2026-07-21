@@ -44,20 +44,21 @@ def test_build_actor_diagnostics_compares_new_gripper_heads() -> None:
             [10.0, 20.0, 0.2, 1.0],
             [8.0, 20.0, 0.2, 1.0],
             [12.0, 20.0, 0.2, 1.0],
+            [10.0, 24.0, 0.2, 1.0],
             [99.0, 99.0, 0.2, 1.0],
         ]],
-        "metric_depth": [[[0.50], [0.40], [0.40], [0.40]]],
-        "object_id": [[0, 0, 0, 1]],
-        "point_id": [[0, 1, 2, 0]],
-        "frame_id": [[1, 1, 1, 1]],
+        "metric_depth": [[[0.50], [0.40], [0.40], [0.45], [0.40]]],
+        "object_id": [[0, 0, 0, 0, 1]],
+        "point_id": [[0, 1, 2, 3, 0]],
+        "frame_id": [[1, 1, 1, 1, 1]],
         "actor_query_frame_id": [[1]],
         "gripper_openness": [[[0.7]]],
         "gripper_action": [[[1.4]]],
         "action": [[0.0] * 6 + [1.0]],
     }
-    gt_gripper_uvd = np.zeros((3, 3, 3), dtype=np.float32)
-    gt_gripper_uvd[2] = np.asarray(
-        [[10.0, 20.0, 0.50], [9.0, 20.0, 0.40], [11.0, 20.0, 0.40]],
+    gt_gripper_uvd = np.zeros((3, 6, 3), dtype=np.float32)
+    gt_gripper_uvd[2, [0, 1, 2, 5]] = np.asarray(
+        [[10.0, 20.0, 0.50], [9.0, 20.0, 0.40], [11.0, 20.0, 0.40], [10.0, 23.0, 0.45]],
         dtype=np.float32,
     )
     gt_openness = np.asarray([0.2, 0.4, 0.6], dtype=np.float32)
@@ -83,6 +84,8 @@ def test_build_actor_diagnostics_compares_new_gripper_heads() -> None:
     assert rows[0]["executed_action"] == 1.0
     assert rows[0]["pred_uvd"]["left"] == [8.0, 20.0, 0.4]
     assert rows[0]["gt_uvd"]["right"] == [11.0, 20.0, 0.4]
+    assert rows[0]["pred_uvd"]["tcp"] == [10.0, 24.0, 0.45]
+    assert rows[0]["gt_uvd"]["tcp"] == [10.0, 23.0, 0.45]
 
 
 def test_draw_point_grid_draws_actor_and_object_points(tmp_path) -> None:

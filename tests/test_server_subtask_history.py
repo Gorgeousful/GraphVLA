@@ -70,3 +70,35 @@ def test_completion_window_counts_consecutive_current_observations(tmp_path):
     assert frame_scores == [(0, 0.9)]
     assert first_switched is False
     assert second_switched is False
+
+
+def test_completion_log_describes_the_returned_action_chunk(tmp_path, capsys):
+    planner = TopLevelTaskPlanner(
+        dataset_dir=tmp_path,
+        complete_threshold=0.5,
+        complete_window=2,
+    )
+    session = InferenceSession(
+        session_id="episode-1",
+        benchmark="libero",
+        language="one-step task",
+        taskstructure={"subtasks": [{"subtask": "first"}]},
+    )
+
+    planner.update_after_inference(
+        outputs={"is_complete": [[0.25]]},
+        session=session,
+        model_input={"frame_query_frame_id": [[0]]},
+        gripper_widths=[0.08, 0.04, 0.0],
+        actions=[
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert "query_frame=current complete_score=0.2500" in output
+    assert "chunk_len=3" in output
+    assert "gripper_widths=[0.0800, 0.0400, 0.0000]" in output
+    assert "gripper_actions=[-1.0000, 0.0000, 1.0000]" in output

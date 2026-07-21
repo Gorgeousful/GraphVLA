@@ -1,0 +1,16 @@
+{
+  "task_suite": "libero_10",
+  "success_rate": 0.0,
+  "progress_rate": 0.5,
+  "total_episodes": 1,
+  "tasks": [
+    {
+      "task_id": 6,
+      "task_desc": "put the white mug on the plate and put the chocolate pudding to the right of the plate",
+      "total_goals": 2,
+      "success_rate": 0.0,
+      "progress_rate": 0.5,
+      "num_episodes": 1
+    }
+  ]
+}

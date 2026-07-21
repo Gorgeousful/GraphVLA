@@ -406,6 +406,7 @@ def _save_video_ffmpeg(frames_rgb: list[np.ndarray], save_path: Path, *, fps: fl
         return
     first = np.asarray(frames_rgb[0], dtype=np.uint8)
     h, w = first.shape[:2]
+    save_path.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         [
             "ffmpeg", "-y",

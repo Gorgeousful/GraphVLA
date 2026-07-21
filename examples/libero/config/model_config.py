@@ -15,7 +15,7 @@ class ModelConfig:
     """Keyword configuration for GraphVLA.src.model.model.PointQueryModel."""
     point_dim: int = POINT_FEATURE_DIM # [u,v,d,vis,d_metric,m_metric,openness,m_openness]
     num_points: int = 32
-    actor_num_points: int = 6
+    actor_num_points: int = 4
     set_hidden_dim: int = 384
     set_layers: int = 12
     set_heads: int = 6
