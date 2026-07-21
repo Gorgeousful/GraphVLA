@@ -29,7 +29,7 @@ def test_build_model_input_uses_history_as_memory_and_queries_only_future_actor(
     for point_index, (u, v) in enumerate(gripper_uv[0].long()):
         depth_rel[:, v * 256 + u] = 0.1 * (point_index + 1)
     action = torch.zeros(num_frames, 7)
-    action[:, -1] = torch.tensor([1.0, 0.0, 1.0, 0.0])
+    action[:, -1] = torch.tensor([1.0, 0.0, 0.25, 0.75])
     data = {
         "node_points_track": node_points_track,
         "node_points_mask": torch.ones(num_frames, 2, dtype=torch.bool),
@@ -78,6 +78,6 @@ def test_build_model_input_uses_history_as_memory_and_queries_only_future_actor(
         output["target"]["gripper_openness"],
         torch.tensor([[0.3], [0.4]]),
     )
-    torch.testing.assert_close(output["target"]["gripper_action"], torch.tensor([[-1.0], [1.0]]))
+    torch.testing.assert_close(output["target"]["gripper_action"], torch.tensor([[0.5], [-0.5]]))
     assert "gripper_openness_mask" not in output["target"]
     assert "gripper_action_mask" not in output["target"]

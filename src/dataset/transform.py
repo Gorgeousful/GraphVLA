@@ -598,12 +598,6 @@ class CustomTransform(TransformFn):
         if action.ndim < 2 or action.shape[0] != num_frames:
             raise ValueError(f"Expected action [T, D] for {num_frames} frames, got {tuple(action.shape)}")
         dataset_gripper_action = action[..., -1].reshape(num_frames, 1)
-        if not torch.all((dataset_gripper_action == 0) | (dataset_gripper_action == 1)):
-            values = torch.unique(dataset_gripper_action).detach().cpu().tolist()
-            raise ValueError(
-                "Expected binary dataset gripper action with 0=close and 1=open, "
-                f"got values {values}"
-            )
         gripper_action_source = dataset_gripper_action_to_libero(dataset_gripper_action)
 
         node_points_mask = None
