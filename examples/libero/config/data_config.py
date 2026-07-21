@@ -124,7 +124,6 @@ LIBERO_TRANSFORM = (
     SubtaskBoundryPadding(),
 
     CustomTransform(mode="build_model_input", dataset_dir=LIBERO_DATASET_DIR),
-    CustomTransform(mode="random_object_permutation"),
 )
 
 LIBERO_OUT_TRANSFORM = (

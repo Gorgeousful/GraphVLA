@@ -11,7 +11,7 @@ from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTOR_POINT_INDICES,
     ACTOR_NUM_POINTS,
-    LIBERO_GRIPPER_MAX_WIDTH,
+    ENTITY_ROLES,
     POINT_FEATURE_DIM,
 )
 cs = Console()
@@ -408,8 +408,6 @@ class CustomTransform(TransformFn):
             return self.split_gripper_uvd(data)
         if self.mode in {"build_model_input", "build_final_input"}:
             return self.build_model_input(data)
-        if self.mode == "random_object_permutation":
-            return self.random_object_permutation(data)
         if self.mode == "build_model_output":
             return self.build_model_output(data)
         else:
@@ -420,15 +418,6 @@ class CustomTransform(TransformFn):
         data["gripper_uv"] = gripper_uvd[..., :2]
         data["gripper_d"] = gripper_uvd[..., 2:3]
         return data
-
-    def random_object_permutation(self, data: DataDict) -> DataDict:
-        points = data["entity_points"].clone()
-        mask = data["entity_point_mask"].clone()
-        for entity_index in (1, 2):
-            permutation = torch.randperm(points.shape[2], device=points.device)
-            points[:, entity_index] = points[:, entity_index].index_select(1, permutation)
-            mask[:, entity_index] = mask[:, entity_index].index_select(1, permutation)
-        return {**data, "entity_points": points, "entity_point_mask": mask}
 
     def build_model_output(self, data: DataDict) -> DataDict:
         outputs = data.get("outputs", data)
@@ -498,10 +487,10 @@ class CustomTransform(TransformFn):
             if node_points_mask.ndim == 2:
                 node_points_mask = node_points_mask[history_horizon]
 
-        node_valid = node_points_track.abs().sum(dim=(0, 2, 3)) > 0
         if node_points_mask is not None:
-            node_valid = node_valid & node_points_mask[:node_valid.shape[0]]
-            selected_node_indices = torch.nonzero(node_valid, as_tuple=False).flatten()
+            selected_node_indices = torch.nonzero(
+                node_points_mask[:node_points_track.shape[1]], as_tuple=False
+            ).flatten()
         else:
             object_start, object_end = data.get("subtask_object_slice", (0, node_points_track.shape[1]))
             selected_node_indices = torch.arange(
@@ -509,17 +498,16 @@ class CustomTransform(TransformFn):
                 min(int(object_end), node_points_track.shape[1]),
                 device=node_points_track.device,
             )
-            selected_node_indices = selected_node_indices[node_valid[selected_node_indices]]
 
+        object_roles = self._object_roles(data["subtaskstructure"], None)
         node_xyv = self._select_object_slots(
             node_points_track,
             selected_node_indices,
-            object_roles=self._object_roles(data["subtaskstructure"], None),
+            object_roles=object_roles,
         )
         node_uv = node_xyv[..., :2]
         node_depth, _ = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
         object_points = torch.cat([uv_to_normalized_ray_torch(node_uv, intrinsic), node_depth], dim=-1)
-        object_roles = ["patient", "target"]
 
         actor_depth, _ = self._sample_flat_depth(depth_rel, gripper_uv, height=height, width=width)
         actor_depth[:, 5] = actor_depth[:, 3:5].mean(dim=1)
@@ -527,7 +515,6 @@ class CustomTransform(TransformFn):
         actor_ray = uv_to_normalized_ray_torch(gripper_uv, intrinsic).index_select(1, actor_indices)
         actor_relative = torch.cat([actor_ray, actor_depth.index_select(1, actor_indices)], dim=-1)
         actor_metric_z = gripper_d.index_select(1, actor_indices).unsqueeze(-1)
-        actor_metric = torch.cat([actor_ray, actor_metric_z], dim=-1)
 
         points_per_entity = object_points.shape[2]
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
@@ -535,9 +522,10 @@ class CustomTransform(TransformFn):
         entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_relative
         entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
-        for object_index in range(2):
-            valid = bool(object_points[:, object_index].abs().sum().item() > 0)
-            entity_mask[:, object_index + 1] = valid
+        for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
+            slot_index = {"patient": 0, "target": 1}.get(role, role_index)
+            if slot_index < 2:
+                entity_mask[:, slot_index + 1] = True
 
         input_horizon = history_horizon + 1
         frame_offsets = torch.arange(
@@ -550,28 +538,31 @@ class CustomTransform(TransformFn):
             raise ValueError(
                 f"Expected {frame_offsets.numel()} frames from horizon, got {entity_points.shape[0]}"
             )
-        object_condition, actor_condition = self._build_conditions(
-            data["subtaskstructure"],
-            object_roles=object_roles,
-            device=entity_points.device,
+        scene_condition = self._build_scene_condition(
+            data["subtaskstructure"], device=entity_points.device,
         )
-        entity_condition = torch.cat([actor_condition, object_condition], dim=0)
+        entity_role_condition = self._build_entity_role_condition(device=entity_points.device)
         future_relative = actor_relative[input_horizon:]
         future_metric_z = actor_metric_z[input_horizon:]
         relative_plan = future_relative - actor_relative[history_horizon][None]
         metric_z_plan = future_metric_z - actor_metric_z[history_horizon][None]
-        width = gripper_openness * LIBERO_GRIPPER_MAX_WIDTH
+        normalized_closedness = 1.0 - 2.0 * gripper_openness
+        action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
+        gripper_action = 1.0 - 2.0 * action[..., -1:].clamp(0.0, 1.0)
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
-            "entity_condition": entity_condition,
-            "actor_metric_history": actor_metric[:input_horizon],
-            "gripper_width_history": width[:input_horizon],
+            "scene_condition": scene_condition,
+            "entity_role_condition": entity_role_condition,
+            "actor_metric_history": actor_metric_z[:input_horizon],
+            "gripper_closedness_history": normalized_closedness[:input_horizon],
             "robot_metric_mask": torch.ones(1, dtype=torch.bool, device=entity_points.device),
             "target": {
                 "relative_plan": relative_plan,
                 "metric_z_plan": metric_z_plan,
-                "gripper_width_plan": width[input_horizon:],
+                "gripper_action_plan": gripper_action[
+                    history_horizon:history_horizon + future_horizon
+                ],
                 "is_complete": torch.as_tensor(
                     data["is_complete"], device=entity_points.device, dtype=entity_points.dtype
                 )[history_horizon].reshape(1),
@@ -621,41 +612,27 @@ class CustomTransform(TransformFn):
             object_slots[:, slot_index] = node_points_track[:, selected_node_indices[role_index]]
         return object_slots
 
-    def _build_conditions(
+    def _build_entity_role_condition(self, *, device: torch.device) -> torch.Tensor:
+        return torch.stack([self._embed_text(role, device=device) for role in ENTITY_ROLES])
+
+    def _build_scene_condition(
         self,
         subtaskstructure: Mapping[str, Any],
         *,
-        object_roles: Sequence[str],
         device: torch.device,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
-        actor_condition = self._condition_for("actor", action_type, action_degree, device=device).unsqueeze(0)
-        object_conditions = [
-            self._condition_for(role, action_type, action_degree, device=device)
-            for role in object_roles
-        ]
-        if object_conditions:
-            object_condition = torch.stack(object_conditions, dim=0)
-        else:
-            object_condition = actor_condition.new_zeros((0, actor_condition.shape[-1]))
-        return object_condition, actor_condition
-
-    def _condition_for(self, role: str, action_type: str, action_degree: Any, *, device: torch.device) -> torch.Tensor:
-        return torch.cat(
-            [
-                self._embed_text(role, device=device),
-                self._embed_text(action_type, device=device),
-                self._embed_text(None if action_degree is None else str(action_degree), device=device),
-            ],
-            dim=0,
-        )
+        return torch.stack([
+            self._embed_text(action_type, device=device),
+            self._embed_text(None if action_degree is None else str(action_degree), device=device),
+        ])
 
     def _embed_text(self, text: str | None, *, device: torch.device) -> torch.Tensor:
         self._ensure_bge()
         assert self.extra is not None
         dim = int(self.extra["bge_dim"])
-        if text is None:
+        if text is None or text == "":
             return torch.zeros(dim, dtype=torch.float32, device=device)
 
         cache = self.extra["embedding_cache"]

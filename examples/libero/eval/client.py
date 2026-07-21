@@ -58,7 +58,7 @@ class Args:
     seed: int = 42
     save_video: bool = True
     control_delta: bool = False
-    execute_chunk_len: int = int(LIBERO_MODEL_CONFIG.max_frame)
+    execute_chunk_len: int = int(LIBERO_MODEL_CONFIG.future_horizon)
 
 
 class ObservationDeltaBuffer:

@@ -54,8 +54,10 @@ def test_online_input_uses_four_semantic_actor_rays(tmp_path) -> None:
     assert points.shape == (1, 2, 3, 4, 3)
     np.testing.assert_allclose(points[0, 0, 0, :, 0], [0.0, 0.1, -0.1, 0.0])
     np.testing.assert_allclose(points[0, 0, 0, :, 2], [0.1, 0.2, 0.3, 0.45])
-    assert np.asarray(model_input["actor_metric_history"]).shape == (1, 2, 4, 3)
-    assert np.asarray(model_input["gripper_width_history"])[0, 0, 0] == pytest.approx(0.04)
+    assert np.asarray(model_input["actor_metric_history"]).shape == (1, 2, 4, 1)
+    assert np.asarray(model_input["gripper_closedness_history"])[0, 0, 0] == pytest.approx(0.0)
+    assert model_input["scene_condition_texts"] == ["", None]
+    assert model_input["entity_role_condition_texts"] == ["actor", "patient", "target"]
 
 
 def test_online_object_features_use_semantic_target_slot(tmp_path) -> None:

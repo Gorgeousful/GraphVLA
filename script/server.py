@@ -35,6 +35,7 @@ from src.common.geom_utils import sample_points_from_mask, uv_to_normalized_ray
 from src.common.schema import (
     ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
+    ENTITY_ROLES,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
@@ -165,8 +166,6 @@ class TopLevelTaskPlanner:
         self,
         outputs: Mapping[str, Any],
         session: InferenceSession,
-        gripper_widths: Sequence[float],
-        actions: Sequence[Sequence[float]],
     ) -> bool:
         if session.task_complete or session.taskstructure is None:
             return False
@@ -174,12 +173,8 @@ class TopLevelTaskPlanner:
         frame_scores = self._completion_frame_scores(outputs)
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
-        for index, (frame_id, score) in enumerate(frame_scores):
-            score_text = (
-                f"{subtask_label} f={frame_id} complete_score={score:.4f} "
-                f"gripper_width={gripper_widths[index]:.4f} "
-                f"gripper_action={float(actions[index][6]):.4f}"
-            )
+        for frame_id, score in frame_scores:
+            score_text = f"{subtask_label} f={frame_id} complete_score={score:.4f}"
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
                 session.complete_streak += 1
@@ -447,22 +442,18 @@ class InputPreprocessor:
             entity_mask[:, object_index + 1] = np.any(object_points[:, object_index] != 0)
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
-        object_roles = ["patient", "target"]
-        entity_condition_texts = [{
-            "role": "actor", "action_type": action_type, "action_degree": action_degree,
-        }] + [
-            {"role": role, "action_type": action_type, "action_degree": action_degree}
-            for role in object_roles
-        ]
+        scene_condition_texts = [action_type, action_degree]
+        entity_role_condition_texts = list(ENTITY_ROLES)
         return {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
             "actor_metric_history": actor_metric[None].tolist(),
-            "gripper_width_history": np.asarray([
-                item["gripper_openness"] * LIBERO_GRIPPER_MAX_WIDTH for item in frames
+            "gripper_closedness_history": np.asarray([
+                1.0 - 2.0 * item["gripper_openness"] for item in frames
             ], dtype=np.float32).reshape(1, len(frames), 1).tolist(),
             "robot_metric_mask": [[True]],
-            "entity_condition_texts": entity_condition_texts,
+            "scene_condition_texts": scene_condition_texts,
+            "entity_role_condition_texts": entity_role_condition_texts,
         }
 
     def _frames_from_request(
@@ -680,7 +671,7 @@ class InputPreprocessor:
         ray = uv_to_normalized_ray(uv, intrinsic)[indices]
         relative = np.concatenate([ray, sampled_depth[indices]], axis=-1)
         metric_z = self._normalize_field(gripper_uvd[:, 2:3], "gripper_d")[indices]
-        return relative, np.concatenate([ray, metric_z], axis=-1)
+        return relative, metric_z
 
     @staticmethod
     def _sample_depth(depth: np.ndarray, uv: np.ndarray, height: int, width: int) -> tuple[np.ndarray, np.ndarray]:
@@ -757,14 +748,14 @@ class EmbodimentAdapter:
     ) -> tuple[list[list[float]], list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        required_outputs = {"relative_plan", "metric_z_plan", "gripper_width_plan"}
+        required_outputs = {"relative_plan", "metric_z_plan", "gripper_action_plan"}
         missing_outputs = required_outputs.difference(outputs)
         if missing_outputs:
             raise KeyError(f"Model outputs are missing required heads: {sorted(missing_outputs)}")
 
         relative = np.asarray(outputs["relative_plan"], dtype=np.float32)[0]
         metric_z = np.asarray(outputs["metric_z_plan"], dtype=np.float32)[0]
-        widths = np.asarray(outputs["gripper_width_plan"], dtype=np.float32)[0].reshape(-1)
+        gripper_actions = np.asarray(outputs["gripper_action_plan"], dtype=np.float32)[0].reshape(-1)
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
         state = np.asarray(request["observation.state"], dtype=np.float64)
         state = state[-1] if state.ndim == 2 else state
@@ -776,21 +767,18 @@ class EmbodimentAdapter:
             ray_depth = np.concatenate([relative[future_index, :, :2], metric_z[future_index]], axis=-1)
             if not np.isfinite(ray_depth).all() or np.any(ray_depth[:, 2] <= 1e-6):
                 raise ValueError(f"Invalid actor ray-depth at future index {future_index}: {ray_depth}")
-            desired_width = float(np.clip(widths[future_index], 0.0, LIBERO_GRIPPER_MAX_WIDTH))
             action = self._robot().project_ray_depth_to_gripper(
                 ray_depth,
-                gripper_width=desired_width,
+                gripper_width=current_width,
                 extrinsic=extrinsic,
             )
-            gripper_widths.append(desired_width)
+            gripper_widths.append(current_width)
             action = self._to_libero_pose(action)
-            width_error = desired_width - current_width
-            if width_error > 0.002:
-                session.gripper_command = -1.0
-            elif width_error < -0.002:
+            predicted_command = float(np.clip(gripper_actions[future_index], -1.0, 1.0))
+            if predicted_command > 0.2:
                 session.gripper_command = 1.0
-            elif abs(width_error) <= 0.0005:
-                session.gripper_command = 0.0
+            elif predicted_command < -0.2:
+                session.gripper_command = -1.0
             action[6] = session.gripper_command
             actions.append(action.astype(np.float32).tolist())
 
@@ -868,25 +856,45 @@ class InferenceModel:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
 
-        entity_condition = input_data.get("entity_condition")
-        if entity_condition is None:
-            text_conditions = input_data.get("entity_condition_texts")
+        scene_condition = input_data.get("scene_condition")
+        if scene_condition is None:
+            text_conditions = input_data.get("scene_condition_texts")
             if not isinstance(text_conditions, Sequence) or isinstance(text_conditions, str | bytes):
-                raise TypeError("entity_condition_texts must be a list")
-            entity_condition = torch.stack([
-                self.encode_condition(item) for item in text_conditions
-            ], dim=0).unsqueeze(0)
+                raise TypeError("scene_condition_texts must be [action_type, action_degree]")
+            if len(text_conditions) != 2:
+                raise ValueError("scene_condition_texts must contain action_type and action_degree")
+            scene_condition = torch.stack([
+                self.embed_text(None if item is None else str(item)) for item in text_conditions
+            ]).unsqueeze(0)
         else:
-            entity_condition = torch.as_tensor(entity_condition, device=self.device, dtype=torch.float32)
-            if entity_condition.ndim == 2:
-                entity_condition = entity_condition.unsqueeze(0)
+            scene_condition = torch.as_tensor(scene_condition, device=self.device, dtype=torch.float32)
+            if scene_condition.ndim == 2:
+                scene_condition = scene_condition.unsqueeze(0)
+
+        entity_role_condition = input_data.get("entity_role_condition")
+        if entity_role_condition is None:
+            role_texts = input_data.get("entity_role_condition_texts")
+            if not isinstance(role_texts, Sequence) or isinstance(role_texts, str | bytes):
+                raise TypeError("entity_role_condition_texts must be [actor, patient, target]")
+            if len(role_texts) != len(ENTITY_ROLES):
+                raise ValueError(f"entity_role_condition_texts must contain {len(ENTITY_ROLES)} roles")
+            entity_role_condition = torch.stack([
+                self.embed_text(str(role)) for role in role_texts
+            ]).unsqueeze(0)
+        else:
+            entity_role_condition = torch.as_tensor(
+                entity_role_condition, device=self.device, dtype=torch.float32,
+            )
+            if entity_role_condition.ndim == 2:
+                entity_role_condition = entity_role_condition.unsqueeze(0)
 
         infer_inputs = {
             "entity_points": tensor("entity_points", torch.float32),
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
-            "entity_condition": entity_condition,
+            "scene_condition": scene_condition,
+            "entity_role_condition": entity_role_condition,
             "actor_metric_history": tensor("actor_metric_history", torch.float32),
-            "gripper_width_history": tensor("gripper_width_history", torch.float32),
+            "gripper_closedness_history": tensor("gripper_closedness_history", torch.float32),
             "robot_metric_mask": tensor("robot_metric_mask", torch.bool),
         }
         outputs = self.model.sample(infer_inputs)
@@ -897,17 +905,6 @@ class InferenceModel:
         if not return_model_input:
             return json_outputs
         return json_outputs, self.to_json(infer_inputs)
-
-    def encode_condition(self, value: Any) -> torch.Tensor:
-        if isinstance(value, Mapping):
-            parts = [value.get("role"), value.get("action_type"), value.get("action_degree")]
-        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            if len(value) > 3:
-                raise ValueError("text condition sequence must have at most 3 items")
-            parts = list(value) + [None] * (3 - len(value))
-        else:
-            raise TypeError("text condition must be a dict or [role, action_type, action_degree]")
-        return torch.cat([self.embed_text(None if part is None else str(part)) for part in parts], dim=0)
 
     def embed_text(self, text: str | None) -> torch.Tensor:
         if self.bge_model is None:
@@ -1006,39 +1003,63 @@ class InferenceServer:
         execute_chunk_len = int(request["execute_chunk_len"])
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
-        response_robobrain_points, response_robobrain_object_id = self._active_robobrain_response(session)
-        response_subtask = session.current_subtask
-        response_subtask_index = session.subtask_index
+        current_features = session.feature_history[-1]
 
         return_model_input = bool(request.get("return_model_input", False))
-        inference_result = self.inference.infer(model_input, return_model_input=return_model_input)
-        if return_model_input:
-            outputs, captured_model_input = inference_result
-            captured_model_input["entity_condition_texts"] = model_input.get("entity_condition_texts")
-        else:
-            outputs = inference_result
-            captured_model_input = None
-        actions, gripper_widths = self.embodiment.to_action(outputs, model_input, request, session)
-        subtask_switched = self.planner.update_after_inference(
-            outputs,
-            session,
-            gripper_widths,
-            actions,
+        outputs, captured_model_input = self._infer_model(
+            model_input,
+            return_model_input=return_model_input,
         )
+        subtask_switched = self.planner.update_after_inference(outputs, session)
+        if subtask_switched:
+            self.preprocessor._append_feature_history(session, current_features)
+            subtaskstructure = self.planner.plan(request, session)
+            model_input = self.preprocessor._build_model_input(
+                session,
+                self.preprocessor._feature_window(session),
+                subtaskstructure,
+            )
+            outputs, captured_model_input = self._infer_model(
+                model_input,
+                return_model_input=return_model_input,
+            )
+
+        actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
+        response_robobrain_points, response_robobrain_object_id = self._active_robobrain_response(session)
         response = {
             **outputs,
             "entity_points": self.inference.to_json(model_input["entity_points"]),
             "entity_point_mask": self.inference.to_json(model_input["entity_point_mask"]),
             "robobrain_point": self.inference.to_json(response_robobrain_points),
             "robobrain_object_id": self.inference.to_json(response_robobrain_object_id),
-            "subtask": response_subtask,
-            "subtask_index": response_subtask_index,
+            "subtask": session.current_subtask,
+            "subtask_index": session.subtask_index,
             "subtask_switched": subtask_switched,
             "action": actions[:execute_chunk_len],
         }
         if captured_model_input is not None:
             response["model_input"] = captured_model_input
         return response
+
+    def _infer_model(
+        self,
+        model_input: Mapping[str, Any],
+        *,
+        return_model_input: bool,
+    ) -> tuple[Mapping[str, Any], dict[str, Any] | None]:
+        inference_result = self.inference.infer(
+            model_input,
+            return_model_input=return_model_input,
+        )
+        if not return_model_input:
+            return inference_result, None
+
+        outputs, captured_model_input = inference_result
+        captured_model_input["scene_condition_texts"] = model_input.get("scene_condition_texts")
+        captured_model_input["entity_role_condition_texts"] = model_input.get(
+            "entity_role_condition_texts"
+        )
+        return outputs, captured_model_input
 
     @staticmethod
     def _active_robobrain_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:
@@ -1161,8 +1182,8 @@ def main() -> None:
 
         model_kwargs = LIBERO_MODEL_CONFIG.to_kwargs()
         data_kwargs = LIBERO_DATA_CONFIG.to_kwargs()
-        history_horizon = abs(int(LIBERO_MODEL_CONFIG.min_frame))
-        future_horizon = int(LIBERO_MODEL_CONFIG.max_frame)
+        history_horizon = int(LIBERO_MODEL_CONFIG.history_horizon)
+        future_horizon = int(LIBERO_MODEL_CONFIG.future_horizon)
     else:
         raise ValueError(f"Unsupported example: {args.example}")
         

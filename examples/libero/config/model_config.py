@@ -11,7 +11,7 @@ class ModelConfig:
     num_points: int = 32
     history_horizon: int = 19
     future_horizon: int = 10
-    condition_dim: int = 384 * 3
+    condition_dim: int = 384
     hidden_dim: int = 512
     encoder_layers: int = 8
     flow_layers: int = 6
@@ -21,18 +21,9 @@ class ModelConfig:
     sample_steps: int = 10
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_relative": 1.0,
-        "loss_metric_z": 1.0,
-        "loss_gripper_width": 1.0,
+        "loss_private": 1.0,
         "loss_complete": 0.5,
     })
-
-    @property
-    def min_frame(self) -> int:
-        return -self.history_horizon
-
-    @property
-    def max_frame(self) -> int:
-        return self.future_horizon
 
     def to_kwargs(self) -> dict[str, Any]:
         return asdict(self)
