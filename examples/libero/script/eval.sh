@@ -25,5 +25,5 @@ python -m examples.libero.eval.client_offline \
   --task-suite-name libero_10 \
   --tasks 6 \
   --episodes 0 \
-  --sample 28 \
+  --sample 65 \
   --execute-chunk-len 5

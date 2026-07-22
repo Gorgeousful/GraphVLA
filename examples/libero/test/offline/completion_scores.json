@@ -1,0 +1,1950 @@
+{
+  "task_suite_name": "libero_10",
+  "task": 6,
+  "episode": 0,
+  "threshold": 0.005,
+  "num_frames": 142,
+  "matched_frames": [
+    {
+      "frame": 68,
+      "dataset_index": 68,
+      "score": 0.042724609375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0068_score_0.04272461.png"
+    },
+    {
+      "frame": 69,
+      "dataset_index": 69,
+      "score": 0.3515625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0069_score_0.35156250.png"
+    },
+    {
+      "frame": 70,
+      "dataset_index": 70,
+      "score": 0.86328125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0070_score_0.86328125.png"
+    },
+    {
+      "frame": 71,
+      "dataset_index": 71,
+      "score": 0.94921875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0071_score_0.94921875.png"
+    },
+    {
+      "frame": 72,
+      "dataset_index": 72,
+      "score": 0.02978515625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0072_score_0.02978516.png"
+    },
+    {
+      "frame": 73,
+      "dataset_index": 73,
+      "score": 0.0216064453125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0073_score_0.02160645.png"
+    },
+    {
+      "frame": 74,
+      "dataset_index": 74,
+      "score": 0.0169677734375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0074_score_0.01696777.png"
+    },
+    {
+      "frame": 75,
+      "dataset_index": 75,
+      "score": 0.015869140625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0075_score_0.01586914.png"
+    },
+    {
+      "frame": 76,
+      "dataset_index": 76,
+      "score": 0.01165771484375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0076_score_0.01165771.png"
+    },
+    {
+      "frame": 77,
+      "dataset_index": 77,
+      "score": 0.007354736328125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0077_score_0.00735474.png"
+    },
+    {
+      "frame": 113,
+      "dataset_index": 113,
+      "score": 0.0091552734375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0113_score_0.00915527.png"
+    },
+    {
+      "frame": 114,
+      "dataset_index": 114,
+      "score": 0.0194091796875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0114_score_0.01940918.png"
+    },
+    {
+      "frame": 115,
+      "dataset_index": 115,
+      "score": 0.037841796875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0115_score_0.03784180.png"
+    },
+    {
+      "frame": 116,
+      "dataset_index": 116,
+      "score": 0.068359375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0116_score_0.06835938.png"
+    },
+    {
+      "frame": 117,
+      "dataset_index": 117,
+      "score": 0.09423828125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0117_score_0.09423828.png"
+    },
+    {
+      "frame": 118,
+      "dataset_index": 118,
+      "score": 0.10986328125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0118_score_0.10986328.png"
+    },
+    {
+      "frame": 119,
+      "dataset_index": 119,
+      "score": 0.11279296875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0119_score_0.11279297.png"
+    },
+    {
+      "frame": 120,
+      "dataset_index": 120,
+      "score": 0.23046875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0120_score_0.23046875.png"
+    },
+    {
+      "frame": 121,
+      "dataset_index": 121,
+      "score": 0.51171875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0121_score_0.51171875.png"
+    },
+    {
+      "frame": 122,
+      "dataset_index": 122,
+      "score": 0.7734375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0122_score_0.77343750.png"
+    },
+    {
+      "frame": 123,
+      "dataset_index": 123,
+      "score": 0.92578125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0123_score_0.92578125.png"
+    },
+    {
+      "frame": 124,
+      "dataset_index": 124,
+      "score": 0.98046875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0124_score_0.98046875.png"
+    },
+    {
+      "frame": 125,
+      "dataset_index": 125,
+      "score": 0.99609375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0125_score_0.99609375.png"
+    },
+    {
+      "frame": 126,
+      "dataset_index": 126,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0126_score_1.00000000.png"
+    },
+    {
+      "frame": 127,
+      "dataset_index": 127,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0127_score_1.00000000.png"
+    },
+    {
+      "frame": 128,
+      "dataset_index": 128,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0128_score_1.00000000.png"
+    },
+    {
+      "frame": 129,
+      "dataset_index": 129,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0129_score_1.00000000.png"
+    },
+    {
+      "frame": 130,
+      "dataset_index": 130,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0130_score_1.00000000.png"
+    },
+    {
+      "frame": 131,
+      "dataset_index": 131,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0131_score_1.00000000.png"
+    },
+    {
+      "frame": 132,
+      "dataset_index": 132,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0132_score_1.00000000.png"
+    },
+    {
+      "frame": 133,
+      "dataset_index": 133,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0133_score_1.00000000.png"
+    },
+    {
+      "frame": 134,
+      "dataset_index": 134,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0134_score_1.00000000.png"
+    },
+    {
+      "frame": 135,
+      "dataset_index": 135,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0135_score_1.00000000.png"
+    },
+    {
+      "frame": 136,
+      "dataset_index": 136,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0136_score_1.00000000.png"
+    },
+    {
+      "frame": 137,
+      "dataset_index": 137,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0137_score_1.00000000.png"
+    },
+    {
+      "frame": 138,
+      "dataset_index": 138,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0138_score_1.00000000.png"
+    },
+    {
+      "frame": 139,
+      "dataset_index": 139,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0139_score_1.00000000.png"
+    },
+    {
+      "frame": 140,
+      "dataset_index": 140,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0140_score_1.00000000.png"
+    },
+    {
+      "frame": 141,
+      "dataset_index": 141,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0141_score_1.00000000.png"
+    }
+  ],
+  "above_server_threshold_0_5": [
+    {
+      "frame": 70,
+      "dataset_index": 70,
+      "score": 0.86328125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0070_score_0.86328125.png"
+    },
+    {
+      "frame": 71,
+      "dataset_index": 71,
+      "score": 0.94921875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0071_score_0.94921875.png"
+    },
+    {
+      "frame": 121,
+      "dataset_index": 121,
+      "score": 0.51171875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0121_score_0.51171875.png"
+    },
+    {
+      "frame": 122,
+      "dataset_index": 122,
+      "score": 0.7734375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0122_score_0.77343750.png"
+    },
+    {
+      "frame": 123,
+      "dataset_index": 123,
+      "score": 0.92578125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0123_score_0.92578125.png"
+    },
+    {
+      "frame": 124,
+      "dataset_index": 124,
+      "score": 0.98046875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0124_score_0.98046875.png"
+    },
+    {
+      "frame": 125,
+      "dataset_index": 125,
+      "score": 0.99609375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0125_score_0.99609375.png"
+    },
+    {
+      "frame": 126,
+      "dataset_index": 126,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0126_score_1.00000000.png"
+    },
+    {
+      "frame": 127,
+      "dataset_index": 127,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0127_score_1.00000000.png"
+    },
+    {
+      "frame": 128,
+      "dataset_index": 128,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0128_score_1.00000000.png"
+    },
+    {
+      "frame": 129,
+      "dataset_index": 129,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0129_score_1.00000000.png"
+    },
+    {
+      "frame": 130,
+      "dataset_index": 130,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0130_score_1.00000000.png"
+    },
+    {
+      "frame": 131,
+      "dataset_index": 131,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0131_score_1.00000000.png"
+    },
+    {
+      "frame": 132,
+      "dataset_index": 132,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0132_score_1.00000000.png"
+    },
+    {
+      "frame": 133,
+      "dataset_index": 133,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0133_score_1.00000000.png"
+    },
+    {
+      "frame": 134,
+      "dataset_index": 134,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0134_score_1.00000000.png"
+    },
+    {
+      "frame": 135,
+      "dataset_index": 135,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0135_score_1.00000000.png"
+    },
+    {
+      "frame": 136,
+      "dataset_index": 136,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0136_score_1.00000000.png"
+    },
+    {
+      "frame": 137,
+      "dataset_index": 137,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0137_score_1.00000000.png"
+    },
+    {
+      "frame": 138,
+      "dataset_index": 138,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0138_score_1.00000000.png"
+    },
+    {
+      "frame": 139,
+      "dataset_index": 139,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0139_score_1.00000000.png"
+    },
+    {
+      "frame": 140,
+      "dataset_index": 140,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0140_score_1.00000000.png"
+    },
+    {
+      "frame": 141,
+      "dataset_index": 141,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0141_score_1.00000000.png"
+    }
+  ],
+  "scores": [
+    {
+      "frame": 0,
+      "dataset_index": 0,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 1,
+      "dataset_index": 1,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 2,
+      "dataset_index": 2,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 3,
+      "dataset_index": 3,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 4,
+      "dataset_index": 4,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 5,
+      "dataset_index": 5,
+      "score": 1.8775463104248047e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 6,
+      "dataset_index": 6,
+      "score": 1.8775463104248047e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 7,
+      "dataset_index": 7,
+      "score": 1.8775463104248047e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 8,
+      "dataset_index": 8,
+      "score": 1.996755599975586e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 9,
+      "dataset_index": 9,
+      "score": 2.115964889526367e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 10,
+      "dataset_index": 10,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 11,
+      "dataset_index": 11,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 12,
+      "dataset_index": 12,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 13,
+      "dataset_index": 13,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 14,
+      "dataset_index": 14,
+      "score": 2.115964889526367e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 15,
+      "dataset_index": 15,
+      "score": 1.7583370208740234e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 16,
+      "dataset_index": 16,
+      "score": 1.55717134475708e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 17,
+      "dataset_index": 17,
+      "score": 1.0058283805847168e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 18,
+      "dataset_index": 18,
+      "score": 6.891787052154541e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 19,
+      "dataset_index": 19,
+      "score": 6.48200511932373e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 20,
+      "dataset_index": 20,
+      "score": 5.364418029785156e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 21,
+      "dataset_index": 21,
+      "score": 6.48200511932373e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 22,
+      "dataset_index": 22,
+      "score": 5.364418029785156e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 23,
+      "dataset_index": 23,
+      "score": 5.699694156646729e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 24,
+      "dataset_index": 24,
+      "score": 6.07222318649292e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 25,
+      "dataset_index": 25,
+      "score": 5.699694156646729e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 26,
+      "dataset_index": 26,
+      "score": 7.82310962677002e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 27,
+      "dataset_index": 27,
+      "score": 1.0654330253601074e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 28,
+      "dataset_index": 28,
+      "score": 1.0654330253601074e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 29,
+      "dataset_index": 29,
+      "score": 1.996755599975586e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 30,
+      "dataset_index": 30,
+      "score": 2.115964889526367e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 31,
+      "dataset_index": 31,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 32,
+      "dataset_index": 32,
+      "score": 2.2649765014648438e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 33,
+      "dataset_index": 33,
+      "score": 2.3990869522094727e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 34,
+      "dataset_index": 34,
+      "score": 2.562999725341797e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 35,
+      "dataset_index": 35,
+      "score": 2.2649765014648438e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 36,
+      "dataset_index": 36,
+      "score": 1.8775463104248047e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 37,
+      "dataset_index": 37,
+      "score": 1.55717134475708e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 38,
+      "dataset_index": 38,
+      "score": 1.0654330253601074e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 39,
+      "dataset_index": 39,
+      "score": 8.866190910339355e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 40,
+      "dataset_index": 40,
+      "score": 6.891787052154541e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 41,
+      "dataset_index": 41,
+      "score": 5.364418029785156e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 42,
+      "dataset_index": 42,
+      "score": 4.4517219066619873e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 43,
+      "dataset_index": 43,
+      "score": 3.46451997756958e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 44,
+      "dataset_index": 44,
+      "score": 2.2351741790771484e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 45,
+      "dataset_index": 45,
+      "score": 1.5366822481155396e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 46,
+      "dataset_index": 46,
+      "score": 1.3597309589385986e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 47,
+      "dataset_index": 47,
+      "score": 8.754432201385498e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 48,
+      "dataset_index": 48,
+      "score": 8.754432201385498e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 49,
+      "dataset_index": 49,
+      "score": 6.007030606269836e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 50,
+      "dataset_index": 50,
+      "score": 4.6798959374427795e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 51,
+      "dataset_index": 51,
+      "score": 4.6798959374427795e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 52,
+      "dataset_index": 52,
+      "score": 4.1443854570388794e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 53,
+      "dataset_index": 53,
+      "score": 3.655441105365753e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 54,
+      "dataset_index": 54,
+      "score": 2.8405338525772095e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 55,
+      "dataset_index": 55,
+      "score": 2.2118911147117615e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 56,
+      "dataset_index": 56,
+      "score": 2.2118911147117615e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 57,
+      "dataset_index": 57,
+      "score": 1.955777406692505e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 58,
+      "dataset_index": 58,
+      "score": 1.955777406692505e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 59,
+      "dataset_index": 59,
+      "score": 1.955777406692505e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 60,
+      "dataset_index": 60,
+      "score": 2.514570951461792e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 61,
+      "dataset_index": 61,
+      "score": 4.1443854570388794e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 62,
+      "dataset_index": 62,
+      "score": 1.126900315284729e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 63,
+      "dataset_index": 63,
+      "score": 2.7008354663848877e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 64,
+      "dataset_index": 64,
+      "score": 3.9301812648773193e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 65,
+      "dataset_index": 65,
+      "score": 4.500150680541992e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 66,
+      "dataset_index": 66,
+      "score": 9.632110595703125e-05,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 67,
+      "dataset_index": 67,
+      "score": 0.00154876708984375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate"
+    },
+    {
+      "frame": 68,
+      "dataset_index": 68,
+      "score": 0.042724609375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0068_score_0.04272461.png"
+    },
+    {
+      "frame": 69,
+      "dataset_index": 69,
+      "score": 0.3515625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0069_score_0.35156250.png"
+    },
+    {
+      "frame": 70,
+      "dataset_index": 70,
+      "score": 0.86328125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0070_score_0.86328125.png"
+    },
+    {
+      "frame": 71,
+      "dataset_index": 71,
+      "score": 0.94921875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 0,
+      "server_subtask": "put the white mug on the plate",
+      "image": "examples/libero/test/offline/frame_0071_score_0.94921875.png"
+    },
+    {
+      "frame": 72,
+      "dataset_index": 72,
+      "score": 0.02978515625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0072_score_0.02978516.png"
+    },
+    {
+      "frame": 73,
+      "dataset_index": 73,
+      "score": 0.0216064453125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0073_score_0.02160645.png"
+    },
+    {
+      "frame": 74,
+      "dataset_index": 74,
+      "score": 0.0169677734375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0074_score_0.01696777.png"
+    },
+    {
+      "frame": 75,
+      "dataset_index": 75,
+      "score": 0.015869140625,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0075_score_0.01586914.png"
+    },
+    {
+      "frame": 76,
+      "dataset_index": 76,
+      "score": 0.01165771484375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0076_score_0.01165771.png"
+    },
+    {
+      "frame": 77,
+      "dataset_index": 77,
+      "score": 0.007354736328125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 1,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0077_score_0.00735474.png"
+    },
+    {
+      "frame": 78,
+      "dataset_index": 78,
+      "score": 0.00445556640625,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 79,
+      "dataset_index": 79,
+      "score": 0.003173828125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 80,
+      "dataset_index": 80,
+      "score": 0.0012054443359375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 81,
+      "dataset_index": 81,
+      "score": 0.0005035400390625,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 82,
+      "dataset_index": 82,
+      "score": 0.0002460479736328125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 83,
+      "dataset_index": 83,
+      "score": 0.00048828125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 84,
+      "dataset_index": 84,
+      "score": 0.00020313262939453125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 85,
+      "dataset_index": 85,
+      "score": 0.0001087188720703125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 86,
+      "dataset_index": 86,
+      "score": 6.198883056640625e-05,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 87,
+      "dataset_index": 87,
+      "score": 3.528594970703125e-05,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 88,
+      "dataset_index": 88,
+      "score": 1.7762184143066406e-05,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 89,
+      "dataset_index": 89,
+      "score": 8.404254913330078e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 90,
+      "dataset_index": 90,
+      "score": 3.293156623840332e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 91,
+      "dataset_index": 91,
+      "score": 1.3709068298339844e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 92,
+      "dataset_index": 92,
+      "score": 3.0547380447387695e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 93,
+      "dataset_index": 93,
+      "score": 1.126900315284729e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 94,
+      "dataset_index": 94,
+      "score": 6.007030606269836e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 95,
+      "dataset_index": 95,
+      "score": 3.213062882423401e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 96,
+      "dataset_index": 96,
+      "score": 1.955777406692505e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 97,
+      "dataset_index": 97,
+      "score": 1.3445969671010971e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 98,
+      "dataset_index": 98,
+      "score": 1.3445969671010971e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 99,
+      "dataset_index": 99,
+      "score": 1.525040715932846e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 100,
+      "dataset_index": 100,
+      "score": 1.955777406692505e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 101,
+      "dataset_index": 101,
+      "score": 2.8405338525772095e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 102,
+      "dataset_index": 102,
+      "score": 4.1443854570388794e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 103,
+      "dataset_index": 103,
+      "score": 6.007030606269836e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 104,
+      "dataset_index": 104,
+      "score": 7.729977369308472e-08,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 105,
+      "dataset_index": 105,
+      "score": 1.126900315284729e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 106,
+      "dataset_index": 106,
+      "score": 1.8533319234848022e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 107,
+      "dataset_index": 107,
+      "score": 3.9301812648773193e-07,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 108,
+      "dataset_index": 108,
+      "score": 1.4603137969970703e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 109,
+      "dataset_index": 109,
+      "score": 8.404254913330078e-06,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 110,
+      "dataset_index": 110,
+      "score": 6.198883056640625e-05,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 111,
+      "dataset_index": 111,
+      "score": 0.0006256103515625,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 112,
+      "dataset_index": 112,
+      "score": 0.003082275390625,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate"
+    },
+    {
+      "frame": 113,
+      "dataset_index": 113,
+      "score": 0.0091552734375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0113_score_0.00915527.png"
+    },
+    {
+      "frame": 114,
+      "dataset_index": 114,
+      "score": 0.0194091796875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0114_score_0.01940918.png"
+    },
+    {
+      "frame": 115,
+      "dataset_index": 115,
+      "score": 0.037841796875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0115_score_0.03784180.png"
+    },
+    {
+      "frame": 116,
+      "dataset_index": 116,
+      "score": 0.068359375,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0116_score_0.06835938.png"
+    },
+    {
+      "frame": 117,
+      "dataset_index": 117,
+      "score": 0.09423828125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0117_score_0.09423828.png"
+    },
+    {
+      "frame": 118,
+      "dataset_index": 118,
+      "score": 0.10986328125,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0118_score_0.10986328.png"
+    },
+    {
+      "frame": 119,
+      "dataset_index": 119,
+      "score": 0.11279296875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0119_score_0.11279297.png"
+    },
+    {
+      "frame": 120,
+      "dataset_index": 120,
+      "score": 0.23046875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0120_score_0.23046875.png"
+    },
+    {
+      "frame": 121,
+      "dataset_index": 121,
+      "score": 0.51171875,
+      "gt_is_complete": false,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0121_score_0.51171875.png"
+    },
+    {
+      "frame": 122,
+      "dataset_index": 122,
+      "score": 0.7734375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0122_score_0.77343750.png"
+    },
+    {
+      "frame": 123,
+      "dataset_index": 123,
+      "score": 0.92578125,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0123_score_0.92578125.png"
+    },
+    {
+      "frame": 124,
+      "dataset_index": 124,
+      "score": 0.98046875,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0124_score_0.98046875.png"
+    },
+    {
+      "frame": 125,
+      "dataset_index": 125,
+      "score": 0.99609375,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0125_score_0.99609375.png"
+    },
+    {
+      "frame": 126,
+      "dataset_index": 126,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0126_score_1.00000000.png"
+    },
+    {
+      "frame": 127,
+      "dataset_index": 127,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0127_score_1.00000000.png"
+    },
+    {
+      "frame": 128,
+      "dataset_index": 128,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0128_score_1.00000000.png"
+    },
+    {
+      "frame": 129,
+      "dataset_index": 129,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0129_score_1.00000000.png"
+    },
+    {
+      "frame": 130,
+      "dataset_index": 130,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0130_score_1.00000000.png"
+    },
+    {
+      "frame": 131,
+      "dataset_index": 131,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0131_score_1.00000000.png"
+    },
+    {
+      "frame": 132,
+      "dataset_index": 132,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0132_score_1.00000000.png"
+    },
+    {
+      "frame": 133,
+      "dataset_index": 133,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0133_score_1.00000000.png"
+    },
+    {
+      "frame": 134,
+      "dataset_index": 134,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0134_score_1.00000000.png"
+    },
+    {
+      "frame": 135,
+      "dataset_index": 135,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0135_score_1.00000000.png"
+    },
+    {
+      "frame": 136,
+      "dataset_index": 136,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0136_score_1.00000000.png"
+    },
+    {
+      "frame": 137,
+      "dataset_index": 137,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0137_score_1.00000000.png"
+    },
+    {
+      "frame": 138,
+      "dataset_index": 138,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0138_score_1.00000000.png"
+    },
+    {
+      "frame": 139,
+      "dataset_index": 139,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0139_score_1.00000000.png"
+    },
+    {
+      "frame": 140,
+      "dataset_index": 140,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0140_score_1.00000000.png"
+    },
+    {
+      "frame": 141,
+      "dataset_index": 141,
+      "score": 1.0,
+      "gt_is_complete": true,
+      "gt_subtask_id": 2,
+      "server_subtask_index": 1,
+      "server_subtask": "put the chocolate pudding to the right of the plate",
+      "image": "examples/libero/test/offline/frame_0141_score_1.00000000.png"
+    }
+  ]
+}

@@ -154,10 +154,12 @@ def _load_cameras(path: Path) -> dict[int, tuple[np.ndarray, np.ndarray]]:
     return cameras
 
 
-def _draw_label(image: np.ndarray, left: str, right: str) -> None:
+def _draw_label(image: np.ndarray, left: str, right: str | None) -> None:
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(image, left, (8, 18), font, 0.48, (0, 0, 0), 3, cv2.LINE_AA)
     cv2.putText(image, left, (8, 18), font, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
+    if right is None:
+        return
     (width, _), _ = cv2.getTextSize(right, font, 0.48, 1)
     position = (max(8, image.shape[1] - 8 - width), 18)
     cv2.putText(image, right, position, font, 0.48, (0, 0, 0), 3, cv2.LINE_AA)
@@ -216,17 +218,20 @@ def _draw_response_points(
                     if 0 <= x < width and 0 <= y < height:
                         cv2.circle(image, (x, y), 4, colors[0], -1, lineType=cv2.LINE_AA)
                         count += 1
-        label = f"prediction future={frame_id} out={count}"
+        label = f"prediction future={frame_id}"
     else:
         raise ValueError(f"unknown visualization mode: {mode}")
 
-    completion = response.get("is_complete")
-    score = None
-    if completion is not None:
-        scores = np.asarray(completion, dtype=np.float32).reshape(-1)
-        scores = scores[np.isfinite(scores)]
-        score = None if scores.size == 0 else float(scores.max())
-    _draw_label(image, label, "-" if score is None else f"{score:.2f}")
+    right_label = None
+    if mode == "tracking":
+        completion = response.get("is_complete")
+        if completion is None:
+            right_label = "-"
+        else:
+            scores = np.asarray(completion, dtype=np.float32).reshape(-1)
+            scores = scores[np.isfinite(scores)]
+            right_label = "-" if scores.size == 0 else f"{scores.max():.2f}"
+    _draw_label(image, label, right_label)
     return image
 
 
@@ -246,7 +251,7 @@ def _save_grid(frames_rgb: list[np.ndarray], save_path: Path) -> None:
     cs.print(f"saved grid to: {save_path}")
 
 
-async def _evaluate_sample(
+async def _evaluate_samples(
     *,
     uri: str,
     dataset_dir: Path,
@@ -256,30 +261,34 @@ async def _evaluate_sample(
     suite_task_id: int,
     episode_id: int,
     dataset_episode_id: int,
-    sample_index: int,
+    sample_indices: list[int],
     execute_chunk_len: int,
     horizontal_flip: bool,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     dataset = make_lerobot_dataset(
         dataset_dir, load_videos=True, video_backend="pyav",
         episodes=[dataset_episode_id],
     )
-    if sample_index < 0 or sample_index >= len(dataset):
-        raise ValueError(
-            f"sample {sample_index} out of range for episode {episode_id}: "
-            f"0-{len(dataset) - 1}"
-        )
+    sample_indices = sorted(set(sample_indices))
+    for sample_index in sample_indices:
+        if sample_index < 0 or sample_index >= len(dataset):
+            raise ValueError(
+                f"sample {sample_index} out of range for episode {episode_id}: "
+                f"0-{len(dataset) - 1}"
+            )
+    max_sample = sample_indices[-1]
+    target_samples = set(sample_indices)
+    history_length = int(LIBERO_MODEL_CONFIG.history_horizon) + 1
+    future_horizon = int(LIBERO_MODEL_CONFIG.future_horizon)
 
     session_id = (
         f"libero-dataset-{suite_task_id:03d}-{dataset_episode_id:06d}-"
         f"{uuid.uuid4().hex[:8]}"
     )
     history_frames = []
-    sample_response = None
-    sample = None
-    intrinsic = None
+    records = []
     async with websockets.connect(uri, max_size=None, proxy=None) as websocket:
-        for frame_index in range(sample_index + 1):
+        for frame_index in range(max_sample + 1):
             frame_sample = dataset[frame_index]
             task_index = _scalar(frame_sample["task_index"])
             if task_index not in cameras:
@@ -309,65 +318,74 @@ async def _evaluate_sample(
                     f"server failed at task={suite_task_id} episode={episode_id} "
                     f"frame={frame_index}: {response['error']}"
                 )
+
             history_frames.append(
                 _draw_response_points(image, response, frame_index, mode="tracking")
             )
-            history_frames = history_frames[-(int(LIBERO_MODEL_CONFIG.history_horizon) + 1):]
-            sample_response, sample = response, frame_sample
+            history_frames = history_frames[-history_length:]
             cs.print(
                 f"task={suite_task_id} episode={episode_id} "
-                f"warmup={frame_index}/{sample_index}"
+                f"warmup={frame_index}/{max_sample}"
             )
+            if frame_index not in target_samples:
+                continue
 
-    assert sample_response is not None and sample is not None and intrinsic is not None
-    history_length = int(LIBERO_MODEL_CONFIG.history_horizon) + 1
-    history_frames = [history_frames[0]] * (history_length - len(history_frames)) + history_frames
+            sample_history = (
+                [history_frames[0]] * (history_length - len(history_frames))
+                + history_frames
+            )
+            future_frames = []
+            for future_id in range(1, future_horizon + 1):
+                future_sample = dataset[min(frame_index + future_id, len(dataset) - 1)]
+                future_frames.append(
+                    _draw_response_points(
+                        _to_rgb_uint8(
+                            future_sample["observation.images.image"],
+                            horizontal_flip=horizontal_flip,
+                        ),
+                        response,
+                        future_id,
+                        mode="prediction",
+                        intrinsic=intrinsic,
+                    )
+                )
 
-    future_frames = []
-    for future_id in range(1, int(LIBERO_MODEL_CONFIG.future_horizon) + 1):
-        future_sample = dataset[min(sample_index + future_id, len(dataset) - 1)]
-        future_frames.append(
-            _draw_response_points(
-                _to_rgb_uint8(
-                    future_sample["observation.images.image"],
-                    horizontal_flip=horizontal_flip,
+            stem = (
+                f"{task_suite_name}_task_{suite_task_id:03d}_"
+                f"episode_{episode_id:03d}_sample_{frame_index:04d}"
+            )
+            history_paths = []
+            for page, page_start in enumerate(
+                range(0, history_length, GRID_CAPACITY)
+            ):
+                grid_path = output_dir / f"{stem}_history_{page:02d}.png"
+                _save_grid(
+                    sample_history[page_start:page_start + GRID_CAPACITY],
+                    grid_path,
+                )
+                history_paths.append(str(grid_path))
+            future_path = output_dir / f"{stem}_future.png"
+            _save_grid(future_frames, future_path)
+
+            records.append({
+                "task_suite_name": task_suite_name,
+                "suite_task_id": suite_task_id,
+                "episode_index": episode_id,
+                "dataset_episode_index": dataset_episode_id,
+                "sample": frame_index,
+                "dataset_index": _scalar(frame_sample["index"]),
+                "task": str(frame_sample["task"]),
+                "gt_subtask": str(frame_sample["subtask"]),
+                "gt_subtask_id": _scalar(frame_sample["subtask_id"]),
+                "gt_is_complete": bool(
+                    _to_numpy(frame_sample["is_complete"]).item()
                 ),
-                sample_response,
-                future_id,
-                mode="prediction",
-                intrinsic=intrinsic,
-            )
-        )
-
-    stem = (
-        f"{task_suite_name}_task_{suite_task_id:03d}_"
-        f"episode_{episode_id:03d}_sample_{sample_index:04d}"
-    )
-    history_paths = []
-    for page, start in enumerate(range(0, history_length, GRID_CAPACITY)):
-        path = output_dir / f"{stem}_history_{page:02d}.png"
-        _save_grid(history_frames[start:start + GRID_CAPACITY], path)
-        history_paths.append(str(path))
-    future_path = output_dir / f"{stem}_future.png"
-    _save_grid(future_frames, future_path)
-
-    return {
-        "task_suite_name": task_suite_name,
-        "suite_task_id": suite_task_id,
-        "episode_index": episode_id,
-        "dataset_episode_index": dataset_episode_id,
-        "sample": sample_index,
-        "dataset_index": _scalar(sample["index"]),
-        "task": str(sample["task"]),
-        "gt_subtask": str(sample["subtask"]),
-        "gt_subtask_id": _scalar(sample["subtask_id"]),
-        "gt_is_complete": bool(_to_numpy(sample["is_complete"]).item()),
-        "gt_action": _to_numpy(sample["action"]).tolist(),
-        "history_grids": history_paths,
-        "future_grid": str(future_path),
-        "response": sample_response,
-    }
-
+                "gt_action": _to_numpy(frame_sample["action"]).tolist(),
+                "history_grids": history_paths,
+                "future_grid": str(future_path),
+                "response": response,
+            })
+    return records
 
 async def _run(args: argparse.Namespace) -> None:
     dataset_dir = Path(args.dataset_dir)
@@ -384,9 +402,10 @@ async def _run(args: argparse.Namespace) -> None:
     result_path = output_dir / "responses.jsonl"
     uri = f"ws://{args.host}:{args.port}"
 
+    total_samples = 0
     with result_path.open("w", encoding="utf-8") as output_file:
         for task_id, episode_id, dataset_episode_id in selected:
-            record = await _evaluate_sample(
+            records = await _evaluate_samples(
                 uri=uri,
                 dataset_dir=dataset_dir,
                 cameras=cameras,
@@ -395,13 +414,15 @@ async def _run(args: argparse.Namespace) -> None:
                 suite_task_id=task_id,
                 episode_id=episode_id,
                 dataset_episode_id=dataset_episode_id,
-                sample_index=args.sample,
+                sample_indices=args.samples,
                 execute_chunk_len=args.execute_chunk_len,
                 horizontal_flip=args.horizontal_flip,
             )
-            output_file.write(json.dumps(record) + "\n")
-            output_file.flush()
-    cs.print(f"saved {len(selected)} sample responses to: {result_path}")
+            for record in records:
+                output_file.write(json.dumps(record) + "\n")
+                output_file.flush()
+            total_samples += len(records)
+    cs.print(f"saved {total_samples} sample responses to: {result_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -418,7 +439,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task-suite-name", default="libero_10")
     parser.add_argument("--tasks", type=_parse_int_list, default=None)
     parser.add_argument("--episodes", type=_parse_int_list, default=[0])
-    parser.add_argument("--sample", type=int, required=True)
+    parser.add_argument(
+        "--sample",
+        dest="samples",
+        type=_parse_int_list,
+        required=True,
+        help="Comma-separated episode-local frame indices.",
+    )
     parser.add_argument(
         "--no-horizontal-flip",
         dest="horizontal_flip",
@@ -433,8 +460,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
-    if args.sample < 0:
-        parser.error("--sample must be non-negative")
+    if any(sample < 0 for sample in args.samples):
+        parser.error("--sample values must be non-negative")
     if not 1 <= args.execute_chunk_len <= int(LIBERO_MODEL_CONFIG.future_horizon):
         parser.error(
             f"--execute-chunk-len must be in [1, {LIBERO_MODEL_CONFIG.future_horizon}]"
