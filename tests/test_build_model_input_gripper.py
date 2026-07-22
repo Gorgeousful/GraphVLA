@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import torch
 
 from src.dataset.transform import CustomTransform
@@ -14,6 +17,23 @@ class LightweightModelInputTransform(CustomTransform):
 
     def _camera_intrinsic(self, data, *, device, dtype):
         return torch.tensor([[100.0, 0.0, 128.0], [0.0, 100.0, 128.0], [0.0, 0.0, 1.0]], device=device, dtype=dtype)
+
+
+def test_ensure_bge_preserves_existing_transform_options(monkeypatch) -> None:
+    class Loader:
+        @staticmethod
+        def from_pretrained(_):
+            return SimpleNamespace(eval=lambda: None, config=SimpleNamespace(hidden_size=3))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(AutoModel=Loader, AutoTokenizer=Loader),
+    )
+    transform = CustomTransform(mode="build_model_input", extra={"use_delta": False})
+    transform._ensure_bge()
+    assert transform.extra["use_delta"] is False
+    assert transform.extra["bge_dim"] == 3
 
 
 def test_build_model_input_produces_entity_rays_and_residual_flow_targets() -> None:
@@ -61,6 +81,34 @@ def test_build_model_input_produces_entity_rays_and_residual_flow_targets() -> N
     # The first command is action[t], which drives the first t+1 geometry target.
     torch.testing.assert_close(output["target"]["gripper_action_plan"], torch.tensor([[1.0], [-1.0]]))
     torch.testing.assert_close(output["target"]["is_complete"], torch.tensor([1.0]))
+
+    absolute_output = LightweightModelInputTransform(
+        mode="build_model_input", extra={"use_delta": False}
+    )(data)
+    torch.testing.assert_close(
+        absolute_output["target"]["relative_plan"],
+        output["target"]["relative_plan"] + output["entity_points"][-1, 0, :4],
+    )
+    torch.testing.assert_close(
+        absolute_output["target"]["metric_z_plan"],
+        output["target"]["metric_z_plan"] + output["actor_metric_history"][-1],
+    )
+
+    scaled_output = LightweightModelInputTransform(
+        mode="build_model_input", extra={"use_delta": False, "ray_scale": 2.0}
+    )(data)
+    torch.testing.assert_close(
+        scaled_output["entity_points"][..., :2],
+        absolute_output["entity_points"][..., :2] * 2.0,
+    )
+    torch.testing.assert_close(
+        scaled_output["target"]["relative_plan"][..., :2],
+        absolute_output["target"]["relative_plan"][..., :2] * 2.0,
+    )
+    torch.testing.assert_close(
+        scaled_output["target"]["relative_plan"][..., 2:],
+        absolute_output["target"]["relative_plan"][..., 2:],
+    )
 
     data["node_points_track"].zero_()
     data["node_points_mask"][:, 1] = False

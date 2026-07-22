@@ -60,6 +60,30 @@ def test_online_input_uses_four_semantic_actor_rays(tmp_path) -> None:
     assert model_input["entity_role_condition_texts"] == ["actor", "patient", "target"]
 
 
+def test_online_input_applies_ray_scale(tmp_path) -> None:
+    meta = tmp_path / "meta"
+    meta.mkdir()
+    (meta / "norm_stats_suite.json").write_text(json.dumps({"norm_stats": {
+        "depths.depth_rel": {"q01": [0.0], "q99": [1.0]},
+        "gripper_d": {"q01": [0.0], "q99": [1.0]},
+    }}))
+    preprocessor = LightweightInputPreprocessor(
+        history_horizon=1, future_horizon=2, num_points=4,
+        robot_cls=SixPointRobot, dataset_dir=tmp_path, ray_scale=2.0,
+    )
+    request = {
+        "observation.images.image": np.zeros((256, 256, 3), dtype=np.uint8),
+        "observation.state": np.asarray([0.0] * 6 + [0.02, -0.02]),
+        "camera.intrinsics": np.asarray([[100.0,0,128.0],[0,100.0,128.0],[0,0,1.0]]),
+        "camera.extrinsics": np.eye(4),
+    }
+    model_input = preprocessor.build(
+        request, InferenceSession("episode-1", "libero", "test"), {"nodes": []}
+    )
+    points = np.asarray(model_input["entity_points"])
+    np.testing.assert_allclose(points[0, 0, 0, :, 0], [0.0, 0.2, -0.2, 0.0])
+
+
 def test_online_object_features_use_semantic_target_slot(tmp_path) -> None:
     meta = tmp_path / "meta"
     meta.mkdir()

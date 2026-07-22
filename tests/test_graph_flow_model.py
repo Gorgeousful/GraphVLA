@@ -53,6 +53,29 @@ def test_flow_model_trains_and_samples_joint_trajectories() -> None:
     assert outputs["is_complete"].shape == (2, 1)
 
 
+def test_sample_only_restores_current_coordinates_for_delta_model() -> None:
+    delta_model = make_model().eval()
+    absolute_model = make_model().eval()
+    absolute_model.load_state_dict(delta_model.state_dict())
+    absolute_model.use_delta = False
+    batch = make_batch(1)
+    noise = torch.randn(1, 2 * 4 * 3 + 2 * 5)
+
+    delta_outputs = delta_model.sample(batch, num_steps=1, noise=noise.clone())
+    absolute_outputs = absolute_model.sample(batch, num_steps=1, noise=noise.clone())
+
+    current_relative = batch["entity_points"][:, -1, 0, :4][:, None]
+    current_metric = batch["actor_metric_history"][:, -1][:, None]
+    torch.testing.assert_close(
+        delta_outputs["relative_plan"],
+        absolute_outputs["relative_plan"] + current_relative,
+    )
+    torch.testing.assert_close(
+        delta_outputs["metric_z_plan"],
+        absolute_outputs["metric_z_plan"] + current_metric,
+    )
+
+
 def test_relative_flow_uses_one_token_per_future_step() -> None:
     model = make_model().eval()
     batch = make_batch(1)

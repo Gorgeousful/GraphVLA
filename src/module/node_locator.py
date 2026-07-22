@@ -931,8 +931,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -945,8 +945,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -959,8 +959,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -973,8 +973,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -987,8 +987,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1001,8 +1001,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.ROTATE,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='pink block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1016,8 +1016,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1030,8 +1030,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1044,8 +1044,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1058,8 +1058,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1072,8 +1072,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1086,8 +1086,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PUSH,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1101,8 +1101,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='left',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the door handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the door handle', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1115,8 +1115,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='right',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the door handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the door handle', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1129,8 +1129,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='outward',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the drawer handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the drawer handle', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1143,8 +1143,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='inward',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the drawer handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the drawer handle', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1158,8 +1158,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block on the table', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block on the table', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1172,8 +1172,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1186,8 +1186,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the pink block from the table', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the pink block from the table', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1200,8 +1200,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree='upward',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the red block from the sliding cabinet', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the red block from the sliding cabinet', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1214,8 +1214,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the blue block from the sliding cabinet', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the blue block from the sliding cabinet', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1228,16 +1228,11 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                             Node(
                                 id=1,
                                 name='the pink block from the sliding cabinet',
-                                need_object=True,
                                 role=NodeRole.PATIENT,
-                                canon_pcd=None,
-                                pos=None,
-                                rot6d=None,
-                                gripper=None
                             )
                         ]
                     )
@@ -1251,16 +1246,11 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                             Node(
                                 id=1,
                                 name='the red block from the drawer',
-                                need_object=True,
                                 role=NodeRole.PATIENT,
-                                canon_pcd=None,
-                                pos=None,
-                                rot6d=None,
-                                gripper=None
                             )
                         ]
                     )
@@ -1274,16 +1264,11 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                             Node(
                                 id=1,
                                 name='the blue block from the drawer',
-                                need_object=True,
                                 role=NodeRole.PATIENT,
-                                canon_pcd=None,
-                                pos=None,
-                                rot6d=None,
-                                gripper=None
                             )
                         ]
                     )
@@ -1297,16 +1282,11 @@ class NodeLocatorCalvin:
                         action_type=ActionType.LIFT,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                             Node(
                                 id=1,
                                 name='the pink block from the drawer',
-                                need_object=True,
                                 role=NodeRole.PATIENT,
-                                canon_pcd=None,
-                                pos=None,
-                                rot6d=None,
-                                gripper=None
                             )
                         ]
                     )
@@ -1321,9 +1301,9 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PLACE,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=2, name='in the sliding cabinet', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the block', role=NodeRole.PATIENT),
+                            Node(id=2, name='in the sliding cabinet', role=NodeRole.TARGET)
                         ]
                     )
                 ]
@@ -1336,9 +1316,9 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PLACE,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=2, name='in the drawer', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the block', role=NodeRole.PATIENT),
+                            Node(id=2, name='in the drawer', role=NodeRole.TARGET)
                         ]
                     )
                 ]
@@ -1351,9 +1331,9 @@ class NodeLocatorCalvin:
                         action_type=ActionType.MOVE,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=2, name='into the drawer', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the block', role=NodeRole.PATIENT),
+                            Node(id=2, name='into the drawer', role=NodeRole.TARGET)
                         ]
                     )
                 ]
@@ -1365,11 +1345,11 @@ class NodeLocatorCalvin:
                     SubtaskStructure(
                         subtask='put the block on top of another block',
                         action_type=ActionType.PUT,
-                        action_degree=None,
+                        action_degree='on',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=2, name='on top of another block', need_object=False, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the block', role=NodeRole.PATIENT),
+                            Node(id=2, name='another block', role=NodeRole.TARGET)
                         ]
                     )
                 ]
@@ -1382,8 +1362,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.REMOVE,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the top block from the stack', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the top block from the stack', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1397,8 +1377,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='upward',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the light switch', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the light switch', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1411,8 +1391,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.SLIDE,
                         action_degree='down',
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the light switch', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the light switch', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1425,8 +1405,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PRESS,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the black button', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the black button', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1439,8 +1419,8 @@ class NodeLocatorCalvin:
                         action_type=ActionType.PRESS,
                         action_degree=None,
                         node_list=[
-                            Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                            Node(id=1, name='the black button', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                            Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                            Node(id=1, name='the black button', role=NodeRole.PATIENT)
                         ]
                     )
                 ]
@@ -1467,8 +1447,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1481,8 +1461,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1495,8 +1475,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1509,8 +1489,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1523,8 +1503,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1537,8 +1517,8 @@ def OnlineTest():
                     action_type=ActionType.ROTATE,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='pink block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1552,8 +1532,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1566,8 +1546,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1580,8 +1560,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1594,8 +1574,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1608,8 +1588,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1622,8 +1602,8 @@ def OnlineTest():
                     action_type=ActionType.PUSH,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the pink block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the pink block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1637,8 +1617,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='left',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the door handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the door handle', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1651,8 +1631,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='right',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the door handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the door handle', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1665,8 +1645,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='outward',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the drawer handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the drawer handle', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1679,8 +1659,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='inward',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the drawer handle', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the drawer handle', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1694,8 +1674,8 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block on the table', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block on the table', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1708,8 +1688,8 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1722,8 +1702,8 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the pink block from the table', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the pink block from the table', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1736,8 +1716,8 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree='upward',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the red block from the sliding cabinet', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the red block from the sliding cabinet', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1750,8 +1730,8 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the blue block from the sliding cabinet', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the blue block from the sliding cabinet', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1764,16 +1744,11 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                         Node(
                             id=1,
                             name='the pink block from the sliding cabinet',
-                            need_object=True,
                             role=NodeRole.PATIENT,
-                            canon_pcd=None,
-                            pos=None,
-                            rot6d=None,
-                            gripper=None
                         )
                     ]
                 )
@@ -1787,16 +1762,11 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                         Node(
                             id=1,
                             name='the red block from the drawer',
-                            need_object=True,
                             role=NodeRole.PATIENT,
-                            canon_pcd=None,
-                            pos=None,
-                            rot6d=None,
-                            gripper=None
                         )
                     ]
                 )
@@ -1810,16 +1780,11 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                         Node(
                             id=1,
                             name='the blue block from the drawer',
-                            need_object=True,
                             role=NodeRole.PATIENT,
-                            canon_pcd=None,
-                            pos=None,
-                            rot6d=None,
-                            gripper=None
                         )
                     ]
                 )
@@ -1833,16 +1798,11 @@ def OnlineTest():
                     action_type=ActionType.LIFT,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
                         Node(
                             id=1,
                             name='the pink block from the drawer',
-                            need_object=True,
                             role=NodeRole.PATIENT,
-                            canon_pcd=None,
-                            pos=None,
-                            rot6d=None,
-                            gripper=None
                         )
                     ]
                 )
@@ -1857,9 +1817,9 @@ def OnlineTest():
                     action_type=ActionType.PLACE,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=2, name='in the sliding cabinet', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the block', role=NodeRole.PATIENT),
+                        Node(id=2, name='in the sliding cabinet', role=NodeRole.TARGET)
                     ]
                 )
             ]
@@ -1872,9 +1832,9 @@ def OnlineTest():
                     action_type=ActionType.PLACE,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=2, name='in the drawer', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the block', role=NodeRole.PATIENT),
+                        Node(id=2, name='in the drawer', role=NodeRole.TARGET)
                     ]
                 )
             ]
@@ -1887,9 +1847,9 @@ def OnlineTest():
                     action_type=ActionType.MOVE,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=2, name='into the drawer', need_object=True, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the block', role=NodeRole.PATIENT),
+                        Node(id=2, name='into the drawer', role=NodeRole.TARGET)
                     ]
                 )
             ]
@@ -1901,11 +1861,11 @@ def OnlineTest():
                 SubtaskStructure(
                     subtask='put the block on top of another block',
                     action_type=ActionType.PUT,
-                    action_degree=None,
+                    action_degree='on',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the block', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=2, name='on top of another block', need_object=False, role=NodeRole.TARGET, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the block', role=NodeRole.PATIENT),
+                        Node(id=2, name='another block', role=NodeRole.TARGET)
                     ]
                 )
             ]
@@ -1918,8 +1878,8 @@ def OnlineTest():
                     action_type=ActionType.REMOVE,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the top block from the stack', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the top block from the stack', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1933,8 +1893,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='upward',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the light switch', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the light switch', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1947,8 +1907,8 @@ def OnlineTest():
                     action_type=ActionType.SLIDE,
                     action_degree='down',
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the light switch', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the light switch', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1961,8 +1921,8 @@ def OnlineTest():
                     action_type=ActionType.PRESS,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the black button', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the black button', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -1975,8 +1935,8 @@ def OnlineTest():
                     action_type=ActionType.PRESS,
                     action_degree=None,
                     node_list=[
-                        Node(id=0, name='robotic gripper', need_object=False, role=NodeRole.ACTOR, canon_pcd=None, pos=None, rot6d=None, gripper=None),
-                        Node(id=1, name='the black button', need_object=True, role=NodeRole.PATIENT, canon_pcd=None, pos=None, rot6d=None, gripper=None)
+                        Node(id=0, name='robotic gripper', role=NodeRole.ACTOR),
+                        Node(id=1, name='the black button', role=NodeRole.PATIENT)
                     ]
                 )
             ]
@@ -2035,7 +1995,6 @@ def OnlineTest():
                     plot_output_dir="/data0/luokang/research/GraphVLA/__tmp__/node_locator_plots",
                     resize_scale=2.0,
                 )
-                task.subtask_list[i].node_list[j].point = np.array(result['points'])
         cs.print(task)
 
 

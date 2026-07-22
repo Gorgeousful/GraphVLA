@@ -295,25 +295,12 @@ class TaskAnalyzer:
 
                 role = NodeRole(raw_node["role"])
 
-                need_object = raw_node.get("need_object", role == NodeRole.PATIENT)
-                if isinstance(need_object, str):
-                    value = need_object.strip().lower()
-                    if value not in ("true", "false"):
-                        raise ValueError(f"Invalid need_object value: {need_object}")
-                    need_object = value == "true"
-                else:
-                    need_object = bool(need_object)
 
                 node_list.append(
                     Node(
                         id=int(raw_node.get("id", fallback_id)),
                         name=str(raw_node["name"]),
-                        need_object=need_object,
                         role=role,
-                        canon_pcd=None,
-                        pos=None,
-                        rot6d=None,
-                        gripper=None,
                     )
                 )
 
@@ -477,7 +464,6 @@ class TaskAnalyzer:
             Notes:
             - You must first determine the action type and decide whether it is binary or ternary. If it is binary, you should not include a target node.
             - Put scalar constraints on the patient action into action_degree. e.g. 'on', 'in', 'right', 'left', 'front', 'behind', 'outward', 'inward'.
-            - For nodes with role patient or target, need_object defaults to true, unless explicitly specified in special situations.
 
             Special situations for node name:
             {special_situations}
@@ -488,9 +474,9 @@ class TaskAnalyzer:
                 "action_type": "<one allowed action_type>",
                 "action_degree": "<scalar constraint or null>",
                 "nodes": [
-                    {{"id": 0, "name": "robotic gripper", "role": "actor", "need_object": false}},
-                    {{"id": 1, "name": "<patient description>", "role": "patient", "need_object": true}},
-                    {{"id": 2, "name": "<target description if needed>", "role": "target", "need_object": true}}
+                    {{"id": 0, "name": "robotic gripper", "role": "actor"}},
+                    {{"id": 1, "name": "<patient description>", "role": "patient"}},
+                    {{"id": 2, "name": "<target description if needed>", "role": "target"}}
                 ]
             }}
 
@@ -500,8 +486,8 @@ class TaskAnalyzer:
                 "action_type": "slide",
                 "action_degree": "outward",
                 "nodes": [
-                    {{"id": 0, "name": "robotic gripper", "role": "actor", "need_object": false}},
-                    {{"id": 1, "name": "the drawer handle", "role": "patient", "need_object": true}}
+                    {{"id": 0, "name": "robotic gripper", "role": "actor"}},
+                    {{"id": 1, "name": "the drawer handle", "role": "patient"}}
                 ]
             }}
         """)

@@ -139,6 +139,8 @@ class GraphFlowModel(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         sample_steps: int = 10,
+        use_delta: bool = True,
+        ray_scale: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
@@ -148,6 +150,10 @@ class GraphFlowModel(nn.Module):
         self.history_horizon = history_horizon
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
+        self.use_delta = use_delta
+        if ray_scale <= 0.0:
+            raise ValueError(f"ray_scale must be positive, got {ray_scale}")
+        self.ray_scale = float(ray_scale)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
             hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
@@ -299,11 +305,15 @@ class GraphFlowModel(nn.Module):
         )
         metric_delta = private_plan[..., :ACTOR_NUM_POINTS].unsqueeze(-1)
         gripper_action = private_plan[..., ACTOR_NUM_POINTS:]
-        current_relative = batch["entity_points"][:, -1, 0, :ACTOR_NUM_POINTS]
-        current_metric = batch["actor_metric_history"][:, -1]
+        if self.use_delta:
+            relative_plan = batch["entity_points"][:, -1, 0, :ACTOR_NUM_POINTS][:, None] + relative_delta
+            metric_z_plan = batch["actor_metric_history"][:, -1][:, None] + metric_delta
+        else:
+            relative_plan = relative_delta
+            metric_z_plan = metric_delta
         return {
-            "relative_plan": current_relative[:, None] + relative_delta,
-            "metric_z_plan": current_metric[:, None] + metric_delta,
+            "relative_plan": relative_plan,
+            "metric_z_plan": metric_z_plan,
             "gripper_action_plan": gripper_action,
             "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
         }

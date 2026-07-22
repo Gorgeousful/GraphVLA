@@ -14,6 +14,7 @@ from src.dataset.transform import (
     FlattenTransform,
     SubtaskBoundryPadding,
 )
+from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 
 
 def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
@@ -123,7 +124,14 @@ LIBERO_TRANSFORM = (
     ),
     SubtaskBoundryPadding(),
 
-    CustomTransform(mode="build_model_input", dataset_dir=LIBERO_DATASET_DIR),
+    CustomTransform(
+        mode="build_model_input",
+        dataset_dir=LIBERO_DATASET_DIR,
+        extra={
+            "use_delta": LIBERO_MODEL_CONFIG.use_delta,
+            "ray_scale": LIBERO_MODEL_CONFIG.ray_scale,
+        },
+    ),
 )
 
 LIBERO_OUT_TRANSFORM = (
@@ -133,6 +141,7 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
+            "ray_scale": LIBERO_MODEL_CONFIG.ray_scale,
         },
     ),
 )

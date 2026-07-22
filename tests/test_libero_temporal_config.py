@@ -17,3 +17,15 @@ def test_libero_uses_twenty_input_frames_and_ten_future_frames() -> None:
 
 def test_libero_training_does_not_load_unused_videos() -> None:
     assert LIBERO_DATA_CONFIG.load_videos is False
+
+
+def test_libero_data_and_model_share_delta_configuration() -> None:
+    model_input_transform = LIBERO_DATA_CONFIG.transforms[-1]
+    assert model_input_transform.extra["use_delta"] is LIBERO_MODEL_CONFIG.use_delta
+
+
+def test_libero_data_and_model_share_ray_scale() -> None:
+    model_input_transform = LIBERO_DATA_CONFIG.transforms[-1]
+    model_output_transform = LIBERO_DATA_CONFIG.out_transforms[-1]
+    assert model_input_transform.extra["ray_scale"] == LIBERO_MODEL_CONFIG.ray_scale
+    assert model_output_transform.extra["ray_scale"] == LIBERO_MODEL_CONFIG.ray_scale

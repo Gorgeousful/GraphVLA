@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import gc
 import json
+import random
 import cv2
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -66,6 +67,7 @@ class Args:
     device: str
     bge_path: str
     task_analyzer_api_key: str | None
+    seed: int = 42
     complete_threshold: float = 0.5
     complete_window: int = 3
     devices: dict[str, str] = field(default_factory=dict)
@@ -256,12 +258,16 @@ class InputPreprocessor:
         num_points: int,
         robot_cls: type[Any],
         dataset_dir: str | Path,
+        ray_scale: float = 1.0,
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_horizon = history_horizon
         self.future_horizon = future_horizon
         self.num_points = num_points
         self.robot_cls = robot_cls
+        if ray_scale <= 0.0:
+            raise ValueError(f"ray_scale must be positive, got {ray_scale}")
+        self.ray_scale = float(ray_scale)
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.sam3_model = None
@@ -583,7 +589,7 @@ class InputPreprocessor:
             if not isinstance(node, Mapping):
                 continue
             role = str(node.get("role", ""))
-            if bool(node.get("need_object", False)) and role != "actor":
+            if role != "actor":
                 nodes.append(dict(node))
         return nodes
 
@@ -645,7 +651,7 @@ class InputPreprocessor:
             return points
         uv = tracks[:count, :, :2]
         sampled_depth, _ = self._sample_depth(depth, uv, height, width)
-        rays = uv_to_normalized_ray(uv, intrinsic)
+        rays = uv_to_normalized_ray(uv, intrinsic) * self.ray_scale
         for source_index, role in enumerate(roles[:count]):
             target_index = 0 if role == "patient" else (1 if role == "target" else source_index)
             if target_index >= 2:
@@ -668,7 +674,7 @@ class InputPreprocessor:
         sampled_depth, _ = self._sample_depth(depth, uv, height, width)
         sampled_depth[5] = sampled_depth[3:5].mean(axis=0)
         indices = np.asarray(ACTOR_POINT_INDICES, dtype=np.int64)
-        ray = uv_to_normalized_ray(uv, intrinsic)[indices]
+        ray = (uv_to_normalized_ray(uv, intrinsic) * self.ray_scale)[indices]
         relative = np.concatenate([ray, sampled_depth[indices]], axis=-1)
         metric_z = self._normalize_field(gripper_uvd[:, 2:3], "gripper_d")[indices]
         return relative, metric_z
@@ -1025,17 +1031,26 @@ class InferenceServer:
             )
 
         actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
+        executed_actions = actions[:execute_chunk_len]
+        gripper_actions = [float(action[-1]) for action in executed_actions]
+        cs.print(
+            f"gripper_action[{len(gripper_actions)}]={gripper_actions}",
+            markup=False,
+        )
         response_robobrain_points, response_robobrain_object_id = self._active_robobrain_response(session)
+        response_tracking_points, response_tracking_object_id = self._active_tracking_response(session)
         response = {
             **outputs,
             "entity_points": self.inference.to_json(model_input["entity_points"]),
             "entity_point_mask": self.inference.to_json(model_input["entity_point_mask"]),
             "robobrain_point": self.inference.to_json(response_robobrain_points),
             "robobrain_object_id": self.inference.to_json(response_robobrain_object_id),
+            "tracking_point": self.inference.to_json(response_tracking_points),
+            "tracking_object_id": self.inference.to_json(response_tracking_object_id),
             "subtask": session.current_subtask,
             "subtask_index": session.subtask_index,
             "subtask_switched": subtask_switched,
-            "action": actions[:execute_chunk_len],
+            "action": executed_actions,
         }
         if captured_model_input is not None:
             response["model_input"] = captured_model_input
@@ -1066,6 +1081,23 @@ class InferenceServer:
         if session.robobrain_points is None or not session.active_object_indices:
             return None, None
         points_by_object = np.asarray(session.robobrain_points, dtype=np.float32)
+        point_chunks = []
+        id_chunks = []
+        for local_id, object_index in enumerate(session.active_object_indices, start=1):
+            if object_index < 0 or object_index >= len(points_by_object):
+                continue
+            points = points_by_object[object_index]
+            point_chunks.append(points)
+            id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
+        if not point_chunks:
+            return None, None
+        return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
+
+    @staticmethod
+    def _active_tracking_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if session.tracked_points is None or not session.active_object_indices:
+            return None, None
+        points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
         point_chunks = []
         id_chunks = []
         for local_id, object_index in enumerate(session.active_object_indices, start=1):
@@ -1142,6 +1174,7 @@ def parse_args() -> Args:
         default=None,
         help="API key used when a taskstructure is missing from the dataset cache.",
     )
+    parser.add_argument("--seed", type=int, default=Args.seed, help="Random seed for server inference.")
     parser.add_argument(
         "--complete-threshold",
         type=float,
@@ -1175,6 +1208,11 @@ def main() -> None:
 
     args = parse_args()
     cs.print(args)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     if args.example == "libero":
         from examples.libero.config.data_config import LIBERO_DATA_CONFIG
         from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
@@ -1202,6 +1240,7 @@ def main() -> None:
             num_points=model_kwargs["num_points"],
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
+            ray_scale=model_kwargs["ray_scale"],
             devices=args.devices,
         ),
         inference = InferenceModel(

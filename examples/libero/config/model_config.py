@@ -11,6 +11,8 @@ class ModelConfig:
     num_points: int = 32
     history_horizon: int = 19
     future_horizon: int = 10
+    use_delta: bool = False
+    ray_scale: float = 1.0  # 2.414
     condition_dim: int = 384
     hidden_dim: int = 512
     encoder_layers: int = 8
@@ -21,7 +23,7 @@ class ModelConfig:
     sample_steps: int = 10
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_relative": 1.0,
-        "loss_private": 1.0,
+        "loss_private": 1.0,  # metric_z+gripper_action
         "loss_complete": 0.5,
     })
 

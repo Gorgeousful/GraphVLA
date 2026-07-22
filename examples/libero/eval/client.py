@@ -291,6 +291,7 @@ def _draw_response_points(
     frame_id: int | None,
     *,
     mode: str,
+    intrinsic: np.ndarray | None = None,
 ) -> np.ndarray:
     image = np.ascontiguousarray(image_rgb.copy())
     if response is None:
@@ -311,6 +312,19 @@ def _draw_response_points(
     count = 0
 
     if mode == "tracking":
+        if response.get("tracking_point") is not None and response.get("tracking_object_id") is not None:
+            tracking_points = np.asarray(response["tracking_point"], dtype=np.float32).reshape(-1, 3)
+            tracking_object_ids = np.asarray(response["tracking_object_id"], dtype=np.int64).reshape(-1)
+            for point, object_id in zip(tracking_points, tracking_object_ids, strict=True):
+                if not np.isfinite(point[:2]).all():
+                    continue
+                x, y = np.rint(point[:2]).astype(int)
+                if 0 <= x < width and 0 <= y < height:
+                    color = colors.get(int(object_id), (160, 80, 160))
+                    if float(point[2]) <= 0.5:
+                        color = (145, 145, 145)
+                    cv2.circle(image, (x, y), 2, color, -1, lineType=cv2.LINE_AA)
+                    count += 1
         rb_count = 0
         if "robobrain_point" in response and response["robobrain_point"] is not None:
             rb_points = np.asarray(response["robobrain_point"], dtype=np.float32).reshape(-1, 2)
@@ -339,6 +353,23 @@ def _draw_response_points(
             complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
         _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
         return image
+
+    if frame_id is not None and intrinsic is not None and response.get("relative_plan") is not None:
+        relative_plan = _first_batch(response["relative_plan"]).astype(np.float32)
+        future_index = int(frame_id) - 1
+        intrinsic = np.asarray(intrinsic, dtype=np.float32)
+        if relative_plan.ndim == 3 and 0 <= future_index < relative_plan.shape[0] and intrinsic.shape == (3, 3):
+            actor_rays = relative_plan[future_index, :, :2]
+            actor_pixels = actor_rays.copy()
+            actor_pixels[:, 0] = actor_rays[:, 0] * intrinsic[0, 0] + intrinsic[0, 2]
+            actor_pixels[:, 1] = actor_rays[:, 1] * intrinsic[1, 1] + intrinsic[1, 2]
+            for point in actor_pixels:
+                if not np.isfinite(point).all():
+                    continue
+                x, y = np.rint(point).astype(int)
+                if 0 <= x < width and 0 <= y < height:
+                    cv2.circle(image, (x, y), 4, colors[0], -1, lineType=cv2.LINE_AA)
+                    count += 1
 
     label_frame = "-" if frame_id is None else str(frame_id)
     _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))
@@ -554,6 +585,7 @@ def main() -> None:
                             client.last_response,
                             client.last_action_frame_id,
                             mode="prediction",
+                            intrinsic=client.intrinsic,
                         )
                     )
                     tracking_images.append(

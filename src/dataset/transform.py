@@ -426,6 +426,10 @@ class CustomTransform(TransformFn):
 
         if "relative_plan" in outputs:
             relative = outputs["relative_plan"].clone()
+            ray_scale = float(self._extra_value("ray_scale", 1.0))
+            if ray_scale <= 0.0:
+                raise ValueError(f"ray_scale must be positive, got {ray_scale}")
+            relative[..., :2] /= ray_scale
             relative[..., 2:3] = self._unnormalize_output_field(
                 relative[..., 2:3],
                 field="depths.depth_rel",
@@ -480,6 +484,9 @@ class CustomTransform(TransformFn):
         num_frames = gripper_uv.shape[0]
         gripper_openness = gripper_openness.reshape(num_frames, 1)
         intrinsic = self._camera_intrinsic(data, device=gripper_uv.device, dtype=gripper_uv.dtype)
+        ray_scale = float(self._extra_value("ray_scale", 1.0))
+        if ray_scale <= 0.0:
+            raise ValueError(f"ray_scale must be positive, got {ray_scale}")
 
         node_points_mask = None
         if "node_points_mask" in data:
@@ -507,12 +514,15 @@ class CustomTransform(TransformFn):
         )
         node_uv = node_xyv[..., :2]
         node_depth, _ = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
-        object_points = torch.cat([uv_to_normalized_ray_torch(node_uv, intrinsic), node_depth], dim=-1)
+        object_ray = uv_to_normalized_ray_torch(node_uv, intrinsic) * ray_scale
+        object_points = torch.cat([object_ray, node_depth], dim=-1)
 
         actor_depth, _ = self._sample_flat_depth(depth_rel, gripper_uv, height=height, width=width)
         actor_depth[:, 5] = actor_depth[:, 3:5].mean(dim=1)
         actor_indices = torch.as_tensor(ACTOR_POINT_INDICES, device=gripper_uv.device)
-        actor_ray = uv_to_normalized_ray_torch(gripper_uv, intrinsic).index_select(1, actor_indices)
+        actor_ray = (
+            uv_to_normalized_ray_torch(gripper_uv, intrinsic) * ray_scale
+        ).index_select(1, actor_indices)
         actor_relative = torch.cat([actor_ray, actor_depth.index_select(1, actor_indices)], dim=-1)
         actor_metric_z = gripper_d.index_select(1, actor_indices).unsqueeze(-1)
 
@@ -544,8 +554,12 @@ class CustomTransform(TransformFn):
         entity_role_condition = self._build_entity_role_condition(device=entity_points.device)
         future_relative = actor_relative[input_horizon:]
         future_metric_z = actor_metric_z[input_horizon:]
-        relative_plan = future_relative - actor_relative[history_horizon][None]
-        metric_z_plan = future_metric_z - actor_metric_z[history_horizon][None]
+        if self._extra_value("use_delta", True):
+            relative_plan = future_relative - actor_relative[history_horizon][None]
+            metric_z_plan = future_metric_z - actor_metric_z[history_horizon][None]
+        else:
+            relative_plan = future_relative
+            metric_z_plan = future_metric_z
         normalized_closedness = 1.0 - 2.0 * gripper_openness
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
         gripper_action = 1.0 - 2.0 * action[..., -1:].clamp(0.0, 1.0)
@@ -656,12 +670,14 @@ class CustomTransform(TransformFn):
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         model = AutoModel.from_pretrained(model_path)
         model.eval()
-        self.extra = {
+        if self.extra is None:
+            self.extra = {}
+        self.extra.update({
             "bge_tokenizer": tokenizer,
             "bge_model": model,
             "embedding_cache": {},
             "bge_dim": int(model.config.hidden_size),
-        }
+        })
 
     def _object_roles(self, subtaskstructure: Mapping[str, Any], expected_count: int | None) -> list[str]:
         roles = []

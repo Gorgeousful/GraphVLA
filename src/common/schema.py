@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-import numpy as np
-from numpy.typing import NDArray
 import json
 import os
 
@@ -47,38 +45,12 @@ class ActionType(tuple, Enum):
 class Node:
     id: int
     name: str
-    need_object: bool
     role: NodeRole
-    point: Optional[NDArray] = None
-    canon_pcd: Optional[NDArray] = None
-    pos: Optional[NDArray] = None
-    rot6d: Optional[NDArray] = None
-    gripper: Optional[NDArray] = None  # 0 close 1 open
 
     def __post_init__(self) -> None:
         # common
         self.role = NodeRole(self.role)
 
-        if self.point is not None and self.point.shape[-1] != 2:
-            raise ValueError(f"point should have shape (N,2), got {self.point.shape}")
-        if self.canon_pcd is not None and self.canon_pcd.shape[-2:] != (512, 3):
-            raise ValueError(f"canon_pcd should have shape (512, 3), got {self.canon_pcd.shape}")
-        if self.pos is not None and self.pos.shape[-1] != 3:
-            raise ValueError(f"pos should have shape (H, 3), got {self.pos.shape}")
-        if self.rot6d is not None and self.rot6d.shape[-1] != 6:
-            raise ValueError(f"rot6d should have shape (H, 6), got {self.rot6d.shape}")
-        if self.gripper is not None and self.gripper.shape[-1] != 1:
-            raise ValueError(f"gripper should have shape (H, 1), got {self.gripper.shape}")
-
-        # specific
-        if self.role == NodeRole.ACTOR:
-            self.need_object = False
-        if self.role == NodeRole.PATIENT:
-            self.need_object = True
-        if self.role == NodeRole.ACTOR and self.canon_pcd is not None:
-            self.canon_pcd = np.zeros_like(self.canon_pcd)
-        if self.role != NodeRole.ACTOR and self.gripper is not None:
-            self.gripper = np.zeros_like(self.gripper)
 
 
 @dataclass
@@ -115,13 +87,7 @@ def taskstructure_to_json(taskstructure, json_path=None) -> dict:
             nodes.append({
                 "id": int(node.id),
                 "name": node.name,
-                "need_object": bool(node.need_object),
                 "role": node.role.value,
-                "point": None if node.point is None else np.asarray(node.point).tolist(),
-                "canon_pcd": None if node.canon_pcd is None else np.asarray(node.canon_pcd).tolist(),
-                "pos": None if node.pos is None else np.asarray(node.pos).tolist(),
-                "rot6d": None if node.rot6d is None else np.asarray(node.rot6d).tolist(),
-                "gripper": None if node.gripper is None else np.asarray(node.gripper).tolist(),
             })
 
         data["subtasks"].append({
@@ -170,13 +136,7 @@ def json_to_taskstructure(json_data) -> TaskStructure:
             node_list.append(Node(
                 id=int(raw_node.get("id", fallback_id)),
                 name=str(raw_node["name"]),
-                need_object=bool(raw_node.get("need_object", True)),
                 role=NodeRole(raw_node["role"]),
-                point=None if raw_node.get("point") is None else np.asarray(raw_node["point"], dtype=np.float32),
-                canon_pcd=None if raw_node.get("canon_pcd") is None else np.asarray(raw_node["canon_pcd"], dtype=np.float32),
-                pos=None if raw_node.get("pos") is None else np.asarray(raw_node["pos"], dtype=np.float32),
-                rot6d=None if raw_node.get("rot6d") is None else np.asarray(raw_node["rot6d"], dtype=np.float32),
-                gripper=None if raw_node.get("gripper") is None else np.asarray(raw_node["gripper"], dtype=np.float32),
             ))
 
         raw_action_type = raw_subtask["action_type"]
@@ -218,13 +178,7 @@ def json_to_substructure(json_data) -> SubtaskStructure:
         node_list.append(Node(
             id=int(raw_node.get("id", fallback_id)),
             name=str(raw_node["name"]),
-            need_object=bool(raw_node.get("need_object", True)),
             role=NodeRole(raw_node["role"]),
-            point=None if raw_node.get("point") is None else np.asarray(raw_node["point"], dtype=np.float32),
-            canon_pcd=None if raw_node.get("canon_pcd") is None else np.asarray(raw_node["canon_pcd"], dtype=np.float32),
-            pos=None if raw_node.get("pos") is None else np.asarray(raw_node["pos"], dtype=np.float32),
-            rot6d=None if raw_node.get("rot6d") is None else np.asarray(raw_node["rot6d"], dtype=np.float32),
-            gripper=None if raw_node.get("gripper") is None else np.asarray(raw_node["gripper"], dtype=np.float32),
         ))
 
     raw_action_type = data["action_type"]

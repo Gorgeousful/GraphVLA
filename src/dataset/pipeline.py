@@ -544,7 +544,7 @@ class OfflinePipeline:
             count = sum(
                 1
                 for node in (subtask.node_list or [])
-                if bool(node.need_object) and node.role != NodeRole.ACTOR
+                if node.role != NodeRole.ACTOR
             )
             spans.append((cursor, cursor + count))
             cursor += count
@@ -701,7 +701,7 @@ class OfflinePipeline:
         nodes = []
         for subtask in taskstructure.subtask_list:
             for node in subtask.node_list or []:
-                if bool(node.need_object) and node.role != NodeRole.ACTOR:
+                if node.role != NodeRole.ACTOR:
                     nodes.append(node)
         return nodes
 
