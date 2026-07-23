@@ -42,7 +42,7 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def _to_rgb_uint8(value: Any, *, horizontal_flip: bool = True) -> np.ndarray:
+def _to_rgb_uint8(value: Any, *, horizontal_flip: bool = False) -> np.ndarray:
     image = _to_numpy(value)
     if image.ndim != 3:
         raise ValueError(f"expected a 3-D RGB image, got shape={image.shape}")
@@ -197,17 +197,17 @@ def _draw_response_points(
                     count += 1
         label = f"tracking frame={frame_id} in={count}"
     elif mode == "prediction":
-        relative_plan = response.get("relative_plan")
-        if relative_plan is not None and intrinsic is not None:
-            plan = np.asarray(relative_plan, dtype=np.float32)
+        xyz_plan = response.get("gripper_points_xyz_plan")
+        if xyz_plan is not None and intrinsic is not None:
+            plan = np.asarray(xyz_plan, dtype=np.float32)
             plan = plan[0] if plan.ndim == 4 else plan
             future_index = frame_id - 1
             if plan.ndim == 3 and 0 <= future_index < plan.shape[0]:
-                rays = plan[future_index, :, :2]
+                xyz = plan[future_index]
                 pixels = np.stack(
                     (
-                        rays[:, 0] * intrinsic[0, 0] + intrinsic[0, 2],
-                        rays[:, 1] * intrinsic[1, 1] + intrinsic[1, 2],
+                        xyz[:, 0] / xyz[:, 2] * intrinsic[0, 0] + intrinsic[0, 2],
+                        xyz[:, 1] / xyz[:, 2] * intrinsic[1, 1] + intrinsic[1, 2],
                     ),
                     axis=-1,
                 )
@@ -262,7 +262,6 @@ async def _evaluate_samples(
     episode_id: int,
     dataset_episode_id: int,
     sample_indices: list[int],
-    execute_chunk_len: int,
     horizontal_flip: bool,
 ) -> list[dict[str, Any]]:
     dataset = make_lerobot_dataset(
@@ -295,16 +294,19 @@ async def _evaluate_samples(
                 raise KeyError(f"cameras.json has no entry for task_index={task_index}")
             intrinsic, extrinsic = cameras[task_index]
             image = _to_rgb_uint8(
-                frame_sample["observation.images.image"],
+                frame_sample["image"],
                 horizontal_flip=horizontal_flip,
             )
-            state = _to_numpy(frame_sample["observation.state"]).astype(np.float64)
+            state = _to_numpy(frame_sample["state"]).astype(np.float64)
+            metric_depth = _to_numpy(
+                frame_sample["agentview_real_depth_images"]
+            ).astype(np.float32).reshape(256, 256)
             request = {
                 "benchmark": "libero",
                 "session_id": session_id,
                 "language": str(frame_sample["task"]),
-                "execute_chunk_len": execute_chunk_len,
                 "observation.images.image": [image.tolist()],
+                "observation.depth.metric": [metric_depth.tolist()],
                 "observation.state": [state.tolist()],
                 "camera.intrinsics": [intrinsic.tolist()],
                 "camera.extrinsics": [extrinsic.tolist()],
@@ -340,7 +342,7 @@ async def _evaluate_samples(
                 future_frames.append(
                     _draw_response_points(
                         _to_rgb_uint8(
-                            future_sample["observation.images.image"],
+                            future_sample["image"],
                             horizontal_flip=horizontal_flip,
                         ),
                         response,
@@ -415,7 +417,6 @@ async def _run(args: argparse.Namespace) -> None:
                 episode_id=episode_id,
                 dataset_episode_id=dataset_episode_id,
                 sample_indices=args.samples,
-                execute_chunk_len=args.execute_chunk_len,
                 horizontal_flip=args.horizontal_flip,
             )
             for record in records:
@@ -446,26 +447,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Comma-separated episode-local frame indices.",
     )
-    parser.add_argument(
-        "--no-horizontal-flip",
-        dest="horizontal_flip",
-        action="store_false",
-        help="Disable the default left-right flip applied to dataset RGB images.",
-    )
-    parser.set_defaults(horizontal_flip=True)
-    parser.add_argument(
-        "--execute-chunk-len",
-        type=int,
-        default=int(LIBERO_MODEL_CONFIG.future_horizon),
-    )
+    parser.set_defaults(horizontal_flip=False)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     if any(sample < 0 for sample in args.samples):
         parser.error("--sample values must be non-negative")
-    if not 1 <= args.execute_chunk_len <= int(LIBERO_MODEL_CONFIG.future_horizon):
-        parser.error(
-            f"--execute-chunk-len must be in [1, {LIBERO_MODEL_CONFIG.future_horizon}]"
-        )
     return args
 
 

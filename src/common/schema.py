@@ -6,8 +6,8 @@ import json
 import os
 
 
-POINT_FEATURE_DIM = 3  # [x_n, y_n, d_rel]
-ACTOR_POINT_INDICES = (0, 1, 2, 5)
+POINT_FEATURE_DIM = 3  # camera XYZ in meters, normalized per axis
+ACTOR_POINT_INDICES = (0, 1, 2)  # root, left_base, right_base
 ACTOR_NUM_POINTS = len(ACTOR_POINT_INDICES)
 ENTITY_ROLES = ("actor", "patient", "target")
 NUM_ENTITIES = len(ENTITY_ROLES)

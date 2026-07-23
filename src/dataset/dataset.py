@@ -21,6 +21,14 @@ from .transform import Compose
 class _FeatureOnlyLeRobotDataset(LeRobotDataset):
     """LeRobot integration hook that skips camera decoding for feature-only training."""
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        requested = set(self.delta_indices or {})
+        requested.update({"episode_index", "frame_index", "task_index", "timestamp", "index"})
+        unused = [name for name in self.hf_dataset.column_names if name not in requested]
+        if unused:
+            self.hf_dataset = self.hf_dataset.remove_columns(unused)
+
     def _query_videos(
         self,
         query_timestamps: dict[str, list[float]],

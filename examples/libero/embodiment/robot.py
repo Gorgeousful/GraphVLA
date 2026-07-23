@@ -233,6 +233,16 @@ class GeomFrankaPanda:
         uvd = np.concatenate([pixels, points_camera[:, 2:3]], axis=1)
         return dict(zip(point_names, uvd))
 
+    def project_gripper_to_xyz(
+        self,
+        tcp_state: Iterable[float],
+        extrinsic: np.ndarray,
+        world_transform: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Return root, left-base and right-base points in camera coordinates."""
+        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
+        return transform_points(self._pose_keypoints_local, local_to_camera)
+
     def project_uvd_to_gripper(
         self,
         uvd_dict: dict,
@@ -285,6 +295,28 @@ class GeomFrankaPanda:
             world_transform=world_transform,
         )
 
+    def project_xyz_to_gripper(
+        self,
+        points_camera: np.ndarray,
+        gripper_width: float,
+        extrinsic: np.ndarray | None = None,
+        world_transform: np.ndarray | None = None,
+        *,
+        return_residual: bool = False,
+    ) -> np.ndarray | tuple[np.ndarray, float]:
+        """Recover a legal gripper pose from three camera-XYZ keypoints."""
+        points_camera = np.asarray(points_camera, dtype=np.float64)
+        if points_camera.shape != (3, 3):
+            raise ValueError(f"Expected root/left_base/right_base XYZ [3,3], got {points_camera.shape}")
+        return self._fit_points_to_gripper(
+            points_camera,
+            self._pose_keypoints_local,
+            gripper_width=gripper_width,
+            extrinsic=extrinsic,
+            world_transform=world_transform,
+            return_residual=return_residual,
+        )
+
     def _fit_points_to_gripper(
         self,
         points_camera: np.ndarray,
@@ -293,7 +325,8 @@ class GeomFrankaPanda:
         gripper_width: float,
         extrinsic: np.ndarray | None,
         world_transform: np.ndarray | None,
-    ) -> np.ndarray:
+        return_residual: bool = False,
+    ) -> np.ndarray | tuple[np.ndarray, float]:
         """Fit corresponding camera/local points and return the benchmark TCP state."""
 
         local_center = points_local.mean(axis=0)
@@ -306,6 +339,8 @@ class GeomFrankaPanda:
             vt[-1] *= -1
             rot = vt.T @ u.T
         trans = camera_center - rot @ local_center
+        fitted_camera = (rot @ points_local.T).T + trans
+        residual = float(np.sqrt(np.mean(np.square(fitted_camera - points_camera))))
         camera_from_gripper = np.eye(4, dtype=np.float64)
         camera_from_gripper[:3, :3] = rot
         camera_from_gripper[:3, 3] = trans
@@ -320,11 +355,12 @@ class GeomFrankaPanda:
         offset = np.eye(4, dtype=np.float64)
         offset[:3, 3] = self._TCP_OFFSET
         tcp_pose = pose @ np.linalg.inv(offset)
-        return np.concatenate([
+        result = np.concatenate([
             tcp_pose[:3, 3],
             R.from_matrix(tcp_pose[:3, :3]).as_rotvec(),
             np.asarray([gripper_width], dtype=np.float64),
         ])
+        return (result, residual) if return_residual else result
 
     #: private
     def _build_pose_keypoints_local(self) -> np.ndarray:

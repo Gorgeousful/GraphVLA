@@ -1,64 +1,53 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
+import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
+from types import SimpleNamespace
 
+from src.common.schema import NodeRole
 from src.dataset.pipeline import OfflinePipeline
-from src.dataset.pipeline import PipelineConfig
 
 
-def test_process_episode_writes_normalized_libero_gripper_openness(tmp_path: Path) -> None:
-    meta_dir = tmp_path / "meta"
-    data_dir = tmp_path / "data" / "chunk-000"
-    meta_dir.mkdir()
-    data_dir.mkdir(parents=True)
-    (meta_dir / "info.json").write_text(json.dumps({
-        "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
-        "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
-        "chunks_size": 1000,
-        "features": {"observation.images.image": {"dtype": "video"}},
-    }))
-    (meta_dir / "tasks.jsonl").write_text('{"task_index": 0, "task": "test task"}\n')
+def test_metric_backprojection_processes_all_tracked_nodes_and_repeats_valid_points() -> None:
+    pipeline = object.__new__(OfflinePipeline)
+    tracks = np.zeros((1, 2, 4, 3), dtype=np.float32)
+    tracks[0, 0, :, :2] = [[2, 2], [3, 2], [20, 2], [2, 2]]
+    tracks[0, 0, :2, 2] = 1.0
+    tracks[0, 1, :, :2] = 2.0
+    tracks[0, 1, :, 2] = 1.0
+    depth = np.ones((1, 8, 8), dtype=np.float32) * 0.5
+    intrinsic = np.asarray([[10.0, 0, 2.0], [0, 10.0, 2.0], [0, 0, 1.0]])
+    xyz, valid_node_mask = pipeline._build_node_points_xyz(tracks, depth, intrinsic)
 
-    states = [
-        [0.0] * 8,
-        [0.0] * 6 + [0.02, -0.02],
-        [0.0] * 6 + [0.04, -0.04],
+    assert valid_node_mask.tolist() == [[True, True]]
+    np.testing.assert_allclose(xyz[0, 0, :, 0], [0.0, 0.05, 0.0, 0.05], atol=1e-7)
+    np.testing.assert_allclose(xyz[0, 1], [[0.0, 0.0, 0.5]] * 4, atol=1e-7)
+
+
+def test_metric_backprojection_disables_node_without_any_valid_depth() -> None:
+    pipeline = object.__new__(OfflinePipeline)
+    tracks = np.zeros((1, 1, 4, 3), dtype=np.float32)
+    depth = np.ones((1, 8, 8), dtype=np.float32)
+    xyz, valid_node_mask = pipeline._build_node_points_xyz(tracks, depth, np.eye(3))
+    assert valid_node_mask.tolist() == [[False]]
+    assert not xyz.any()
+
+
+def test_subtask_node_mask_follows_flattened_taskstructure_order() -> None:
+    pipeline = object.__new__(OfflinePipeline)
+    pipeline.config = SimpleNamespace(dataset_type="libero", max_nodes=5)
+    actor = SimpleNamespace(role=NodeRole.ACTOR)
+    patient = SimpleNamespace(role=NodeRole.PATIENT)
+    target = SimpleNamespace(role=NodeRole.TARGET)
+    taskstructure = SimpleNamespace(subtask_list=[
+        SimpleNamespace(node_list=[actor, patient, target]),
+        SimpleNamespace(node_list=[actor, patient]),
+    ])
+    df = pd.DataFrame({"subtask_id": [1, 2]})
+
+    mask = pipeline._build_subtask_node_mask(df, taskstructure)
+
+    assert mask.tolist() == [
+        [True, True, False, False, False],
+        [False, False, True, False, False],
     ]
-    rows = len(states)
-    parquet_path = data_dir / "episode_000000.parquet"
-    pd.DataFrame({
-        "task_index": [0] * rows,
-        "observation.state": states,
-        "node_points_track": [[[[0.0, 0.0, 0.0]]]] * rows,
-        "node_points_mask": [[False]] * rows,
-        "depths_rel": [[[0.0]]] * rows,
-        "far_background_mask": [[[False]]] * rows,
-        "is_complete": [False] * rows,
-        "gripper_uvd": [[[]]] * rows,
-        "subtask_id": [0] * rows,
-    }).to_parquet(parquet_path, index=False)
-
-    pipeline = OfflinePipeline(PipelineConfig(
-        dataset_dir=tmp_path,
-        episode_selector={0: [0]},
-        overwrite={
-            "taskstructure": False,
-            "node_points_track": False,
-            "node_points_mask": False,
-            "depths_rel": False,
-            "far_background_mask": False,
-            "is_complete": False,
-            "gripper_uvd": False,
-            "gripper_openness": True,
-            "subtask_id": False,
-        },
-    ))
-    pipeline.process_episodes([0], {0: object()})
-
-    result = pq.read_table(parquet_path)
-    assert result["gripper_openness"].to_pylist() == [0.0, 0.5, 1.0]
-    assert str(result.schema.field("gripper_openness").type) == "float"

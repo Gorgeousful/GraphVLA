@@ -234,9 +234,18 @@ class DatasetStore:
             "preview_stride": max(1, round(fps / self.preview_fps)),
             "boundaries": self.boundaries(episode_index),
             "segments": segments_from_boundaries(self.boundaries(episode_index), length),
+            "completion_frames": self.completion_frames,
+            "completion_ranges": self.completion_ranges(episode_index),
             "annotated": episode_index in self.annotated_episodes,
             "completion_annotated": episode_index in self.completion_episodes,
         }
+
+    def completion_ranges(self, episode_index: int) -> list[dict[str, int]]:
+        path = self.episode_path(episode_index)
+        if "is_complete" not in pq.read_schema(path).names:
+            return []
+        values = pq.read_table(path, columns=["is_complete"])["is_complete"].to_pylist()
+        return true_ranges(values)
 
     def boundaries(self, episode_index: int) -> list[int]:
         path = self.episode_path(episode_index)
@@ -444,6 +453,18 @@ def completion_mask(
     return mask
 
 
+def true_ranges(values: list[bool] | np.ndarray) -> list[dict[str, int]]:
+    mask = np.asarray(values, dtype=np.bool_)
+    if mask.ndim != 1:
+        raise ValueError(f"Expected a 1-D completion mask, got shape {mask.shape}")
+    padded = np.pad(mask.astype(np.int8), (1, 1))
+    changes = np.flatnonzero(np.diff(padded))
+    return [
+        {"start": int(start), "end": int(end - 1)}
+        for start, end in changes.reshape(-1, 2)
+    ]
+
+
 def validate_boundaries(boundaries: list[int], length: int) -> list[int]:
     if boundaries != sorted(set(boundaries)):
         raise ValueError("boundaries must be unique and sorted")
@@ -592,8 +613,8 @@ aside,.right{padding:14px;overflow:auto;background:#141a23}.right{border-left:1p
 .episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.episode.current{background:#34465f;border-color:#6b8fbd;box-shadow:inset 3px 0 #72a7e8}.episode-status{display:flex;gap:8px;align-items:center}.persisted{color:#77d49b;font-size:12px}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
 main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow:auto}.viewer{width:min(100%,900px);background:#080a0e;border-radius:10px;overflow:hidden;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
 #frame{max-width:100%;max-height:100%;image-rendering:auto}.timeline{width:min(100%,900px);margin-top:14px}.range-wrap{position:relative;padding-bottom:15px}.range-wrap input{width:100%;margin:0}
-.marker-track{position:absolute;left:8px;right:8px;bottom:0;height:12px;pointer-events:none}.marker{position:absolute;top:0;width:3px;height:12px;transform:translateX(-1px);border-radius:2px}.marker.saved{background:#63d68b}.marker.unsaved{background:#ffad55}.marker.removed{background:#ef6b73;opacity:.8}
-.legend{display:flex;gap:14px;margin-top:5px;color:#aeb9c7;font-size:12px}.legend span:before{content:"";display:inline-block;width:9px;height:9px;margin-right:5px;border-radius:2px}.legend .saved-key:before{background:#63d68b}.legend .unsaved-key:before{background:#ffad55}.legend .removed-key:before{background:#ef6b73}
+.completion-track,.marker-track{position:absolute;left:8px;right:8px;bottom:0;height:12px;pointer-events:none}.completion-track{z-index:1}.completion-region{position:absolute;top:1px;height:10px;background:#4da3ff;opacity:.5;border-radius:3px}.marker-track{z-index:2}.marker{position:absolute;top:0;width:3px;height:12px;transform:translateX(-1px);border-radius:2px}.marker.saved{background:#63d68b}.marker.unsaved{background:#ffad55}.marker.removed{background:#ef6b73;opacity:.8}
+.legend{display:flex;gap:14px;margin-top:5px;color:#aeb9c7;font-size:12px}.legend span:before{content:"";display:inline-block;width:9px;height:9px;margin-right:5px;border-radius:2px}.legend .completion-key:before{background:#4da3ff;opacity:.65}.legend .saved-key:before{background:#63d68b}.legend .unsaved-key:before{background:#ffad55}.legend .removed-key:before{background:#ef6b73}
 .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.frame-label{font-variant-numeric:tabular-nums;min-width:190px}
 .boundary{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:#202936;border-radius:7px;padding:8px;margin:6px 0}.boundary-thumbnail{grid-column:1/-1;width:100%;max-height:220px;object-fit:contain;background:#080a0e;border-radius:5px}.segment{font-size:13px;color:#b9c4d2;padding:5px 0;border-bottom:1px solid #293342}
 .primary{background:#246bce;border-color:#347be0}.danger{background:#7b2930}.message{min-height:24px;color:#7ed79f;margin-top:10px}.save-all{width:100%;margin-top:14px}
@@ -601,8 +622,8 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <header><h1>LeRobot Subtask Boundary Annotator</h1><label>Task <select id="task"></select></label><span id="taskProgress"></span></header>
 <div class="layout"><aside class="episodes"><b>Episodes</b><div id="episodes"></div></aside>
 <main><div class="viewer"><img id="frame" alt="Episode frame"></div><div class="timeline">
-<div class="range-wrap"><input id="slider" type="range" min="0" value="0" step="1"><div id="markers" class="marker-track"></div></div>
-<div class="legend"><span class="saved-key">Saved boundary</span><span class="unsaved-key">Unsaved boundary</span><span class="removed-key">Pending removal</span></div>
+<div class="range-wrap"><input id="slider" type="range" min="0" value="0" step="1"><div id="completion" class="completion-track"></div><div id="markers" class="marker-track"></div></div>
+<div class="legend"><span class="completion-key">is_complete</span><span class="saved-key">Saved boundary</span><span class="unsaved-key">Unsaved boundary</span><span class="removed-key">Pending removal</span></div>
 <div class="controls"><button id="play">▶ Play</button><button id="prev">← Frame</button><button id="next">Frame →</button><span class="frame-label" id="frameLabel"></span><button class="primary" id="add">Add Boundary at Current Frame</button></div>
 </div></main>
 <aside class="right"><b>Boundaries (this frame starts the next subtask)</b><div id="boundaries"></div><h3>Full-frame Segments</h3><div id="segments"></div>
@@ -633,7 +654,8 @@ function updateDraft(){const id=detail.episode_index;drafts.set(id,[...boundarie
 function renderAnnotation(){renderBoundaries();renderSegments();renderMarkers()}
 function renderBoundaries(){const box=$('boundaries');box.innerHTML='';const saved=savedByEpisode.get(detail.episode_index)||[];for(const value of boundaries){const row=document.createElement('div');row.className='boundary';const label=document.createElement('span');label.textContent='Frame '+value+' → subtask '+(boundaries.indexOf(value)+2)+(saved.includes(value)?' (saved)':' (unsaved)');const remove=document.createElement('button');remove.className='danger';remove.textContent='Remove';remove.onclick=()=>{boundaries=boundaries.filter(item=>item!==value);updateDraft()};const thumbnail=document.createElement('img');thumbnail.className='boundary-thumbnail';thumbnail.loading='lazy';thumbnail.alt='Agent-view RGB at frame '+value;thumbnail.src='/api/episodes/'+detail.episode_index+'/frames/'+value;row.append(label,remove,thumbnail);box.appendChild(row)}}
 function renderSegments(){const starts=[0,...boundaries],ends=[...boundaries.map(value=>value-1),detail.length-1];$('segments').innerHTML=starts.map((start,index)=>'<div class="segment">subtask '+(index+1)+': frame '+start+'–'+ends[index]+'</div>').join('')}
-function renderMarkers(){const saved=savedByEpisode.get(detail.episode_index)||[],currentSet=new Set(boundaries),savedSet=new Set(saved),all=[...new Set([...saved,...boundaries])].sort((a,b)=>a-b),max=Math.max(1,detail.length-1),box=$('markers');box.innerHTML='';for(const value of all){const marker=document.createElement('span');const state=currentSet.has(value)?(savedSet.has(value)?'saved':'unsaved'):'removed';marker.className='marker '+state;marker.style.left=(value/max*100)+'%';marker.title=(state==='saved'?'Saved boundary':state==='unsaved'?'Unsaved boundary':'Saved boundary pending removal')+' at frame '+value;box.appendChild(marker)}}
+function completionRangesFromBoundaries(values=boundaries){const starts=[0,...values],ends=[...values,detail.length];return starts.map((start,index)=>({start:Math.max(start,ends[index]-detail.completion_frames),end:ends[index]-1}))}
+function renderMarkers(){const id=detail.episode_index,completionBox=$('completion'),ranges=(edited.has(id)||completionPending.has(id))?completionRangesFromBoundaries():(detail.completion_ranges||[]);completionBox.innerHTML='';for(const range of ranges){const region=document.createElement('span');region.className='completion-region';region.style.left=(range.start/detail.length*100)+'%';region.style.width=((range.end-range.start+1)/detail.length*100)+'%';region.title='is_complete=true · frame '+range.start+'–'+range.end;completionBox.appendChild(region)}const saved=savedByEpisode.get(id)||[],currentSet=new Set(boundaries),savedSet=new Set(saved),all=[...new Set([...saved,...boundaries])].sort((a,b)=>a-b),max=Math.max(1,detail.length-1),box=$('markers');box.innerHTML='';for(const value of all){const marker=document.createElement('span');const state=currentSet.has(value)?(savedSet.has(value)?'saved':'unsaved'):'removed';marker.className='marker '+state;marker.style.left=(value/max*100)+'%';marker.title=(state==='saved'?'Saved boundary':state==='unsaved'?'Unsaved boundary':'Saved boundary pending removal')+' at frame '+value;box.appendChild(marker)}}
 async function saveAll(){
   stashCurrent();const ids=dirtyIds();
   if(!ids.length){$('message').textContent='There are no unsaved changes.';return}
@@ -654,7 +676,7 @@ async function saveAll(){
         if(event.status==='saved'){
           const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);completionByEpisode.set(id,true);completionPending.delete(id);
           if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
-          if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.annotated=true;renderAnnotation()}
+          if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.completion_ranges=completionRangesFromBoundaries(submitted);detail.annotated=true;renderAnnotation()}
           metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
           $('message').textContent='Saved episode '+id+' ('+event.completed+' / '+event.total+').';
         }else if(event.status==='failed'){

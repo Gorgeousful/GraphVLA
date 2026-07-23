@@ -11,10 +11,8 @@ from src.dataset.transform import (
     RepackTransform,
     Normalize,
     CustomTransform,
-    FlattenTransform,
     SubtaskBoundryPadding,
 )
-from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 
 
 def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
@@ -63,11 +61,7 @@ class DataConfig:
             "out_transforms": self.out_transforms,
         }
 
-
-LIBERO_DATASET_DIR = Path(
-    "/data0/luokang/dataset/luokang/lerobot/libero/"
-    "libero_31_no_noops_1.0.0_lerobot_10hz"
-)
+LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7"
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -83,15 +77,15 @@ LIBERO_REPACK = {
     },
     "subtask_id": "subtask_id",
     "is_complete": "is_complete",
-    "depths.depth_rel": "depths_rel",
-    "node_points_track": "node_points_track",
-    "node_points_mask": "node_points_mask",
-    "gripper_uvd": "gripper_uvd",
-    "gripper_openness": "gripper_openness",
-    "action": "action",
+    "node_points_xyz": "node_points_xyz",
+    "valid_node_mask": "valid_node_mask",
+    "subtask_node_mask": "subtask_node_mask",
+    "gripper_points_xyz": "gripper_points_xyz",
+    "state": "state",
+    "action": "actions",
 }
 
-LIBERO_HISTORY_HORIZON = 19
+LIBERO_HISTORY_HORIZON = 9
 LIBERO_FUTURE_HORIZON = 10
 LIBERO_HORIZON = {
     # "observation.images.image": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
@@ -101,12 +95,12 @@ LIBERO_HORIZON = {
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "is_complete": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "node_points_track": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "node_points_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "gripper_uvd": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "gripper_openness": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "action": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "depths_rel": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "node_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "subtask_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "gripper_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "actions": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
 LIBERO_TRANSFORM = (
@@ -115,22 +109,17 @@ LIBERO_TRANSFORM = (
     AddHorizon(history_horizon=LIBERO_HISTORY_HORIZON, future_horizon=LIBERO_FUTURE_HORIZON),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
 
-    CustomTransform(mode="split_gripper_uvd"),
-    FlattenTransform(fields=("depths.depth_rel", "gripper_d")),
     Normalize(
-        norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"), 
-        use_quantiles=True, 
-        quantile_to_neg_one_one=True
+        norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz"},
+        use_quantiles=True,
+        quantile_to_neg_one_one=True,
     ),
     SubtaskBoundryPadding(),
 
     CustomTransform(
         mode="build_model_input",
         dataset_dir=LIBERO_DATASET_DIR,
-        extra={
-            "use_delta": LIBERO_MODEL_CONFIG.use_delta,
-            "ray_scale": LIBERO_MODEL_CONFIG.ray_scale,
-        },
     ),
 )
 
@@ -141,7 +130,6 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
-            "ray_scale": LIBERO_MODEL_CONFIG.ray_scale,
         },
     ),
 )

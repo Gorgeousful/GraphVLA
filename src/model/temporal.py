@@ -49,6 +49,7 @@ class RotaryAttention(nn.Module):
         key_value: torch.Tensor,
         query_positions: torch.Tensor,
         key_positions: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         batch, query_length, hidden_dim = query.shape
         key_length = key_value.shape[1]
@@ -58,6 +59,15 @@ class RotaryAttention(nn.Module):
         q = apply_rope(q, query_positions)
         k = apply_rope(k, key_positions)
         scores = torch.einsum("bqhd,bkhd->bhqk", q, k) / math.sqrt(self.head_dim)
+        if attention_mask is not None:
+            mask = attention_mask.to(device=scores.device, dtype=torch.bool)
+            if mask.ndim == 2:
+                mask = mask[None, None]
+            elif mask.ndim == 3:
+                mask = mask[:, None]
+            else:
+                raise ValueError(f"Expected attention mask [Q,K] or [B,Q,K], got {mask.shape}")
+            scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
         weights = self.attention_dropout(scores.softmax(dim=-1))
         output = torch.einsum("bhqk,bkhd->bqhd", weights, v).reshape(batch, query_length, hidden_dim)
         return self.output_projection(output)
@@ -124,9 +134,12 @@ class RotaryFlowBlock(nn.Module):
         condition: torch.Tensor,
         token_positions: torch.Tensor,
         memory_positions: torch.Tensor,
+        self_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         normalized, gate = self.self_norm(token, condition)
-        update = self.self_attention(normalized, normalized, token_positions, token_positions)
+        update = self.self_attention(
+            normalized, normalized, token_positions, token_positions, self_attention_mask
+        )
         token = token + self.residual_dropout(update) * gate
         normalized, gate = self.cross_norm(token, condition)
         update = self.cross_attention(normalized, memory, token_positions, memory_positions)

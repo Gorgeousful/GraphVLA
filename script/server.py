@@ -28,20 +28,17 @@ from scipy.spatial.transform import Rotation as R
 from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
-from src.module.node_locator import NodeLocatorRobo
-from src.module.depth_predictor import DepthPredictorSTream3R
+from src.module.node_locator import NodeLocatorLA
 from src.module.node_segmenter import NodeSegmenter
 from src.module.point_tracker import PointTracker
-from src.common.geom_utils import sample_points_from_mask, uv_to_normalized_ray
+from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
     ACTOR_NUM_POINTS,
-    ACTOR_POINT_INDICES,
     ENTITY_ROLES,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
 )
-from src.module.scale_estimator import RawDepthShiftCalibrator
 
 
 cs = Console()
@@ -50,8 +47,8 @@ REQUIRED_REQUEST_FIELDS = (
     "benchmark",
     "session_id",
     "language",
-    "execute_chunk_len",
     "observation.images.image",
+    "observation.depth.metric",
     "observation.state",
     "camera.intrinsics",
     "camera.extrinsics",
@@ -67,6 +64,7 @@ class Args:
     device: str
     bge_path: str
     task_analyzer_api_key: str | None
+    execute_chunk_len: int = 5
     seed: int = 42
     complete_threshold: float = 0.5
     complete_window: int = 3
@@ -76,6 +74,7 @@ class Args:
 @dataclass
 class ObservationFrame:
     image: np.ndarray
+    metric_depth: np.ndarray
     state: np.ndarray
     intrinsic: np.ndarray
     extrinsic: np.ndarray
@@ -90,6 +89,7 @@ class InferenceSession:
     taskstructure: dict[str, Any] | None = None
     subtask_index: int = 0
     task_complete: bool = False
+    release_pending: bool = False
     complete_streak: int = 0
     gripper_command: float = 0.0
     feature_history: list[dict[str, np.ndarray]] = field(default_factory=list)
@@ -97,13 +97,9 @@ class InferenceSession:
     object_nodes: list[dict[str, Any]] = field(default_factory=list)
     active_object_indices: list[int] = field(default_factory=list)
     object_segmenter: Any = None
-    table_segmenter: Any = None
     point_tracker: Any = None
-    depth_predictor: Any = None
-    depth_calibrator: Any = None
     tracked_points: np.ndarray | None = None
-    robobrain_points: np.ndarray | None = None
-    table_mask: np.ndarray | None = None
+    initial_points: np.ndarray | None = None
 
     def reset(self, *, benchmark: str, language: str) -> None:
         self.benchmark = benchmark
@@ -112,6 +108,7 @@ class InferenceSession:
         self.taskstructure = None
         self.subtask_index = 0
         self.task_complete = False
+        self.release_pending = False
         self.complete_streak = 0
         self.gripper_command = 0.0
         self.reset_preprocessor()
@@ -122,13 +119,9 @@ class InferenceSession:
         self.object_nodes.clear()
         self.active_object_indices.clear()
         self.object_segmenter = None
-        self.table_segmenter = None
         self.point_tracker = None
-        self.depth_predictor = None
-        self.depth_calibrator = None
         self.tracked_points = None
-        self.robobrain_points = None
-        self.table_mask = None
+        self.initial_points = None
 
 
 #: =======================================================
@@ -169,14 +162,14 @@ class TopLevelTaskPlanner:
         outputs: Mapping[str, Any],
         session: InferenceSession,
     ) -> bool:
-        if session.task_complete or session.taskstructure is None:
+        if session.task_complete or session.release_pending or session.taskstructure is None:
             return False
 
         frame_scores = self._completion_frame_scores(outputs)
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for frame_id, score in frame_scores:
-            score_text = f"{subtask_label} f={frame_id} complete_score={score:.4f}"
+            score_text = f"step={session.frame_index} {subtask_label} f={frame_id} complete_score={score:.4f}"
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
                 session.complete_streak += 1
@@ -185,11 +178,17 @@ class TopLevelTaskPlanner:
                 session.complete_streak = 0
 
             if session.complete_streak >= self.complete_window:
-                return self._advance_subtask(session)
+                session.complete_streak = 0
+                session.release_pending = True
+                return True
         return False
 
-    def _advance_subtask(self, session: InferenceSession) -> bool:
+    def advance_after_release(self, session: InferenceSession) -> bool:
+        if not session.release_pending:
+            return False
+
         subtasks = session.taskstructure.get("subtasks", [])
+        session.release_pending = False
         session.complete_streak = 0
         if session.subtask_index + 1 >= len(subtasks):
             session.task_complete = True
@@ -258,16 +257,12 @@ class InputPreprocessor:
         num_points: int,
         robot_cls: type[Any],
         dataset_dir: str | Path,
-        ray_scale: float = 1.0,
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_horizon = history_horizon
         self.future_horizon = future_horizon
         self.num_points = num_points
         self.robot_cls = robot_cls
-        if ray_scale <= 0.0:
-            raise ValueError(f"ray_scale must be positive, got {ray_scale}")
-        self.ray_scale = float(ray_scale)
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.sam3_model = None
@@ -294,15 +289,14 @@ class InputPreprocessor:
         else:
             self._update_perception(session, frame)
 
-        depth = self._predict_depth(session, frame)
-        gripper_uvd = self._state_to_gripper_uvd(frame)
+        gripper_points_xyz = self._state_to_gripper_points_xyz(frame)
         if session.tracked_points is None:
             raise RuntimeError("tracked_points is missing after perception update")
         features = {
             "tracks": np.asarray(session.tracked_points, dtype=np.float32),
-            "depth": np.asarray(depth, dtype=np.float32),
-            "gripper_uvd": np.asarray(gripper_uvd, dtype=np.float32),
-            "gripper_openness": self._state_to_gripper_openness(frame),
+            "metric_depth": np.asarray(frame.metric_depth, dtype=np.float32),
+            "gripper_points_xyz": np.asarray(gripper_points_xyz, dtype=np.float32),
+            "closedness": self._state_to_closedness(frame),
             "intrinsic": np.asarray(frame.intrinsic, dtype=np.float32),
         }
         session.frame_index += 1
@@ -314,13 +308,13 @@ class InputPreprocessor:
         session.object_nodes = self._task_object_nodes(session.taskstructure)
         point_prompts = None
         if session.object_nodes:
-            node_locator = NodeLocatorRobo(device_map=self._device("node_locator"))
+            node_locator = NodeLocatorLA(device_map=self._device("node_locator"))
             try:
                 point_prompts = []
                 for node in session.object_nodes:
                     points = self._locate_node_points(node_locator, frame.image, node["name"])
                     cs.print(
-                        f"robobrain node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
+                        f"node locator node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
                         markup=False,
                     )
                     point_prompts.append(points)
@@ -329,13 +323,12 @@ class InputPreprocessor:
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            session.robobrain_points = np.asarray(point_prompts, dtype=np.float32)
+            session.initial_points = np.asarray(point_prompts, dtype=np.float32)
 
         sam3_device = self._device("sam3")
         if self.sam3_model is None:
             self.sam3_model = NodeSegmenter(device=sam3_device).model
         session.object_segmenter = NodeSegmenter(device=sam3_device, model=self.sam3_model)
-        session.table_segmenter = NodeSegmenter(device=sam3_device, model=self.sam3_model)
 
         if session.object_nodes:
             session.point_tracker = PointTracker(device=self._device("point_tracker"))
@@ -349,66 +342,28 @@ class InputPreprocessor:
         else:
             session.tracked_points = np.zeros((0, self.num_points, 3), dtype=np.float32)
 
-        table_masks = session.table_segmenter.predict(frame.image, prompt="table", anchor_frame=True)
-        session.table_mask = self._largest_mask(table_masks, frame.image.shape[:2])
-
     def _update_perception(self, session: InferenceSession, frame: ObservationFrame) -> None:
         if session.object_segmenter is not None and session.object_nodes:
             session.object_segmenter.predict(frame.image, anchor_frame=False)
-        if session.table_segmenter is not None:
-            table_masks = session.table_segmenter.predict(frame.image, anchor_frame=False)
-            session.table_mask = self._largest_mask(table_masks, frame.image.shape[:2])
         if session.point_tracker is not None and session.object_nodes:
             session.tracked_points = self._pack_tracks(session.point_tracker.track(frame.image, anchor_frame=False))
 
-    def _predict_depth(self, session: InferenceSession, frame: ObservationFrame) -> np.ndarray:
-        if session.depth_predictor is None:
-            session.depth_predictor = DepthPredictorSTream3R(device=self._device("depth_predictor"))
-        output = session.depth_predictor.predict(frame.image, anchor_frame=(session.frame_index == 0))
-        depth = output[0] if isinstance(output, tuple) else output
-        depth = np.asarray(depth, dtype=np.float32)
-        if session.table_mask is None:
-            return self._normalize_field(depth, "depths.depth_rel")
-        if session.depth_calibrator is None:
-            session.depth_calibrator = RawDepthShiftCalibrator(depth, session.table_mask)
-            return self._normalize_field(depth, "depths.depth_rel")
-        try:
-            depth = session.depth_calibrator.calibrate(depth, session.table_mask)
-        except ValueError:
-            pass
-        return self._normalize_field(depth, "depths.depth_rel")
-
-    def _state_to_gripper_uvd(self, frame: ObservationFrame) -> np.ndarray:
+    def _state_to_gripper_points_xyz(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
         if state.size < 8:
             raise ValueError(f"observation.state must contain at least 8 values, got {state.size}")
-        gripper_width = abs(float(state[6])) + abs(float(state[7]))
-        output = self._robot().project_gripper_to_uvd(
+        return self._robot().project_gripper_to_xyz(
             tcp_state=state[:6],
-            intrinsic=frame.intrinsic,
             extrinsic=frame.extrinsic,
-            gripper_width=gripper_width,
         )
-        return np.stack([
-            np.asarray(output[key], dtype=np.float32)
-            for key in (
-                "root_uvd",
-                "left_base_uvd",
-                "right_base_uvd",
-                "left_fingertip_uvd",
-                "right_fingertip_uvd",
-                "tcp_uvd",
-            )
-        ])
 
     @staticmethod
-    def _state_to_gripper_openness(frame: ObservationFrame) -> np.ndarray:
+    def _state_to_closedness(frame: ObservationFrame) -> np.ndarray:
         if frame.state.size < 8:
             raise ValueError(f"observation.state must contain at least 8 values, got {frame.state.size}")
         width = abs(float(frame.state[6])) + abs(float(frame.state[7]))
-        return np.asarray(
-            np.clip(width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0), dtype=np.float32
-        )
+        openness = np.clip(width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0)
+        return np.asarray(1.0 - 2.0 * openness, dtype=np.float32)
 
     def _build_model_input(
         self,
@@ -416,14 +371,14 @@ class InputPreprocessor:
         frames: list[dict[str, np.ndarray]],
         subtaskstructure: Mapping[str, Any],
     ) -> dict[str, Any]:
-        height, width = frames[-1]["depth"].shape
+        height, width = frames[-1]["metric_depth"].shape
         session.active_object_indices = self._subtask_object_indices(session, subtaskstructure)
         active_roles = [str(node.get("role", "")) for node in self._object_nodes(subtaskstructure)][:2]
         object_points = np.stack(
             [
                 self._object_feats(
                     self._active_tracks(item["tracks"], session.active_object_indices),
-                    active_roles, item["depth"], item["intrinsic"],
+                    active_roles, item["metric_depth"], frames[-1]["intrinsic"],
                     height,
                     width,
                 )
@@ -431,21 +386,19 @@ class InputPreprocessor:
             ],
             axis=0,
         )
-        actor_features = [
-            self._actor_feats(item["gripper_uvd"], item["depth"], item["intrinsic"], height, width)
-            for item in frames
-        ]
-        actor_relative = np.stack([item[0] for item in actor_features], axis=0)
-        actor_metric = np.stack([item[1] for item in actor_features], axis=0)
+        actor_xyz = np.stack([
+            self._normalize_field(item["gripper_points_xyz"], "camera_xyz") for item in frames
+        ], axis=0)
         entity_points = np.zeros(
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
         entity_mask = np.zeros((len(frames), 3, self.num_points), dtype=bool)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_relative
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_xyz
         entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
+        object_valid = np.any(object_points != 0, axis=(-1, -2))
         for object_index in range(2):
-            entity_mask[:, object_index + 1] = np.any(object_points[:, object_index] != 0)
+            entity_mask[:, object_index + 1] = object_valid[:, object_index, None]
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
         scene_condition_texts = [action_type, action_degree]
@@ -453,11 +406,9 @@ class InputPreprocessor:
         return {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
-            "actor_metric_history": actor_metric[None].tolist(),
-            "gripper_closedness_history": np.asarray([
-                1.0 - 2.0 * item["gripper_openness"] for item in frames
-            ], dtype=np.float32).reshape(1, len(frames), 1).tolist(),
-            "robot_metric_mask": [[True]],
+            "gripper_closedness_history": np.asarray(
+                [item["closedness"] for item in frames], dtype=np.float32
+            ).reshape(1, len(frames), 1).tolist(),
             "scene_condition_texts": scene_condition_texts,
             "entity_role_condition_texts": entity_role_condition_texts,
         }
@@ -470,6 +421,11 @@ class InputPreprocessor:
             self._array(request["observation.images.image"], name="observation.images.image", dtype=np.uint8),
             name="observation.images.image",
             single_ndim={2, 3},
+        )
+        metric_depths = self._as_frame_sequence(
+            self._array(request["observation.depth.metric"], name="observation.depth.metric", dtype=np.float32),
+            name="observation.depth.metric",
+            single_ndim={2},
         )
         states = self._as_frame_sequence(
             self._array(request["observation.state"], name="observation.state", dtype=np.float64),
@@ -487,20 +443,24 @@ class InputPreprocessor:
             single_shape=(4, 4),
         )
 
-        target_len = max(len(images), len(states), len(intrinsics), len(extrinsics))
+        target_len = max(len(images), len(metric_depths), len(states), len(intrinsics), len(extrinsics))
         images = self._broadcast_frames(images, target_len, name="observation.images.image")
+        metric_depths = self._broadcast_frames(metric_depths, target_len, name="observation.depth.metric")
         states = self._broadcast_frames(states, target_len, name="observation.state")
         intrinsics = self._broadcast_frames(intrinsics, target_len, name="camera.intrinsics")
         extrinsics = self._broadcast_frames(extrinsics, target_len, name="camera.extrinsics")
 
         return [
             ObservationFrame(
-                image=image,
+                image=np.ascontiguousarray(image),
+                metric_depth=np.ascontiguousarray(metric_depth),
                 state=state,
                 intrinsic=intrinsic,
                 extrinsic=extrinsic,
             )
-            for image, state, intrinsic, extrinsic in zip(images, states, intrinsics, extrinsics, strict=True)
+            for image, metric_depth, state, intrinsic, extrinsic in zip(
+                images, metric_depths, states, intrinsics, extrinsics, strict=True
+            )
         ]
 
     def _as_frame_sequence(
@@ -552,14 +512,14 @@ class InputPreprocessor:
 
     def _locate_node_points(
         self,
-        node_locator: NodeLocatorRobo,
+        node_locator: Any,
         image: np.ndarray,
         node_name: str,
     ) -> list[list[float]]:
         result = node_locator.inference(text=node_name, image=Image.fromarray(image))
         points = result.get("points") or []
         if not points:
-            raise RuntimeError(f"NodeLocatorRobo found no points for node={node_name!r}")
+            raise RuntimeError(f"Node locator found no points for node={node_name!r}")
         return self._locator_points_to_pixels(points, image.shape[:2])
 
     @staticmethod
@@ -595,16 +555,9 @@ class InputPreprocessor:
 
     def _task_object_nodes(self, taskstructure: Mapping[str, Any]) -> list[dict[str, Any]]:
         nodes = []
-        seen_names = set()
         for subtask in taskstructure.get("subtasks", []):
-            if not isinstance(subtask, Mapping):
-                continue
-            for node in self._object_nodes(subtask):
-                name = str(node.get("name", ""))
-                if not name or name in seen_names:
-                    continue
-                seen_names.add(name)
-                nodes.append(node)
+            if isinstance(subtask, Mapping):
+                nodes.extend(self._object_nodes(subtask))
         return nodes
 
     def _subtask_object_indices(
@@ -612,13 +565,16 @@ class InputPreprocessor:
         session: InferenceSession,
         subtaskstructure: Mapping[str, Any],
     ) -> list[int]:
-        by_name = {str(node.get("name", "")): index for index, node in enumerate(session.object_nodes)}
-        indices = []
-        for node in self._object_nodes(subtaskstructure):
-            name = str(node.get("name", ""))
-            if name in by_name:
-                indices.append(by_name[name])
-        return indices[:2]
+        if session.taskstructure is None:
+            raise RuntimeError("taskstructure is required to resolve subtask object indices")
+        subtasks = session.taskstructure.get("subtasks", [])
+        object_start = sum(
+            len(self._object_nodes(subtask))
+            for subtask in subtasks[:session.subtask_index]
+            if isinstance(subtask, Mapping)
+        )
+        object_count = len(self._object_nodes(subtaskstructure))
+        return list(range(object_start, object_start + object_count))[:2]
 
     @staticmethod
     def _active_tracks(tracks: np.ndarray, active_indices: list[int]) -> np.ndarray:
@@ -649,35 +605,31 @@ class InputPreprocessor:
         count = min(tracks.shape[0], 2)
         if count == 0:
             return points
-        uv = tracks[:count, :, :2]
-        sampled_depth, _ = self._sample_depth(depth, uv, height, width)
-        rays = uv_to_normalized_ray(uv, intrinsic) * self.ray_scale
         for source_index, role in enumerate(roles[:count]):
             target_index = 0 if role == "patient" else (1 if role == "target" else source_index)
             if target_index >= 2:
                 continue
-            points[target_index, :, :2] = rays[source_index]
-            points[target_index, :, 2:3] = sampled_depth[source_index]
+            uv = tracks[source_index, :, :2]
+            sampled_depth, in_bounds = self._sample_depth(depth, uv, height, width)
+            valid = (
+                (tracks[source_index, :, 2] > 0.5)
+                & in_bounds[:, 0].astype(bool)
+                & np.isfinite(sampled_depth[:, 0])
+                & (sampled_depth[:, 0] > 0.0)
+            )
+            valid_indices = np.flatnonzero(valid)
+            if valid_indices.size == 0:
+                continue
+            selected = np.resize(valid_indices, self.num_points)
+            selected_uv = uv[selected]
+            z = sampled_depth[selected, 0]
+            xyz = np.stack([
+                (selected_uv[:, 0] - intrinsic[0, 2]) / intrinsic[0, 0] * z,
+                (selected_uv[:, 1] - intrinsic[1, 2]) / intrinsic[1, 1] * z,
+                z,
+            ], axis=-1)
+            points[target_index] = self._normalize_field(xyz, "camera_xyz")
         return points
-
-    def _actor_feats(
-        self,
-        gripper_uvd: np.ndarray,
-        depth: np.ndarray,
-        intrinsic: np.ndarray,
-        height: int,
-        width: int,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        if gripper_uvd.shape != (6, 3):
-            raise ValueError(f"Expected gripper_uvd [6, 3], got {gripper_uvd.shape}")
-        uv = gripper_uvd[:, :2]
-        sampled_depth, _ = self._sample_depth(depth, uv, height, width)
-        sampled_depth[5] = sampled_depth[3:5].mean(axis=0)
-        indices = np.asarray(ACTOR_POINT_INDICES, dtype=np.int64)
-        ray = (uv_to_normalized_ray(uv, intrinsic) * self.ray_scale)[indices]
-        relative = np.concatenate([ray, sampled_depth[indices]], axis=-1)
-        metric_z = self._normalize_field(gripper_uvd[:, 2:3], "gripper_d")[indices]
-        return relative, metric_z
 
     @staticmethod
     def _sample_depth(depth: np.ndarray, uv: np.ndarray, height: int, width: int) -> tuple[np.ndarray, np.ndarray]:
@@ -754,13 +706,12 @@ class EmbodimentAdapter:
     ) -> tuple[list[list[float]], list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        required_outputs = {"relative_plan", "metric_z_plan", "gripper_action_plan"}
+        required_outputs = {"gripper_points_xyz_plan", "gripper_action_plan"}
         missing_outputs = required_outputs.difference(outputs)
         if missing_outputs:
             raise KeyError(f"Model outputs are missing required heads: {sorted(missing_outputs)}")
 
-        relative = np.asarray(outputs["relative_plan"], dtype=np.float32)[0]
-        metric_z = np.asarray(outputs["metric_z_plan"], dtype=np.float32)[0]
+        gripper_points_xyz = np.asarray(outputs["gripper_points_xyz_plan"], dtype=np.float32)[0]
         gripper_actions = np.asarray(outputs["gripper_action_plan"], dtype=np.float32)[0].reshape(-1)
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
         state = np.asarray(request["observation.state"], dtype=np.float64)
@@ -769,15 +720,18 @@ class EmbodimentAdapter:
 
         actions = []
         gripper_widths = []
+        residuals = []
         for future_index in range(self.future_horizon):
-            ray_depth = np.concatenate([relative[future_index, :, :2], metric_z[future_index]], axis=-1)
-            if not np.isfinite(ray_depth).all() or np.any(ray_depth[:, 2] <= 1e-6):
-                raise ValueError(f"Invalid actor ray-depth at future index {future_index}: {ray_depth}")
-            action = self._robot().project_ray_depth_to_gripper(
-                ray_depth,
+            points = gripper_points_xyz[future_index]
+            if points.shape != (ACTOR_NUM_POINTS, 3) or not np.isfinite(points).all():
+                raise ValueError(f"Invalid gripper XYZ at future index {future_index}: {points}")
+            action, residual = self._robot().project_xyz_to_gripper(
+                points,
                 gripper_width=current_width,
                 extrinsic=extrinsic,
+                return_residual=True,
             )
+            residuals.append(residual)
             gripper_widths.append(current_width)
             action = self._to_libero_pose(action)
             predicted_command = float(np.clip(gripper_actions[future_index], -1.0, 1.0))
@@ -790,7 +744,25 @@ class EmbodimentAdapter:
 
         if len(actions) != self.future_horizon:
             raise RuntimeError(f"Expected {self.future_horizon} actions, got {len(actions)}")
+        cs.print(f"step={session.frame_index} gripper SVD residual mean={np.mean(residuals):.6f} max={np.max(residuals):.6f}")
         return actions, gripper_widths
+
+    def release_actions(
+        self,
+        request: Mapping[str, Any],
+        session: InferenceSession,
+        chunk_len: int,
+    ) -> list[list[float]]:
+        state = np.asarray(request["observation.state"], dtype=np.float64)
+        state = state[-1] if state.ndim == 2 else state
+        if state.size < 6:
+            raise ValueError(f"observation.state must contain at least 6 values, got {state.size}")
+        action = np.zeros(7, dtype=np.float64)
+        action[:6] = state[:6]
+        action = self._to_libero_pose(action)
+        action[6] = -1.0
+        session.gripper_command = -1.0
+        return [action.astype(np.float32).tolist() for _ in range(chunk_len)]
 
     def _robot(self) -> Any:
         if self.robot is None:
@@ -899,9 +871,7 @@ class InferenceModel:
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
             "scene_condition": scene_condition,
             "entity_role_condition": entity_role_condition,
-            "actor_metric_history": tensor("actor_metric_history", torch.float32),
             "gripper_closedness_history": tensor("gripper_closedness_history", torch.float32),
-            "robot_metric_mask": tensor("robot_metric_mask", torch.bool),
         }
         outputs = self.model.sample(infer_inputs)
         output_data = {"outputs": outputs, "batch": infer_inputs}
@@ -957,6 +927,7 @@ class InferenceServer:
         host: str,
         port: int,
         planner: TopLevelTaskPlanner,
+        execute_chunk_len: int,
         preprocessor: InputPreprocessor,
         inference: InferenceModel,
         embodiment: EmbodimentAdapter,
@@ -964,6 +935,12 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.planner = planner
+        if not 1 <= execute_chunk_len <= embodiment.future_horizon:
+            raise ValueError(
+                f"execute_chunk_len must be in [1, {embodiment.future_horizon}], "
+                f"got {execute_chunk_len}"
+            )
+        self.execute_chunk_len = int(execute_chunk_len)
         self.preprocessor = preprocessor
         self.inference = inference
         self.embodiment = embodiment
@@ -1006,50 +983,66 @@ class InferenceServer:
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
         self._validate_request(request)
         session = self._session_for(request)
-        execute_chunk_len = int(request["execute_chunk_len"])
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
         current_features = session.feature_history[-1]
 
+        subtask_switched = False
+        if session.release_pending:
+            subtask_switched = self.planner.advance_after_release(session)
+            if subtask_switched:
+                self.preprocessor._append_feature_history(session, current_features)
+                subtaskstructure = self.planner.plan(request, session)
+                model_input = self.preprocessor._build_model_input(
+                    session,
+                    self.preprocessor._feature_window(session),
+                    subtaskstructure,
+                )
+
         return_model_input = bool(request.get("return_model_input", False))
-        outputs, captured_model_input = self._infer_model(
-            model_input,
-            return_model_input=return_model_input,
-        )
-        subtask_switched = self.planner.update_after_inference(outputs, session)
-        if subtask_switched:
-            self.preprocessor._append_feature_history(session, current_features)
-            subtaskstructure = self.planner.plan(request, session)
-            model_input = self.preprocessor._build_model_input(
-                session,
-                self.preprocessor._feature_window(session),
-                subtaskstructure,
-            )
+        release_requested = False
+        if session.task_complete:
+            outputs = {}
+            captured_model_input = None
+        else:
             outputs, captured_model_input = self._infer_model(
                 model_input,
                 return_model_input=return_model_input,
             )
+            release_requested = self.planner.update_after_inference(outputs, session)
 
-        actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
-        executed_actions = actions[:execute_chunk_len]
+        if release_requested or session.task_complete:
+            executed_actions = self.embodiment.release_actions(
+                request,
+                session,
+                self.execute_chunk_len,
+            )
+        else:
+            actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
+            executed_actions = actions[:self.execute_chunk_len]
         gripper_actions = [float(action[-1]) for action in executed_actions]
         cs.print(
-            f"gripper_action[{len(gripper_actions)}]={gripper_actions}",
+            f"step={session.frame_index} gripper_action[{len(gripper_actions)}]={gripper_actions}",
             markup=False,
         )
-        response_robobrain_points, response_robobrain_object_id = self._active_robobrain_response(session)
-        response_tracking_points, response_tracking_object_id = self._active_tracking_response(session)
+        response_initial_points, response_initial_point_object_ids = (
+            self._active_initial_points_response(session)
+        )
+        response_tracking_points, response_tracking_object_id = self._active_tracking_response(
+            session, current_features
+        )
         response = {
             **outputs,
             "entity_points": self.inference.to_json(model_input["entity_points"]),
             "entity_point_mask": self.inference.to_json(model_input["entity_point_mask"]),
-            "robobrain_point": self.inference.to_json(response_robobrain_points),
-            "robobrain_object_id": self.inference.to_json(response_robobrain_object_id),
+            "initial_points": self.inference.to_json(response_initial_points),
+            "initial_point_object_ids": self.inference.to_json(response_initial_point_object_ids),
             "tracking_point": self.inference.to_json(response_tracking_points),
             "tracking_object_id": self.inference.to_json(response_tracking_object_id),
             "subtask": session.current_subtask,
             "subtask_index": session.subtask_index,
             "subtask_switched": subtask_switched,
+            "episode_done": session.task_complete,
             "action": executed_actions,
         }
         if captured_model_input is not None:
@@ -1077,10 +1070,12 @@ class InferenceServer:
         return outputs, captured_model_input
 
     @staticmethod
-    def _active_robobrain_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:
-        if session.robobrain_points is None or not session.active_object_indices:
+    def _active_initial_points_response(
+        session: InferenceSession,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if session.initial_points is None or not session.active_object_indices:
             return None, None
-        points_by_object = np.asarray(session.robobrain_points, dtype=np.float32)
+        points_by_object = np.asarray(session.initial_points, dtype=np.float32)
         point_chunks = []
         id_chunks = []
         for local_id, object_index in enumerate(session.active_object_indices, start=1):
@@ -1094,18 +1089,33 @@ class InferenceServer:
         return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
 
     @staticmethod
-    def _active_tracking_response(session: InferenceSession) -> tuple[np.ndarray | None, np.ndarray | None]:
-        if session.tracked_points is None or not session.active_object_indices:
-            return None, None
-        points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
+    def _active_tracking_response(
+        session: InferenceSession,
+        current_features: Mapping[str, np.ndarray],
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
         point_chunks = []
         id_chunks = []
-        for local_id, object_index in enumerate(session.active_object_indices, start=1):
-            if object_index < 0 or object_index >= len(points_by_object):
-                continue
-            points = points_by_object[object_index]
-            point_chunks.append(points)
-            id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
+
+        actor_xyz = np.asarray(current_features.get("gripper_points_xyz", []), dtype=np.float32)
+        intrinsic = np.asarray(current_features.get("intrinsic", []), dtype=np.float32)
+        if actor_xyz.shape == (ACTOR_NUM_POINTS, 3) and intrinsic.shape == (3, 3):
+            valid = np.isfinite(actor_xyz).all(axis=1) & (actor_xyz[:, 2] > 1e-6)
+            actor_points = np.full((ACTOR_NUM_POINTS, 3), np.nan, dtype=np.float32)
+            actor_points[:, 2] = 0.0
+            actor_points[valid, 0] = actor_xyz[valid, 0] / actor_xyz[valid, 2] * intrinsic[0, 0] + intrinsic[0, 2]
+            actor_points[valid, 1] = actor_xyz[valid, 1] / actor_xyz[valid, 2] * intrinsic[1, 1] + intrinsic[1, 2]
+            actor_points[valid, 2] = 1.0
+            point_chunks.append(actor_points)
+            id_chunks.append(np.zeros(ACTOR_NUM_POINTS, dtype=np.int64))
+
+        if session.tracked_points is not None:
+            points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
+            for local_id, object_index in enumerate(session.active_object_indices, start=1):
+                if object_index < 0 or object_index >= len(points_by_object):
+                    continue
+                points = points_by_object[object_index]
+                point_chunks.append(points)
+                id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
         if not point_chunks:
             return None, None
         return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
@@ -1116,13 +1126,6 @@ class InferenceServer:
             raise KeyError(f"Missing required request fields: {missing}")
         if request["benchmark"] != "libero":
             raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
-        execute_chunk_len = request["execute_chunk_len"]
-        if isinstance(execute_chunk_len, bool) or not isinstance(execute_chunk_len, int):
-            raise TypeError("execute_chunk_len must be an integer")
-        if not 1 <= execute_chunk_len <= self.embodiment.future_horizon:
-            raise ValueError(
-                f"execute_chunk_len must be in [1, {self.embodiment.future_horizon}], got {execute_chunk_len}"
-            )
 
     def _session_for(self, request: Mapping[str, Any]) -> InferenceSession:
         session_id = str(request["session_id"])
@@ -1145,7 +1148,6 @@ def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
         "inference": default_device,
         "sam3": default_device,
         "point_tracker": default_device,
-        "depth_predictor": default_device,
         "node_locator": default_device,
     }
     if value is None or value == "":
@@ -1163,6 +1165,7 @@ def parse_args() -> Args:
     parser.add_argument("--ckpt-path", required=True, help="Path to a training checkpoint.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--bge-path",
@@ -1228,6 +1231,7 @@ def main() -> None:
     server = InferenceServer(
         host=args.host,
         port=args.port,
+        execute_chunk_len=args.execute_chunk_len,
         planner=TopLevelTaskPlanner(
             dataset_dir=data_kwargs["dataset_dir"],
             task_analyzer_api_key=args.task_analyzer_api_key,
@@ -1240,7 +1244,6 @@ def main() -> None:
             num_points=model_kwargs["num_points"],
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
-            ray_scale=model_kwargs["ray_scale"],
             devices=args.devices,
         ),
         inference = InferenceModel(

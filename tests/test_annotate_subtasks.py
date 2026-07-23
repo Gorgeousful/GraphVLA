@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import tools.annotate_lerobot_subtasks as annotator
-from tools.annotate_lerobot_subtasks import completion_mask, create_app
+from tools.annotate_lerobot_subtasks import completion_mask, create_app, true_ranges
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -110,6 +110,14 @@ def test_completion_mask_marks_last_n_frames_within_each_subtask() -> None:
     ]
 
 
+def test_true_ranges_returns_inclusive_completion_intervals() -> None:
+    assert true_ranges([False, True, True, False, True]) == [
+        {"start": 1, "end": 2},
+        {"start": 4, "end": 4},
+    ]
+    assert true_ranges([False, False]) == []
+
+
 def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path: Path) -> None:
     root = tmp_path / "dataset"
     make_dataset(root)
@@ -118,7 +126,10 @@ def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path:
     original_row_groups = pq.ParquetFile(parquet).num_row_groups
     original_compression = pq.ParquetFile(parquet).metadata.row_group(0).column(0).compression
 
-    assert client.get("/").status_code == 200
+    page = client.get("/")
+    assert page.status_code == 200
+    assert 'id="completion"' in page.text
+    assert 'completion-region' in page.text
     tasks = client.get("/api/tasks").json()
     assert tasks == [{"task_index": 7, "task": "annotate me", "episodes": 2, "annotated": 0}]
     episodes = client.get("/api/tasks/7/episodes").json()
@@ -127,6 +138,8 @@ def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path:
     assert detail["length"] == 5
     assert detail["preview_stride"] == 2
     assert detail["boundaries"] == []
+    assert detail["completion_frames"] == 1
+    assert detail["completion_ranges"] == []
     frame = client.get("/api/episodes/3/frames/2")
     assert frame.status_code == 200
     assert frame.headers["content-type"] == "image/jpeg"
@@ -145,6 +158,10 @@ def test_http_annotation_writes_full_frame_ids_and_recovers_boundaries(tmp_path:
         False,
         True,
         True,
+    ]
+    assert client.get("/api/episodes/3").json()["completion_ranges"] == [
+        {"start": 1, "end": 1},
+        {"start": 3, "end": 4},
     ]
     assert pq.ParquetFile(parquet).num_row_groups == original_row_groups
     assert pq.ParquetFile(parquet).metadata.row_group(0).column(0).compression == original_compression

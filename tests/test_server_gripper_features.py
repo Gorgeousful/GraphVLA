@@ -7,98 +7,94 @@ import pytest
 from script.server import InferenceSession, InputPreprocessor
 
 
-class SixPointRobot:
+class ThreePointRobot:
     def __init__(self, **_: object) -> None: pass
-    def project_gripper_to_uvd(self, *_: object, gripper_width: float, **__: object):
-        values = [
-            [128.0, 128.0, 0.1], [138.0, 128.0, 0.2], [118.0, 128.0, 0.3],
-            [128.0, 138.0, 0.4], [128.0, 118.0, 0.5], [128.0, 148.0, 0.6],
-        ]
-        names = ("root_uvd", "left_base_uvd", "right_base_uvd", "left_fingertip_uvd", "right_fingertip_uvd", "tcp_uvd")
-        return {name: np.asarray(value, dtype=np.float32) for name, value in zip(names, values, strict=True)}
+
+    def project_gripper_to_xyz(self, *_: object, **__: object) -> np.ndarray:
+        return np.asarray([[0.0, 0.0, 0.5], [0.1, 0.0, 0.5], [-0.1, 0.0, 0.5]], dtype=np.float32)
 
 
 class LightweightInputPreprocessor(InputPreprocessor):
     def _initialize_perception(self, session, frame):
         session.object_nodes = []
         session.tracked_points = np.zeros((0, self.num_points, 3), dtype=np.float32)
+
     def _update_perception(self, session, frame): pass
-    def _predict_depth(self, session, frame):
-        depth = np.zeros((256, 256), dtype=np.float32)
-        for u, v, value in ((128,128,.1),(138,128,.2),(118,128,.3),(128,138,.4),(128,118,.5),(128,148,.6)):
-            depth[v, u] = value
-        return depth
 
 
-def test_online_input_uses_four_semantic_actor_rays(tmp_path) -> None:
+def make_preprocessor(tmp_path, *, points=4):
     meta = tmp_path / "meta"
     meta.mkdir()
     (meta / "norm_stats_suite.json").write_text(json.dumps({"norm_stats": {
-        "depths.depth_rel": {"q01": [0.0], "q99": [1.0]},
-        "gripper_d": {"q01": [0.0], "q99": [1.0]},
+        "camera_xyz": {"q01": [-1.0, -1.0, 0.0], "q99": [1.0, 1.0, 1.0]},
     }}))
-    preprocessor = LightweightInputPreprocessor(
-        history_horizon=1, future_horizon=2, num_points=4,
-        robot_cls=SixPointRobot, dataset_dir=tmp_path,
+    return LightweightInputPreprocessor(
+        history_horizon=1, future_horizon=2, num_points=points,
+        robot_cls=ThreePointRobot, dataset_dir=tmp_path,
     )
-    request = {
+
+
+def make_request():
+    return {
         "observation.images.image": np.zeros((256, 256, 3), dtype=np.uint8),
+        "observation.depth.metric": np.ones((256, 256), dtype=np.float32) * 0.5,
         "observation.state": np.asarray([0.0] * 6 + [0.02, -0.02]),
         "camera.intrinsics": np.asarray([[100.0,0,128.0],[0,100.0,128.0],[0,0,1.0]]),
         "camera.extrinsics": np.eye(4),
     }
-    model_input = preprocessor.build(
-        request, InferenceSession("episode-1", "libero", "test"), {"nodes": []}
+
+
+def test_online_input_uses_three_normalized_actor_xyz_points(tmp_path) -> None:
+    preprocessor = make_preprocessor(tmp_path)
+    subtaskstructure = {"nodes": []}
+    session = InferenceSession(
+        "episode-1", "libero", "test", taskstructure={"subtasks": [subtaskstructure]}
     )
+    model_input = preprocessor.build(make_request(), session, subtaskstructure)
     points = np.asarray(model_input["entity_points"])
     assert points.shape == (1, 2, 3, 4, 3)
-    np.testing.assert_allclose(points[0, 0, 0, :, 0], [0.0, 0.1, -0.1, 0.0])
-    np.testing.assert_allclose(points[0, 0, 0, :, 2], [0.1, 0.2, 0.3, 0.45])
-    assert np.asarray(model_input["actor_metric_history"]).shape == (1, 2, 4, 1)
+    np.testing.assert_allclose(
+        points[0, 0, 0, :3],
+        [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [-0.1, 0.0, 0.0]],
+        atol=1e-6,
+    )
     assert np.asarray(model_input["gripper_closedness_history"])[0, 0, 0] == pytest.approx(0.0)
-    assert model_input["scene_condition_texts"] == ["", None]
-    assert model_input["entity_role_condition_texts"] == ["actor", "patient", "target"]
+    assert "actor_metric_history" not in model_input
+    assert "robot_metric_mask" not in model_input
 
 
-def test_online_input_applies_ray_scale(tmp_path) -> None:
-    meta = tmp_path / "meta"
-    meta.mkdir()
-    (meta / "norm_stats_suite.json").write_text(json.dumps({"norm_stats": {
-        "depths.depth_rel": {"q01": [0.0], "q99": [1.0]},
-        "gripper_d": {"q01": [0.0], "q99": [1.0]},
-    }}))
-    preprocessor = LightweightInputPreprocessor(
-        history_horizon=1, future_horizon=2, num_points=4,
-        robot_cls=SixPointRobot, dataset_dir=tmp_path, ray_scale=2.0,
-    )
-    request = {
-        "observation.images.image": np.zeros((256, 256, 3), dtype=np.uint8),
-        "observation.state": np.asarray([0.0] * 6 + [0.02, -0.02]),
-        "camera.intrinsics": np.asarray([[100.0,0,128.0],[0,100.0,128.0],[0,0,1.0]]),
-        "camera.extrinsics": np.eye(4),
+def test_task_object_nodes_keep_duplicate_names_in_structure_order(tmp_path) -> None:
+    preprocessor = make_preprocessor(tmp_path)
+    taskstructure = {
+        "subtasks": [
+            {"nodes": [
+                {"name": "gripper", "role": "actor"},
+                {"name": "mug", "role": "patient"},
+                {"name": "plate", "role": "target"},
+            ]},
+            {"nodes": [
+                {"name": "gripper", "role": "actor"},
+                {"name": "box", "role": "patient"},
+                {"name": "plate", "role": "target"},
+            ]},
+        ]
     }
-    model_input = preprocessor.build(
-        request, InferenceSession("episode-1", "libero", "test"), {"nodes": []}
-    )
-    points = np.asarray(model_input["entity_points"])
-    np.testing.assert_allclose(points[0, 0, 0, :, 0], [0.0, 0.2, -0.2, 0.0])
+    session = InferenceSession("episode-1", "libero", "test", taskstructure=taskstructure)
+    session.object_nodes = preprocessor._task_object_nodes(taskstructure)
+    assert [node["name"] for node in session.object_nodes] == ["mug", "plate", "box", "plate"]
+    assert preprocessor._subtask_object_indices(session, taskstructure["subtasks"][0]) == [0, 1]
+    session.subtask_index = 1
+    assert preprocessor._subtask_object_indices(session, taskstructure["subtasks"][1]) == [2, 3]
 
 
-def test_online_object_features_use_semantic_target_slot(tmp_path) -> None:
-    meta = tmp_path / "meta"
-    meta.mkdir()
-    (meta / "norm_stats_suite.json").write_text(json.dumps({"norm_stats": {
-        "depths.depth_rel": {"q01": [0.0], "q99": [1.0]},
-        "gripper_d": {"q01": [0.0], "q99": [1.0]},
-    }}))
-    preprocessor = LightweightInputPreprocessor(
-        history_horizon=1, future_horizon=2, num_points=4,
-        robot_cls=SixPointRobot, dataset_dir=tmp_path,
-    )
+def test_online_object_features_backproject_metric_depth_and_repeat_valid_points(tmp_path) -> None:
+    preprocessor = make_preprocessor(tmp_path)
     tracks = np.zeros((1, 4, 3), dtype=np.float32)
-    tracks[..., :2] = 128.0
-    depth = np.ones((256, 256), dtype=np.float32)
+    tracks[0, :, :2] = [[128, 128], [138, 128], [400, 128], [128, 128]]
+    tracks[0, :2, 2] = 1.0
+    depth = np.ones((256, 256), dtype=np.float32) * 0.5
     intrinsic = np.asarray([[100.0, 0, 128.0], [0, 100.0, 128.0], [0, 0, 1.0]])
     points = preprocessor._object_feats(tracks, ["target"], depth, intrinsic, 256, 256)
     assert not points[0].any()
-    assert points[1].any()
+    assert points[1].shape == (4, 3)
+    np.testing.assert_allclose(points[1, :, 0], [0.0, 0.05, 0.0, 0.05], atol=1e-6)

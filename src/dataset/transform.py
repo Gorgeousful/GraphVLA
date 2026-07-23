@@ -57,13 +57,11 @@ class SubtaskBoundryPadding(TransformFn):
     fields: Sequence[str] = (
         "subtask_id",
         "is_complete",
-        "node_points_track",
-        "node_points_mask",
-        "depths.depth_rel",
-        "gripper_uv",
-        "gripper_d",
-        "gripper_openness",
-        "gripper_openness_mask",
+        "node_points_xyz",
+        "valid_node_mask",
+        "subtask_node_mask",
+        "gripper_points_xyz",
+        "state",
         "action",
     )
 
@@ -239,6 +237,7 @@ class ResizeImages(TransformFn):
 @dataclass
 class Normalize(TransformFn):
     norm_stats: Mapping[str, Any] | None
+    field_map: Mapping[str, str] | None = None
     use_quantiles: bool = True
     quantile_to_neg_one_one: bool = True
     eps: float = 1e-6
@@ -251,17 +250,27 @@ class Normalize(TransformFn):
         if stats is None:
             return data
 
-        for key, field_stats in stats.items():
+        fields = self.field_map or {key: key for key in stats}
+        for key, stats_key in fields.items():
             if key not in data:
                 cs.print(f"[Normalize] skip missing field: {key}")
                 continue
+            if stats_key not in stats:
+                raise KeyError(f"Missing norm stats for field: {stats_key}")
             value = data[key]
-            selected_stats = self._select_field_stats(field_stats, level, data)
+            selected_stats = self._select_field_stats(stats[stats_key], level, data)
             value = (
                 self._normalize_quantile(value, selected_stats)
                 if self.use_quantiles
                 else self._normalize(value, selected_stats)
             )
+            if key == "node_points_xyz" and "valid_node_mask" in data:
+                mask = data["valid_node_mask"]
+                if isinstance(value, torch.Tensor):
+                    mask = torch.as_tensor(mask, dtype=torch.bool, device=value.device)
+                    value = torch.where(mask[..., None, None], value, torch.zeros_like(value))
+                else:
+                    value = np.where(np.asarray(mask, dtype=bool)[..., None, None], value, 0.0)
             data[key] = value
         return data
 
@@ -404,8 +413,6 @@ class CustomTransform(TransformFn):
     def __call__(self, data: DataDict) -> DataDict:
         if self.mode == "add_subtaskstructure":
             return self.add_subtaskstructure(data)
-        if self.mode == "split_gripper_uvd":
-            return self.split_gripper_uvd(data)
         if self.mode in {"build_model_input", "build_final_input"}:
             return self.build_model_input(data)
         if self.mode == "build_model_output":
@@ -413,34 +420,13 @@ class CustomTransform(TransformFn):
         else:
             raise KeyError(f"Not support mode: {self.mode}")
 
-    def split_gripper_uvd(self, data: DataDict) -> DataDict:
-        gripper_uvd = data["gripper_uvd"]
-        data["gripper_uv"] = gripper_uvd[..., :2]
-        data["gripper_d"] = gripper_uvd[..., 2:3]
-        return data
-
     def build_model_output(self, data: DataDict) -> DataDict:
         outputs = data.get("outputs", data)
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
-
-        if "relative_plan" in outputs:
-            relative = outputs["relative_plan"].clone()
-            ray_scale = float(self._extra_value("ray_scale", 1.0))
-            if ray_scale <= 0.0:
-                raise ValueError(f"ray_scale must be positive, got {ray_scale}")
-            relative[..., :2] /= ray_scale
-            relative[..., 2:3] = self._unnormalize_output_field(
-                relative[..., 2:3],
-                field="depths.depth_rel",
-                context=data,
-            )
-            outputs["relative_plan"] = relative
-        if "metric_z_plan" in outputs:
-            outputs["metric_z_plan"] = self._unnormalize_output_field(
-                outputs["metric_z_plan"].clone(),
-                field="gripper_d",
-                context=data,
+        if "gripper_points_xyz_plan" in outputs:
+            outputs["gripper_points_xyz_plan"] = self._unnormalize_output_field(
+                outputs["gripper_points_xyz_plan"].clone(), field="camera_xyz", context=data,
             )
         return data
 
@@ -468,74 +454,58 @@ class CustomTransform(TransformFn):
         )
 
     def build_model_input(self, data: DataDict) -> DataDict:
-        height = 256
-        width = 256
-        node_points_track = data["node_points_track"]
-        depth_rel = data["depths.depth_rel"]
-        gripper_uv = data["gripper_uv"]
-        gripper_d = data["gripper_d"]
-        if gripper_uv.ndim != 3 or gripper_uv.shape[1:] != (6, 2):
-            raise ValueError(f"Expected gripper_uv [T, 6, 2], got {tuple(gripper_uv.shape)}")
-        if gripper_d.shape != gripper_uv.shape[:2]:
-            raise ValueError(f"Expected flattened gripper_d [T, 6], got {tuple(gripper_d.shape)}")
-        gripper_openness = torch.as_tensor(data["gripper_openness"], device=gripper_uv.device, dtype=gripper_uv.dtype)
+        node_points_xyz = torch.as_tensor(data["node_points_xyz"])
+        gripper_points_xyz = torch.as_tensor(
+            data["gripper_points_xyz"], device=node_points_xyz.device, dtype=node_points_xyz.dtype
+        )
+        if node_points_xyz.ndim != 4 or node_points_xyz.shape[-1] != POINT_FEATURE_DIM:
+            raise ValueError(f"Expected node_points_xyz [T,N,P,3], got {tuple(node_points_xyz.shape)}")
+        if gripper_points_xyz.ndim != 3 or gripper_points_xyz.shape[1:] != (ACTOR_NUM_POINTS, 3):
+            raise ValueError(
+                f"Expected gripper_points_xyz [T,{ACTOR_NUM_POINTS},3], got {tuple(gripper_points_xyz.shape)}"
+            )
         history_horizon = int(data["history_horizon"])
         future_horizon = int(data["future_horizon"])
-        num_frames = gripper_uv.shape[0]
-        gripper_openness = gripper_openness.reshape(num_frames, 1)
-        intrinsic = self._camera_intrinsic(data, device=gripper_uv.device, dtype=gripper_uv.dtype)
-        ray_scale = float(self._extra_value("ray_scale", 1.0))
-        if ray_scale <= 0.0:
-            raise ValueError(f"ray_scale must be positive, got {ray_scale}")
-
-        node_points_mask = None
-        if "node_points_mask" in data:
-            node_points_mask = data["node_points_mask"].to(dtype=torch.bool, device=node_points_track.device)
-            if node_points_mask.ndim == 2:
-                node_points_mask = node_points_mask[history_horizon]
-
-        if node_points_mask is not None:
-            selected_node_indices = torch.nonzero(
-                node_points_mask[:node_points_track.shape[1]], as_tuple=False
-            ).flatten()
-        else:
-            object_start, object_end = data.get("subtask_object_slice", (0, node_points_track.shape[1]))
-            selected_node_indices = torch.arange(
-                int(object_start),
-                min(int(object_end), node_points_track.shape[1]),
-                device=node_points_track.device,
+        num_frames = gripper_points_xyz.shape[0]
+        valid_node_mask = torch.as_tensor(
+            data["valid_node_mask"], device=node_points_xyz.device, dtype=torch.bool
+        )
+        subtask_node_mask = torch.as_tensor(
+            data["subtask_node_mask"], device=node_points_xyz.device, dtype=torch.bool
+        )
+        if valid_node_mask.shape != node_points_xyz.shape[:2]:
+            raise ValueError(
+                f"Expected valid_node_mask {node_points_xyz.shape[:2]}, got {valid_node_mask.shape}"
             )
+        if subtask_node_mask.shape != node_points_xyz.shape[:2]:
+            raise ValueError(
+                f"Expected subtask_node_mask {node_points_xyz.shape[:2]}, got "
+                f"{subtask_node_mask.shape}"
+            )
+        selected_node_indices = torch.nonzero(
+            subtask_node_mask[history_horizon], as_tuple=False
+        ).flatten()
 
         object_roles = self._object_roles(data["subtaskstructure"], None)
-        node_xyv = self._select_object_slots(
-            node_points_track,
+        object_points = self._select_object_slots(
+            node_points_xyz,
             selected_node_indices,
             object_roles=object_roles,
         )
-        node_uv = node_xyv[..., :2]
-        node_depth, _ = self._sample_flat_depth(depth_rel, node_uv, height=height, width=width)
-        object_ray = uv_to_normalized_ray_torch(node_uv, intrinsic) * ray_scale
-        object_points = torch.cat([object_ray, node_depth], dim=-1)
-
-        actor_depth, _ = self._sample_flat_depth(depth_rel, gripper_uv, height=height, width=width)
-        actor_depth[:, 5] = actor_depth[:, 3:5].mean(dim=1)
-        actor_indices = torch.as_tensor(ACTOR_POINT_INDICES, device=gripper_uv.device)
-        actor_ray = (
-            uv_to_normalized_ray_torch(gripper_uv, intrinsic) * ray_scale
-        ).index_select(1, actor_indices)
-        actor_relative = torch.cat([actor_ray, actor_depth.index_select(1, actor_indices)], dim=-1)
-        actor_metric_z = gripper_d.index_select(1, actor_indices).unsqueeze(-1)
 
         points_per_entity = object_points.shape[2]
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
         entity_mask = torch.zeros((num_frames, 3, points_per_entity), dtype=torch.bool, device=object_points.device)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_relative
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = gripper_points_xyz
         entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
             slot_index = {"patient": 0, "target": 1}.get(role, role_index)
             if slot_index < 2:
-                entity_mask[:, slot_index + 1] = True
+                node_index = selected_node_indices[role_index]
+                entity_mask[:, slot_index + 1] = (
+                    valid_node_mask[:, node_index] & subtask_node_mask[:, node_index]
+                )[:, None]
 
         input_horizon = history_horizon + 1
         frame_offsets = torch.arange(
@@ -552,31 +522,26 @@ class CustomTransform(TransformFn):
             data["subtaskstructure"], device=entity_points.device,
         )
         entity_role_condition = self._build_entity_role_condition(device=entity_points.device)
-        future_relative = actor_relative[input_horizon:]
-        future_metric_z = actor_metric_z[input_horizon:]
-        if self._extra_value("use_delta", True):
-            relative_plan = future_relative - actor_relative[history_horizon][None]
-            metric_z_plan = future_metric_z - actor_metric_z[history_horizon][None]
-        else:
-            relative_plan = future_relative
-            metric_z_plan = future_metric_z
-        normalized_closedness = 1.0 - 2.0 * gripper_openness
+        state = torch.as_tensor(data["state"], device=entity_points.device, dtype=entity_points.dtype)
+        if state.ndim != 2 or state.shape[0] != num_frames or state.shape[1] < 8:
+            raise ValueError(f"Expected state [T,>=8], got {tuple(state.shape)}")
+        width = state[:, 6].abs() + state[:, 7].abs()
+        openness = (width / 0.08).clamp(0.0, 1.0)
+        closedness = (1.0 - 2.0 * openness).unsqueeze(-1)
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
-        gripper_action = 1.0 - 2.0 * action[..., -1:].clamp(0.0, 1.0)
+        if action.ndim != 2 or action.shape[0] != num_frames:
+            raise ValueError(f"Expected action [T,A], got {tuple(action.shape)}")
+        future_gripper = gripper_points_xyz[input_horizon:input_horizon + future_horizon]
+        future_action = action[input_horizon:input_horizon + future_horizon, -1:]
+        trajectory = torch.cat([future_gripper.flatten(1), future_action], dim=-1)
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
             "scene_condition": scene_condition,
             "entity_role_condition": entity_role_condition,
-            "actor_metric_history": actor_metric_z[:input_horizon],
-            "gripper_closedness_history": normalized_closedness[:input_horizon],
-            "robot_metric_mask": torch.ones(1, dtype=torch.bool, device=entity_points.device),
+            "gripper_closedness_history": closedness[:input_horizon],
             "target": {
-                "relative_plan": relative_plan,
-                "metric_z_plan": metric_z_plan,
-                "gripper_action_plan": gripper_action[
-                    history_horizon:history_horizon + future_horizon
-                ],
+                "trajectory": trajectory,
                 "is_complete": torch.as_tensor(
                     data["is_complete"], device=entity_points.device, dtype=entity_points.dtype
                 )[history_horizon].reshape(1),
@@ -606,13 +571,13 @@ class CustomTransform(TransformFn):
 
     def _select_object_slots(
         self,
-        node_points_track: torch.Tensor,
+        node_points_xyz: torch.Tensor,
         selected_node_indices: torch.Tensor,
         *,
         object_roles: Sequence[str],
     ) -> torch.Tensor:
-        object_slots = node_points_track.new_zeros(
-            (node_points_track.shape[0], 2, node_points_track.shape[2], node_points_track.shape[3])
+        object_slots = node_points_xyz.new_zeros(
+            (node_points_xyz.shape[0], 2, node_points_xyz.shape[2], node_points_xyz.shape[3])
         )
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
             if role == "patient":
@@ -623,7 +588,7 @@ class CustomTransform(TransformFn):
                 slot_index = role_index
             if slot_index >= object_slots.shape[1]:
                 continue
-            object_slots[:, slot_index] = node_points_track[:, selected_node_indices[role_index]]
+            object_slots[:, slot_index] = node_points_xyz[:, selected_node_indices[role_index]]
         return object_slots
 
     def _build_entity_role_condition(self, *, device: torch.device) -> torch.Tensor:

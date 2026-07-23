@@ -505,6 +505,87 @@ class NodeLocatorRynn:
             return None
 
 
+class NodeLocatorLA:
+    """LocateAnything grounding exposed through the NodeLocatorRobo interface."""
+
+    def __init__(
+        self,
+        model_id="/data0/luokang/dataset/luokang/ckpts/LocateAnything-3B",
+        device_map="auto",
+    ):
+        from locateanything_worker import LocateAnythingWorker
+
+        device = "cuda" if device_map == "auto" else str(device_map)
+        cs.print("Loading LocateAnything Checkpoint ...")
+        self.model_id = model_id
+        self.device_map = device_map
+        self.worker = LocateAnythingWorker(model_id, device=device)
+
+    def inference(
+        self,
+        text,
+        image,
+        task="pointing",
+        plot=False,
+        plot_output_dir=None,
+        image_name=None,
+        do_sample=False,
+        temperature=0.7,
+        resize_scale=1.0,
+    ):
+        """Ground ``text`` and return bbox centers as normalized 0--1000 points."""
+        del do_sample, temperature
+        if task not in ("pointing", "grounding"):
+            raise ValueError("NodeLocatorLA only supports task=pointing or task=grounding.")
+        if isinstance(image, list):
+            if len(image) != 1:
+                raise ValueError("Pointing and grounding require exactly one image.")
+            image = image[0]
+        image = NodeLocatorRobo.resize(self, [image], scale=resize_scale)[0]
+
+        result = self.worker.ground_multi(image, text)
+        answer = result.get("answer", "")
+        pixel_boxes = self.worker.parse_boxes(answer, image.width, image.height)
+        boxes = [
+            [
+                box["x1"] / image.width * 1000.0,
+                box["y1"] / image.height * 1000.0,
+                box["x2"] / image.width * 1000.0,
+                box["y2"] / image.height * 1000.0,
+            ]
+            for box in pixel_boxes
+        ]
+        points = [
+            ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+            for x1, y1, x2, y2 in boxes
+        ]
+
+        output = {"answer": answer}
+        if task == "pointing":
+            output["points"] = points
+        else:
+            output["boxes"] = boxes
+
+        if plot:
+            if plot_output_dir is None:
+                plot_output_dir = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "..", "..", "..", "__tmp__", "node_locator_plots",
+                )
+            os.makedirs(plot_output_dir, exist_ok=True)
+            base, ext = os.path.splitext(image_name or task)
+            plot_filename = f"{base}_{task}_annotated{ext or '.png'}"
+            NodeLocatorRobo.draw_on_image(
+                self,
+                image,
+                points=points if task == "pointing" else None,
+                boxes=boxes if task == "grounding" else None,
+                output_path=os.path.join(plot_output_dir, plot_filename),
+            )
+
+        return output
+
+
 class NodeLocatorCalvin:
     def __init__(
         self,

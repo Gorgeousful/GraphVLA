@@ -231,67 +231,84 @@ def _to_numpy(value: Any) -> np.ndarray:
 
 
 def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarray | None:
-    if field == "depths_rel":
-        if "depths_rel" not in batch or "far_background_mask" not in batch:
-            raise KeyError("Field 'depths_rel' stats require both 'depths_rel' and 'far_background_mask'.")
-        depths = _to_numpy(batch["depths_rel"]).astype(np.float64, copy=False)
-        far_background = _to_numpy(batch["far_background_mask"]).astype(bool, copy=False)
-        if depths.shape != far_background.shape:
-            raise ValueError(f"depths_rel shape {depths.shape} does not match far_background_mask shape {far_background.shape}")
-        valid = (~far_background) & np.isfinite(depths)
-        return depths[valid].reshape(-1, 1)
+    if field == "camera_xyz":
+        required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
+        missing = required.difference(batch)
+        if missing:
+            raise KeyError(f"camera_xyz stats require fields: {sorted(missing)}")
+        node_xyz = _to_numpy(batch["node_points_xyz"]).astype(np.float64, copy=False)
+        node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
+        gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
+        if node_xyz.shape[:2] != node_mask.shape or node_xyz.shape[-1] != 3:
+            raise ValueError(f"node_points_xyz {node_xyz.shape} and mask {node_mask.shape} mismatch")
+        node_valid = np.broadcast_to(node_mask[..., None], node_xyz.shape[:-1]) & np.isfinite(node_xyz).all(-1)
+        gripper_valid = np.isfinite(gripper_points_xyz).all(-1)
+        return np.concatenate([node_xyz[node_valid], gripper_points_xyz[gripper_valid]], axis=0)
 
-    if field == "gripper_uvd":
-        if "gripper_uvd" not in batch:
-            raise KeyError("Field 'gripper_uvd' not found.")
-        gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
-        if gripper_uvd.ndim < 3 or gripper_uvd.shape[-1] < 3:
-            raise ValueError(f"Expected gripper_uvd shape (..., points, 3), got {gripper_uvd.shape}")
-        d_values = gripper_uvd[..., 2]
-        return d_values[np.isfinite(d_values)].reshape(-1, 1)
 
     return None
 
 
 def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -> list[np.ndarray] | None:
-    if field == "depths_rel":
-        if "depths_rel" not in batch or "far_background_mask" not in batch:
-            raise KeyError("Field 'depths_rel' stats require both 'depths_rel' and 'far_background_mask'.")
-        depths = _to_numpy(batch["depths_rel"]).astype(np.float64, copy=False)
-        far_background = _to_numpy(batch["far_background_mask"]).astype(bool, copy=False)
-        if depths.shape != far_background.shape:
-            raise ValueError(f"depths_rel shape {depths.shape} does not match far_background_mask shape {far_background.shape}")
+    if field == "camera_xyz":
+        required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
+        missing = required.difference(batch)
+        if missing:
+            raise KeyError(f"camera_xyz stats require fields: {sorted(missing)}")
+        node_xyz = _to_numpy(batch["node_points_xyz"]).astype(np.float64, copy=False)
+        node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
+        gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
         values = []
-        for depth, mask in zip(depths, far_background, strict=True):
-            valid = (~mask) & np.isfinite(depth)
-            values.append(depth[valid].reshape(-1, 1))
+        for points, mask, gripper in zip(node_xyz, node_mask, gripper_points_xyz, strict=True):
+            valid = np.broadcast_to(mask[:, None], points.shape[:-1]) & np.isfinite(points).all(-1)
+            grip_valid = np.isfinite(gripper).all(-1)
+            values.append(np.concatenate([points[valid], gripper[grip_valid]], axis=0))
         return values
 
-    if field == "gripper_uvd":
-        if "gripper_uvd" not in batch:
-            raise KeyError("Field 'gripper_uvd' not found.")
-        gripper_uvd = _to_numpy(batch["gripper_uvd"]).astype(np.float64, copy=False)
-        if gripper_uvd.ndim < 3 or gripper_uvd.shape[-1] < 3:
-            raise ValueError(f"Expected gripper_uvd shape (..., points, 3), got {gripper_uvd.shape}")
-        values = []
-        for sample in gripper_uvd:
-            d_values = sample[..., 2]
-            values.append(d_values[np.isfinite(d_values)].reshape(-1, 1))
-        return values
 
     return None
+
+
+def _numeric_columns(feature_map: dict[str, str], level: str) -> list[str]:
+    dependencies = {
+        "camera_xyz": {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"},
+    }
+    columns = set()
+    for field in feature_map.values():
+        columns.update(dependencies.get(field, {field}))
+    if level != "suite":
+        columns.add("task_index" if level == "task" else "episode_index")
+    return sorted(columns)
+
+
+def _select_numeric_dataset(dataset: LeRobotDataset | Subset, columns: list[str]):
+    if isinstance(dataset, Subset):
+        base = dataset.dataset
+        indices = list(dataset.indices)
+    else:
+        base = dataset
+        indices = None
+    hf_dataset = base.hf_dataset
+    missing = set(columns).difference(hf_dataset.column_names)
+    if missing:
+        raise KeyError(f"Missing dataset columns: {sorted(missing)}")
+    if indices is not None:
+        hf_dataset = hf_dataset.select(indices)
+    return hf_dataset.with_format("numpy", columns=columns)
 
 
 def main() -> None:
     args = parse_args()
     dataset_dir = args.dataset_dir.resolve()
     output_path = args.output or dataset_dir / "meta" / f"norm_stats_{args.level}.json"
+    feature_map = parse_feature_map(args.feature_map)
 
     dataset = _make_lerobot_dataset(
         dataset_dir,
         video_backend=args.video_backend,
     )
     dataset = _filter_dataset_by_tasks(dataset, args.task_indices)
+    dataset = _select_numeric_dataset(dataset, _numeric_columns(feature_map, args.level))
     if args.max_frames is not None:
         dataset = Subset(dataset, range(min(len(dataset), args.max_frames)))
 
@@ -303,7 +320,6 @@ def main() -> None:
         pin_memory=False,
         persistent_workers=args.num_workers > 0,
     )
-    feature_map = parse_feature_map(args.feature_map)
     if args.level == "suite":
         stats = {
             output_name: RunningStats(num_quantile_bins=args.num_quantile_bins)

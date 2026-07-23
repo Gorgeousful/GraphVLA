@@ -56,6 +56,8 @@ class Args:
     num_steps_wait: int = 30
     num_trials_per_task: int = 5
     max_steps: int | None = None
+    video_out_path: str | Path = DEFAULT_OUTPUT_DIR / "videos"
+    result_out_path: str | Path = DEFAULT_OUTPUT_DIR / "result.json"
     seed: int = 42
     save_video: bool = True
 
@@ -460,7 +462,7 @@ def _default_max_steps(task_suite_name: str) -> int:
         return 280
     if task_suite_name == "libero_goal":
         return 300
-    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom"}:
+    if task_suite_name in {"libero_10", "libero_10_swap"}:
         return 520
     if task_suite_name == "libero_90":
         return 400
@@ -493,6 +495,8 @@ def parse_args() -> Args:
     parser.add_argument("--num-steps-wait", type=int, default=Args.num_steps_wait)
     parser.add_argument("--num-trials-per-task", type=int, default=Args.num_trials_per_task)
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
+    parser.add_argument("--video-out-path", default=Args.video_out_path)
+    parser.add_argument("--result-out-path", default=Args.result_out_path)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument("--no-save-video", action="store_true")
     ns = parser.parse_args()
@@ -507,6 +511,8 @@ def parse_args() -> Args:
         num_steps_wait=ns.num_steps_wait,
         num_trials_per_task=ns.num_trials_per_task,
         max_steps=ns.max_steps,
+        video_out_path=ns.video_out_path,
+        result_out_path=ns.result_out_path,
         seed=ns.seed,
         save_video=not ns.no_save_video,
     )
@@ -527,9 +533,8 @@ def main() -> None:
             raise ValueError(f"task id {task_id} out of range for {args.task_suite_name}: 0-{num_tasks_in_suite - 1}")
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
-    suite_output_dir = DEFAULT_OUTPUT_DIR / args.task_suite_name
-    video_dir = suite_output_dir / "videos"
-    result_path = suite_output_dir / "result.json"
+    video_dir = pathlib.Path(args.video_out_path)
+    result_path = pathlib.Path(args.result_out_path)
     video_dir.mkdir(parents=True, exist_ok=True)
     result_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -616,8 +621,8 @@ def main() -> None:
 
                 task_episodes += 1
                 total_episodes += 1
-                env_success = bool(done)
-                if env_success:
+                success = done or server_done
+                if success:
                     task_successes += 1
                     total_successes += 1
 
@@ -632,13 +637,13 @@ def main() -> None:
                 total_progress += progress
 
                 if args.save_video:
-                    suffix = "success" if env_success else "failure"
+                    suffix = "success" if success else "failure"
                     video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_{suffix}"
                     _save_video_ffmpeg(prediction_images, video_dir / f"{video_stem}_prediction.mp4", fps=float(args.control_freq))
                     _save_video_ffmpeg(tracking_images, video_dir / f"{video_stem}_tracking.mp4", fps=float(args.control_freq))
 
                 cs.print(
-                    f"task={task_id} episode={episode_idx} success={env_success} env_done={done} server_done={server_done} "
+                    f"task={task_id} episode={episode_idx} success={success} env_done={done} server_done={server_done} "
                     f"progress={completed_goals}/{total_goals} "
                     f"completed_subtasks={completed_subtasks} "
                     f"completed_goals={completed_goal_states}"
