@@ -29,7 +29,7 @@ from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
 from src.module.node_locator import NodeLocatorLA
-from src.module.node_segmenter import NodeSegmenter
+from src.module.node_segmenter import NodeSegmenterSAM2
 from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
@@ -265,7 +265,7 @@ class InputPreprocessor:
         self.robot_cls = robot_cls
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
-        self.sam3_model = None
+        self.node_segmenter_model = None
         self.robot: Any = None
 
     def build(
@@ -325,10 +325,13 @@ class InputPreprocessor:
                     torch.cuda.empty_cache()
             session.initial_points = np.asarray(point_prompts, dtype=np.float32)
 
-        sam3_device = self._device("sam3")
-        if self.sam3_model is None:
-            self.sam3_model = NodeSegmenter(device=sam3_device).model
-        session.object_segmenter = NodeSegmenter(device=sam3_device, model=self.sam3_model)
+        node_segmenter_device = self._device("node_segmenter")
+        if self.node_segmenter_model is None:
+            self.node_segmenter_model = NodeSegmenterSAM2(device=node_segmenter_device).model
+        session.object_segmenter = NodeSegmenterSAM2(
+            device=node_segmenter_device,
+            model=self.node_segmenter_model,
+        )
 
         if session.object_nodes:
             session.point_tracker = PointTracker(device=self._device("point_tracker"))
@@ -797,6 +800,7 @@ class EmbodimentAdapter:
             return value[-1]
         raise ValueError(f"{key} must have shape {shape} or Tx{shape}, got {value.shape}")
 
+
 class InferenceModel:
     """Model wrapper with optional BGE text condition encoding."""
 
@@ -1146,7 +1150,7 @@ def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
     devices = {
         "default": default_device,
         "inference": default_device,
-        "sam3": default_device,
+        "node_segmenter": default_device,
         "point_tracker": default_device,
         "node_locator": default_device,
     }
@@ -1193,7 +1197,7 @@ def parse_args() -> Args:
     parser.add_argument(
         "--devices",
         default=None,
-        help='JSON device map for server modules, e.g. {"inference":"cuda:0","sam3":"cuda:1"}.',
+        help='JSON device map for server modules, e.g. {"inference":"cuda:0","node_segmenter":"cuda:1"}.',
     )
     namespace = parser.parse_args()
     namespace.devices = parse_devices(namespace.devices, default_device=namespace.device)

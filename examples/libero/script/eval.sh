@@ -3,23 +3,22 @@ python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/0723/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
---complete-window 3 \
---devices '{"inference":"cuda:0","node_locator":"cuda:0","sam3":"cuda:1","point_tracker":"cuda:1"}'
+--complete-window 2
 
 # libero_10
 python -m examples.libero.eval.client \
 --task-suite-name libero_10 \
 --tasks 6 \
---num-trials-per-task 50 \
---max-steps 750 \
+--num-trials-per-task 1 \
+--max-steps 950 \
 --control-freq 10
 
 # libero_custom
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom \
---tasks 7 \
---num-trials-per-task 1 \
---max-steps 500 \
+--tasks 1 \
+--num-trials-per-task 50 \
+--max-steps 950 \
 --control-freq 10
 
 

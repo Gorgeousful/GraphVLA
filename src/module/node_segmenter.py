@@ -6,6 +6,7 @@ import torch
 import torchvision.transforms.functional as TF
 from PIL import Image
 from sam3.model_builder import build_sam3_stream_model
+from ultralytics.models.sam import SAM2VideoPredictor
 from rich.console import Console
 cs = Console()
 
@@ -259,6 +260,114 @@ class NodeSegmenter:
             print(f"Saved segmentation vis: {save_path}")
 
         return drawn
+
+
+class NodeSegmenterSAM2:
+    """Online multi-object SAM2 tracking initialized by positive point prompts."""
+
+    class _OnlinePredictor(SAM2VideoPredictor):
+        """Adapt Ultralytics' video predictor to repeated single-frame calls."""
+
+        def __init__(self, *args, **kwargs):
+            self._reset_requested = True
+            self._frame_idx = 0
+            super().__init__(*args, **kwargs)
+
+        def init_state(self, predictor=None):
+            # This callback runs at the start of every predictor call. Keep the
+            # inference state across update calls and rebuild it only for reset.
+            if self._reset_requested or not self.inference_state:
+                self.inference_state = self._init_state(num_frames=1)
+                self._reset_requested = False
+
+        def inference(self, im, *args, **kwargs):
+            self.dataset.frame = self._frame_idx
+            if self.inference_state:
+                self.inference_state["num_frames"] = self._frame_idx + 1
+            result = super().inference(im, *args, **kwargs)
+            self._frame_idx += 1
+            return result
+
+        def request_reset(self):
+            self._reset_requested = True
+            self._frame_idx = 0
+
+    def __init__(self, model_path="/data0/luokang/dataset/luokang/ckpts/sam2/sam2.1_l.pt", device="cuda", mode=None, model=None):
+        self.model_path = model_path
+        self.device = device
+        overrides = {
+            "conf": 0.25, "task": "segment", "mode": "predict", "imgsz": 1024,
+            "model": model_path, "device": device,
+            "quantize": 16 if isinstance(device, str) and device.startswith("cuda") else None,
+            "save": False, "verbose": False,
+        }
+        self.predictor = self._OnlinePredictor(overrides=overrides)
+        self.predictor.setup_model(model=model, verbose=False)
+        self.model = self.predictor.model
+        self.num_objects = 0
+        self.output_size = None
+        cs.print("[yellow]NodeSegmenterSAM2 only supports point prompts.[/yellow]")
+
+    def _extract_masks(self):
+        frame_idx = self.predictor._frame_idx - 1
+        outputs = self.predictor.inference_state["output_dict"]
+        current = outputs["cond_frame_outputs"].get(frame_idx) or outputs["non_cond_frame_outputs"].get(frame_idx)
+        if current is None:
+            raise RuntimeError(f"SAM2 produced no tracking output for frame {frame_idx}")
+
+        logits = current["pred_masks"]
+        scores = current.get("object_score_logits")
+        masks = torch.nn.functional.interpolate(
+            logits.float(), size=self.output_size, mode="bilinear", align_corners=False
+        )[:, 0] > self.model.mask_threshold
+        return [
+            masks[i].cpu().numpy()
+            if scores is None or scores[i].item() > 0
+            else np.zeros(self.output_size, dtype=bool)
+            for i in range(self.num_objects)
+        ]
+
+    def reset(self, frame_rgb, points):
+        frame_rgb = np.asarray(frame_rgb)
+        if frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3:
+            raise ValueError("frame_rgb must have shape (H, W, 3)")
+        if not points:
+            raise ValueError("points must contain at least one object")
+
+        point_groups = []
+        for node_points in points:
+            pts = np.asarray(node_points, dtype=np.float32)
+            if pts.ndim != 2 or pts.shape[0] == 0 or pts.shape[1] != 2:
+                raise ValueError("each object must have one or more (x, y) points")
+            point_groups.append(pts.tolist())
+
+        self.num_objects = len(point_groups)
+        self.output_size = frame_rgb.shape[:2]
+        self.predictor.request_reset()
+        self.predictor(
+            source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR),
+            points=point_groups,
+            labels=[[1] * len(node_points) for node_points in point_groups],
+        )
+        return self._extract_masks()
+
+    def update(self, frame_rgb):
+        if self.output_size is None:
+            raise RuntimeError("SAM2 tracker is not initialized; call reset(..., points=...) first")
+        frame_rgb = np.asarray(frame_rgb)
+        if frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3:
+            raise ValueError("frame_rgb must have shape (H, W, 3)")
+        if frame_rgb.shape[:2] != self.output_size:
+            raise ValueError(f"frame size changed from {self.output_size} to {frame_rgb.shape[:2]}")
+
+        self.predictor(source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
+        return self._extract_masks()
+
+    def predict(self, frame_rgb, points=None, anchor_frame=True):
+        return self.reset(frame_rgb, points=points) if anchor_frame else self.update(frame_rgb)
+
+    def draw_on_image(self, image, masks, labels=None, save_path=None):
+        return NodeSegmenter.draw_on_image(self, image, masks, labels, save_path)
 
 
 if __name__ == "__main__":
