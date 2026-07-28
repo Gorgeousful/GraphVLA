@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -51,7 +52,15 @@ class OfflinePipeline:
         self.meta_dir = self.dataset_dir / "meta"
         self.taskstructures_jsonl_path = self.meta_dir / "taskstructures.jsonl"
         self.tasks_jsonl_path = self.meta_dir / "tasks.jsonl"
-        self.debug_dir = Path(config.debug_dir)
+        self.node_initialization_cache_dir = self.meta_dir / "node_initialization_cache"
+        debug_root = Path(config.debug_dir)
+        if config.debug and debug_root.resolve().is_relative_to(self.dataset_dir.resolve()):
+            raise ValueError("debug_dir must be outside dataset_dir in debug mode")
+        self.debug_dir = (
+            debug_root / datetime.now().strftime("%Y%m%d_%H%M%S")
+            if config.debug
+            else debug_root
+        )
         self.node_locator_vis_dir = self.debug_dir / "node_locator"
         self.point_tracker_vis_dir = self.debug_dir / "point_tracker"
         overwrite_defaults = {
@@ -79,13 +88,25 @@ class OfflinePipeline:
         self.gripper_geometry = None
 
     def run(self):
-        if not self.config.debug:
-            self._ensure_output_features()
+        self._ensure_output_features()
+        selector = self.config.episode_selector
+        if selector is None:
+            raise TypeError("episode_selector must be a mapping; use {} to select all episodes")
+
+        if selector:
+            task_indices = [int(task_index) for task_index in selector]
+            episode_indices = self.resolve_episode_indices(selector)
         else:
-            cs.print("[yellow]debug dry-run: skip meta/info.json update[/yellow]")
-        task_indices = [int(task_index) for task_index in self.config.episode_selector]
+            task_to_episodes = self._scan_task_episodes()
+            task_indices = sorted(task_to_episodes)
+            episode_indices = sorted(
+                episode
+                for episodes in task_to_episodes.values()
+                for episode in episodes
+            )
+            cs.print(f"selected all {len(episode_indices)} episodes")
+
         taskstructures = self.build_taskstructures(task_indices)
-        episode_indices = self.resolve_episode_indices(self.config.episode_selector)
         self._print_save_plan()
         self.process_episodes(episode_indices, taskstructures)
 
@@ -220,8 +241,9 @@ class OfflinePipeline:
             return
         self._write_episode_parquet(df, parquet_path)
 
-    @staticmethod
-    def _write_episode_parquet(df: pd.DataFrame, parquet_path: Path) -> None:
+    def _write_episode_parquet(self, df: pd.DataFrame, parquet_path: Path) -> None:
+        if self.config.debug:
+            raise RuntimeError("debug mode cannot write dataset parquet files")
         table = pa.Table.from_pandas(df, preserve_index=False)
         target_types = {
             "node_points_xyz": pa.list_(pa.list_(pa.list_(pa.float32()))),
@@ -256,11 +278,20 @@ class OfflinePipeline:
                 dtype=np.float32,
             )
 
-        self._ensure_node_modules()
-        point_prompts = [
-            self._locate_node_points(frames[0], node.name)
-            for node in nodes
-        ]
+        cached = self._load_node_initialization_cache(
+            episode_index, task_index, nodes, frames[0].shape[:2]
+        )
+        self._ensure_node_modules(initialize=cached is None)
+        if cached is None:
+            point_prompts = [
+                self._locate_node_points(frames[0], node.name)
+                for node in nodes
+            ]
+            masks = self.node_segmenter.predict(
+                frames[0], points=point_prompts, anchor_frame=True
+            )
+        else:
+            point_prompts, masks = cached
         if self.config.debug:
             self._save_node_locator_vis(
                 frames[0],
@@ -269,7 +300,6 @@ class OfflinePipeline:
                 episode_index=episode_index,
                 task_index=task_index,
             )
-        masks = self.node_segmenter.predict(frames[0], points=point_prompts, anchor_frame=True)
         sampled_points = np.stack(
             [
                 sample_points_from_mask(
@@ -311,6 +341,72 @@ class OfflinePipeline:
         )
         padded_tracks[:, :tracks.shape[1]] = tracks
         return padded_tracks
+
+    def _load_node_initialization_cache(
+        self,
+        episode_index: int,
+        task_index: int,
+        nodes,
+        image_size: tuple[int, int],
+    ) -> tuple[list[list[list[float]]], np.ndarray] | None:
+        path = self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
+        if not path.exists():
+            return None
+
+        with np.load(path, allow_pickle=False) as cache:
+            required = {
+                "episode_index", "task_index", "node_names", "points_xy",
+                "point_counts", "masks", "metadata_json",
+            }
+            missing = required - set(cache.files)
+            if missing:
+                raise ValueError(f"Cache {path} is missing fields: {sorted(missing)}")
+
+            cached_episode = int(cache["episode_index"])
+            cached_task = int(cache["task_index"])
+            node_names = cache["node_names"].tolist()
+            points = np.asarray(cache["points_xy"], dtype=np.float32)
+            point_counts = np.asarray(cache["point_counts"], dtype=np.int32)
+            masks = np.asarray(cache["masks"], dtype=bool)
+            metadata = json.loads(str(cache["metadata_json"].item()))
+
+        expected_names = [node.name for node in nodes]
+        height, width = image_size
+        if cached_episode != episode_index or cached_task != task_index:
+            raise ValueError(
+                f"Cache {path} identifies episode={cached_episode}, task={cached_task}; "
+                f"expected episode={episode_index}, task={task_index}"
+            )
+        if node_names != expected_names:
+            raise ValueError(
+                f"Cache {path} nodes do not match taskstructure: "
+                f"{node_names} != {expected_names}"
+            )
+        if metadata.get("frame_flipped") is not True:
+            raise ValueError(f"Cache {path} is not defined on horizontally flipped frames")
+        if masks.shape != (len(nodes), height, width):
+            raise ValueError(
+                f"Cache {path} masks have shape {masks.shape}; "
+                f"expected {(len(nodes), height, width)}"
+            )
+        if points.ndim != 3 or points.shape[0] != len(nodes) or points.shape[2] != 2:
+            raise ValueError(f"Cache {path} points have invalid shape {points.shape}")
+        if point_counts.shape != (len(nodes),):
+            raise ValueError(f"Cache {path} point_counts have invalid shape {point_counts.shape}")
+        if np.any(point_counts <= 0) or np.any(point_counts > points.shape[1]):
+            raise ValueError(f"Cache {path} contains invalid point counts")
+
+        point_prompts = []
+        for node_index, count in enumerate(point_counts):
+            active_points = points[node_index, :count]
+            if not np.isfinite(active_points).all():
+                raise ValueError(f"Cache {path} contains non-finite active points")
+            if not masks[node_index].any():
+                raise ValueError(f"Cache {path} contains an empty mask for node {node_index}")
+            point_prompts.append(active_points.tolist())
+
+        cs.print(f"using node initialization cache: {path}")
+        return point_prompts, masks
 
     def _build_node_points_xyz(
         self,
@@ -622,11 +718,12 @@ class OfflinePipeline:
         return drawn
 
 
-    def _ensure_node_modules(self):
-        if self.node_locator is None:
-            self.node_locator = NodeLocatorLA()
-        if self.node_segmenter is None:
-            self.node_segmenter = NodeSegmenter()
+    def _ensure_node_modules(self, initialize: bool = True):
+        if initialize:
+            if self.node_locator is None:
+                self.node_locator = NodeLocatorLA()
+            if self.node_segmenter is None:
+                self.node_segmenter = NodeSegmenter()
         if self.point_tracker is None:
             self.point_tracker = PointTracker()
 
@@ -665,6 +762,9 @@ class OfflinePipeline:
 
 
     def _ensure_output_features(self) -> None:
+        if self.config.debug:
+            cs.print("[yellow]debug dry-run: skip meta/info.json update[/yellow]")
+            return
         features = dict(self.info.get("features", {}))
         output_features = {
             "node_points_xyz": {
@@ -759,22 +859,19 @@ if __name__ == "__main__":
     api_key = "sk-UZpG2yYwDE5itw7s57eIJA"
 
     config = PipelineConfig(
-        dataset_dir="/data0/luokang/research/GraphVLA/examples/libero/extra/libero_with_depth_7",
+        dataset_dir="/data0/luokang/research/GraphVLA/examples/libero/extra/libero_with_depth_0_5_6_7_8",
         dataset_type="libero",
-        episode_selector={
-            # 30: [0],
-            # 31: [0],
-            # 32: [0],
-            # 33: [0],
-            # 34: [0],
-            # 30: ["*"],
-            # 31: ["*"],
-            # 32: ["*"],
-            # 33: ["*"],
-            # 34: ["*"],
-            0: ["*"],
-            # 0: [0]
-        },
+        # episode_selector={
+        #     0: ["*"],
+        # },
+        # episode_selector={
+        #     0: [0],
+        #     1: [0],
+        #     2: [0],
+        #     3: [0],
+        #     4: [0]
+        # },
+        episode_selector = {},
         points_per_node=32,
         overwrite={
             "taskstructure": False,

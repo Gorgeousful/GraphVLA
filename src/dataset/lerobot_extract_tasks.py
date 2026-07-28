@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import io
 import json
 import math
 import shutil
@@ -16,11 +15,9 @@ from typing import Any
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-from PIL import Image
 
 DATA_PATH = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
 VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
-STATS_BATCH_SIZE = 16
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,86 +50,6 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
     )
-
-
-class RunningStats:
-    def __init__(self) -> None:
-        self.count = 0
-        self.total: np.ndarray | None = None
-        self.total_sq: np.ndarray | None = None
-        self.minimum: np.ndarray | None = None
-        self.maximum: np.ndarray | None = None
-
-    def update(self, values: np.ndarray) -> None:
-        values = np.asarray(values, dtype=np.float64)
-        if values.ndim == 1:
-            values = values[:, None]
-        values = values.reshape(-1, values.shape[-1])
-        if not len(values):
-            return
-        batch_total = values.sum(axis=0)
-        batch_total_sq = np.square(values).sum(axis=0)
-        batch_min = values.min(axis=0)
-        batch_max = values.max(axis=0)
-        if self.total is None:
-            self.total = batch_total
-            self.total_sq = batch_total_sq
-            self.minimum = batch_min
-            self.maximum = batch_max
-        else:
-            self.total += batch_total
-            self.total_sq += batch_total_sq
-            self.minimum = np.minimum(self.minimum, batch_min)
-            self.maximum = np.maximum(self.maximum, batch_max)
-        self.count += len(values)
-
-    def result(self, keep_image_dims: bool = False) -> dict[str, list[float]]:
-        if not self.count or self.total is None:
-            raise ValueError("Cannot compute statistics from an empty feature")
-        mean = self.total / self.count
-        variance = self.total_sq / self.count - np.square(mean)
-        shape = (-1, 1, 1) if keep_image_dims else (-1,)
-        return {
-            "mean": mean.reshape(shape).tolist(),
-            "std": np.sqrt(np.maximum(variance, 0.0)).reshape(shape).tolist(),
-            "max": self.maximum.reshape(shape).tolist(),
-            "min": self.minimum.reshape(shape).tolist(),
-        }
-
-
-def numeric_values(column: pa.ChunkedArray) -> np.ndarray:
-    array = column.combine_chunks()
-    if pa.types.is_fixed_size_list(array.type) or pa.types.is_list(array.type):
-        values = array.values.to_numpy(zero_copy_only=False)
-        return values.reshape(len(array), -1)
-    return array.to_numpy(zero_copy_only=False)
-
-
-def image_values(column: pa.ChunkedArray) -> np.ndarray:
-    images = []
-    for item in column.to_pylist():
-        payload = item.get("bytes") if isinstance(item, dict) else None
-        if payload is None:
-            raise ValueError("Path-backed image fields cannot be copied independently")
-        with Image.open(io.BytesIO(payload)) as image:
-            array = np.asarray(image.convert("RGB"), dtype=np.float64) / 255.0
-        images.append(array.reshape(-1, array.shape[-1]))
-    return np.concatenate(images, axis=0)
-
-
-def update_stats(
-    accumulators: dict[str, RunningStats], table: pa.Table, features: dict[str, dict[str, Any]]
-) -> None:
-    for offset in range(0, table.num_rows, STATS_BATCH_SIZE):
-        batch = table.slice(offset, STATS_BATCH_SIZE)
-        for name, feature in features.items():
-            if name not in batch.column_names:
-                continue
-            dtype = feature.get("dtype")
-            if dtype in {"video", "string"}:
-                continue
-            values = image_values(batch[name]) if dtype == "image" else numeric_values(batch[name])
-            accumulators.setdefault(name, RunningStats()).update(values)
 
 
 def replace_index_column(table: pa.Table, name: str, values: np.ndarray) -> pa.Table:
@@ -282,7 +199,6 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
     temp_parent = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     staging = temp_parent / output.name
     try:
-        accumulators: dict[str, RunningStats] = {}
         new_episodes = []
         new_episode_stats = []
         global_index = 0
@@ -318,8 +234,6 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
             destination.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(table, destination)
             copy_episode_videos(source, staging, info, keys, old_episode, new_episode)
-            if not uses_episode_stats:
-                update_stats(accumulators, table, info["features"])
             if uses_episode_stats:
                 if old_episode not in source_episode_stats:
                     raise ValueError(f"Missing episodes_stats entry for episode {old_episode}")
@@ -343,14 +257,6 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
         write_jsonl(staging / "meta" / "episodes.jsonl", new_episodes)
         if uses_episode_stats:
             write_jsonl(staging / "meta" / "episodes_stats.jsonl", new_episode_stats)
-        else:
-            write_json(
-                staging / "meta" / "stats.json",
-                {
-                    name: stats.result(info["features"][name].get("dtype") == "image")
-                    for name, stats in accumulators.items()
-                },
-            )
         attributes = source / ".gitattributes"
         if attributes.is_file():
             shutil.copy2(attributes, staging / ".gitattributes")

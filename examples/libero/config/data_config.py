@@ -61,7 +61,7 @@ class DataConfig:
             "out_transforms": self.out_transforms,
         }
 
-LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7"
+LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_0_5_6_7_8"
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",

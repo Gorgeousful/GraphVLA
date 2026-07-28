@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      text { font-family: "Helvetica Neue", Arial, sans-serif; fill: #172033; }
+      .axis { font-size: 27px; font-weight: 600; }
+      .group { font-size: 23px; font-weight: 600; }
+      .cell-title { font-size: 24px; font-weight: 700; }
+      .cell-note { font-size: 19px; }
+      .legend { font-size: 21px; }
+      .caption { font-size: 22px; }
+      .small { font-size: 18px; }
+    </style>
+    <pattern id="blockedHatch" width="14" height="14" patternUnits="userSpaceOnUse"
+             patternTransform="rotate(45)">
+      <rect width="14" height="14" fill="#F3F4F6"/>
+      <line x1="0" y1="0" x2="0" y2="14" stroke="#9CA3AF" stroke-width="5"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#465268"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="760" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="600" y="50" text-anchor="middle" font-size="31" font-weight="700">
+    Flow-Matching Self-Attention Mask
+  </text>
+
+  <!-- Axis arrows and titles -->
+  <line x1="350" y1="105" x2="925" y2="105" stroke="#465268" stroke-width="2.5"
+        marker-end="url(#arrow)"/>
+  <text x="637" y="92" text-anchor="middle" class="axis">Key tokens</text>
+
+  <line x1="205" y1="180" x2="205" y2="565" stroke="#465268" stroke-width="2.5"
+        marker-end="url(#arrow)"/>
+  <text x="135" y="372" text-anchor="middle" class="axis"
+        transform="rotate(-90 135 372)">Query tokens</text>
+
+  <!-- Column group labels -->
+  <text x="475" y="145" text-anchor="middle" class="group">History</text>
+  <text x="475" y="170" text-anchor="middle" class="small">H tokens</text>
+  <text x="785" y="145" text-anchor="middle" class="group">Future trajectory</text>
+  <text x="785" y="170" text-anchor="middle" class="small">F noisy flow tokens</text>
+
+  <!-- Row group labels -->
+  <text x="292" y="282" text-anchor="middle" class="group"
+        transform="rotate(-90 292 282)">History (H)</text>
+  <text x="292" y="487" text-anchor="middle" class="group"
+        transform="rotate(-90 292 487)">Future trajectory (F)</text>
+
+  <!-- Matrix cells -->
+  <rect x="350" y="180" width="250" height="205" rx="2"
+        fill="#3B82A0" stroke="#FFFFFF" stroke-width="4"/>
+  <rect x="600" y="180" width="370" height="205" rx="2"
+        fill="url(#blockedHatch)" stroke="#FFFFFF" stroke-width="4"/>
+  <rect x="350" y="385" width="250" height="205" rx="2"
+        fill="#3B82A0" stroke="#FFFFFF" stroke-width="4"/>
+  <rect x="600" y="385" width="370" height="205" rx="2"
+        fill="#3B82A0" stroke="#FFFFFF" stroke-width="4"/>
+
+  <!-- Matrix boundary and split -->
+  <rect x="350" y="180" width="620" height="410" fill="none"
+        stroke="#172033" stroke-width="3"/>
+  <line x1="600" y1="180" x2="600" y2="590" stroke="#172033" stroke-width="2"/>
+  <line x1="350" y1="385" x2="970" y2="385" stroke="#172033" stroke-width="2"/>
+
+  <!-- Cell labels -->
+  <text x="475" y="270" text-anchor="middle" class="cell-title" fill="#FFFFFF">Allowed</text>
+  <text x="475" y="301" text-anchor="middle" class="cell-note" fill="#FFFFFF">
+    history context
+  </text>
+
+  <text x="785" y="270" text-anchor="middle" class="cell-title">Blocked</text>
+  <text x="785" y="301" text-anchor="middle" class="cell-note">
+    prevents future-to-history leakage
+  </text>
+
+  <text x="475" y="475" text-anchor="middle" class="cell-title" fill="#FFFFFF">Allowed</text>
+  <text x="475" y="506" text-anchor="middle" class="cell-note" fill="#FFFFFF">
+    condition on history
+  </text>
+
+  <text x="785" y="465" text-anchor="middle" class="cell-title" fill="#FFFFFF">Allowed</text>
+  <text x="785" y="496" text-anchor="middle" class="cell-note" fill="#FFFFFF">
+    bidirectional joint denoising
+  </text>
+  <text x="785" y="525" text-anchor="middle" class="cell-note" fill="#FFFFFF">
+    (non-causal)
+  </text>
+
+  <!-- Legend -->
+  <rect x="350" y="630" width="29" height="29" fill="#3B82A0" stroke="#172033" stroke-width="1"/>
+  <text x="393" y="653" class="legend">Allowed attention</text>
+  <rect x="610" y="630" width="29" height="29" fill="url(#blockedHatch)"
+        stroke="#172033" stroke-width="1"/>
+  <text x="653" y="653" class="legend">Masked attention</text>
+
+  <!-- Compact mathematical note -->
+  <text x="600" y="710" text-anchor="middle" class="caption">
+    All future trajectory tokens are denoised jointly at each flow step.
+  </text>
+</svg>

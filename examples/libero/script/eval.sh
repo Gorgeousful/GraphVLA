@@ -9,7 +9,7 @@ python -m script.server \
 python -m examples.libero.eval.client \
 --task-suite-name libero_10 \
 --tasks 6 \
---num-trials-per-task 1 \
+--num-trials-per-task 3 \
 --max-steps 950 \
 --control-freq 10
 

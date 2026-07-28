@@ -190,7 +190,11 @@ def draw_initialization_panel(
     height, width = panel.shape[:2]
     point_prompts = []
     for node_index, node_name in enumerate(node_names):
-        result = locator.inference(text=node_name, image=Image.fromarray(frame_rgb))
+        result = locator.inference(
+            text=node_name,
+            image=Image.fromarray(frame_rgb),
+            resize_scale=2.0,
+        )
         points = np.asarray(result.get("points") or [], dtype=np.float32).reshape(-1, 2)
         if not len(points):
             raise RuntimeError(
@@ -246,43 +250,63 @@ def draw_initialization_panel(
     return panel
 
 
-def save_grids(panels: list[np.ndarray], episode_indices: list[int], output_dir: Path) -> list[Path]:
+def save_grids(
+    panels: list[np.ndarray],
+    episode_indices: list[int],
+    task_indices: list[int],
+    output_dir: Path,
+) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     saved_paths = []
-    for start in range(0, len(panels), 16):
-        batch = panels[start:start + 16]
-        batch_indices = episode_indices[start:start + 16]
-        blank = np.zeros_like(batch[0])
-        batch.extend(blank.copy() for _ in range(16 - len(batch)))
-        grid = np.vstack([np.hstack(batch[row * 4:(row + 1) * 4]) for row in range(4)])
-        save_path = output_dir / f"episodes_{batch_indices[0]:06d}-{batch_indices[-1]:06d}.png"
-        if not cv2.imwrite(os.fspath(save_path), grid):
-            raise RuntimeError(f"Failed to save grid: {save_path}")
-        print(f"saved: {save_path}")
-        saved_paths.append(save_path)
+    grouped = {}
+    for panel, episode_index, task_index in zip(
+        panels, episode_indices, task_indices, strict=True
+    ):
+        grouped.setdefault(task_index, []).append((episode_index, panel))
+
+    for task_index in sorted(grouped):
+        task_items = sorted(grouped[task_index])
+        for start in range(0, len(task_items), 16):
+            batch_items = task_items[start:start + 16]
+            batch_indices = [episode_index for episode_index, _ in batch_items]
+            batch = [panel for _, panel in batch_items]
+            blank = np.zeros_like(batch[0])
+            batch.extend(blank.copy() for _ in range(16 - len(batch)))
+            grid = np.vstack([
+                np.hstack(batch[row * 4:(row + 1) * 4]) for row in range(4)
+            ])
+            save_path = output_dir / (
+                f"task_{task_index:04d}_episodes_"
+                f"{batch_indices[0]:06d}-{batch_indices[-1]:06d}.png"
+            )
+            if not cv2.imwrite(os.fspath(save_path), grid):
+                raise RuntimeError(f"Failed to save grid: {save_path}")
+            print(f"saved: {save_path}")
+            saved_paths.append(save_path)
     return saved_paths
 
-
 def render_initialization_grids(dataset_dir: Path, output_dir: Path) -> list[Path]:
-    from src.module.node_locator import NodeLocatorLA
-    from src.module.node_segmenter import NodeSegmenter
+    from src.module.node_locator import NodeLocatorRobo
+    from src.module.node_segmenter import NodeSegmenterSAM2
 
     parquet_paths = sorted((dataset_dir / "data").glob("chunk-*/*.parquet"))
     if not parquet_paths:
         raise RuntimeError(f"No episode parquet files found under {dataset_dir / 'data'}")
     nodes_by_task = load_task_nodes(dataset_dir)
-    locator = NodeLocatorLA()
-    segmenter = NodeSegmenter()
+    locator = NodeLocatorRobo()
+    segmenter = NodeSegmenterSAM2()
     panels = []
     episode_indices = []
+    task_indices = []
     for parquet_path in parquet_paths:
         frame_rgb, episode_index, task_index = read_first_rgb(parquet_path)
         panels.append(draw_initialization_panel(
             frame_rgb, episode_index, task_index, nodes_by_task[task_index], locator, segmenter,
         ))
         episode_indices.append(episode_index)
+        task_indices.append(task_index)
         print(f"initialized episode {episode_index:06d}")
-    return save_grids(panels, episode_indices, output_dir)
+    return save_grids(panels, episode_indices, task_indices, output_dir)
 
 
 def render_grids(dataset_dir: Path, output_dir: Path) -> list[Path]:
@@ -295,7 +319,7 @@ def render_grids(dataset_dir: Path, output_dir: Path) -> list[Path]:
 
     panels = []
     episode_indices = []
-    saved_paths = []
+    task_indices = []
     for parquet_path in parquet_paths:
         frame_rgb, episode_index, task_index, node_xyz, node_mask = read_first_frame(parquet_path)
         if task_index not in nodes_by_task:
@@ -305,18 +329,8 @@ def render_grids(dataset_dir: Path, output_dir: Path) -> list[Path]:
             node_xyz, node_mask, intrinsics[task_index],
         ))
         episode_indices.append(episode_index)
-
-        if len(panels) == 16 or parquet_path == parquet_paths[-1]:
-            blank = np.zeros_like(panels[0])
-            panels.extend(blank.copy() for _ in range(16 - len(panels)))
-            grid = np.vstack([np.hstack(panels[row * 4:(row + 1) * 4]) for row in range(4)])
-            save_path = output_dir / f"episodes_{episode_indices[0]:06d}-{episode_indices[-1]:06d}.png"
-            if not cv2.imwrite(os.fspath(save_path), grid):
-                raise RuntimeError(f"Failed to save grid: {save_path}")
-            print(f"saved: {save_path}")
-            saved_paths.append(save_path)
-            panels, episode_indices = [], []
-    return saved_paths
+        task_indices.append(task_index)
+    return save_grids(panels, episode_indices, task_indices, output_dir)
 
 
 def main() -> None:

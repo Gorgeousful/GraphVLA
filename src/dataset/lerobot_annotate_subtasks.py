@@ -92,7 +92,12 @@ class BatchAnnotationRequest(BaseModel):
 
 class DatasetStore:
     def __init__(
-        self, root: Path, preview_fps: float, cache_episodes: int, completion_frames: int
+        self,
+        root: Path,
+        preview_fps: float,
+        cache_episodes: int,
+        completion_frames: int,
+        horizontal_flip: bool,
     ) -> None:
         self.root = root.resolve()
         self.meta_dir = self.root / "meta"
@@ -107,6 +112,7 @@ class DatasetStore:
         self.episodes = load_jsonl(self.meta_dir / "episodes.jsonl")
         self.preview_fps = preview_fps
         self.completion_frames = completion_frames
+        self.horizontal_flip = horizontal_flip
         self.cache_episodes = max(1, cache_episodes)
         self.lock = threading.RLock()
         self.frame_cache: OrderedDict[int, dict[int, bytes]] = OrderedDict()
@@ -286,6 +292,8 @@ class DatasetStore:
                     raise ValueError(f"Episode {episode_index} contains invalid embedded RGB frames")
                 self.image_payload_cache[episode_index] = payloads
             with Image.open(io.BytesIO(payloads[frame_index])) as image:
+                if self.horizontal_flip:
+                    image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
                 return encode_jpeg(image)
 
         path = self.video_path(episode_index)
@@ -299,7 +307,10 @@ class DatasetStore:
             capture.release()
         if not ok:
             raise ValueError(f"Unable to decode episode {episode_index} frame {frame_index}")
-        return encode_jpeg(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        if self.horizontal_flip:
+            frame_rgb = np.fliplr(frame_rgb)
+        return encode_jpeg(frame_rgb)
 
     def save_annotation(self, episode_index: int, boundaries: list[int]) -> dict[str, Any]:
         result = self.save_annotations([(episode_index, boundaries)])
@@ -487,8 +498,11 @@ def create_app(
     preview_fps: float = 5,
     cache_episodes: int = 2,
     completion_frames: int = 5,
+    horizontal_flip: bool = True,
 ) -> FastAPI:
-    store = DatasetStore(Path(dataset), preview_fps, cache_episodes, completion_frames)
+    store = DatasetStore(
+        Path(dataset), preview_fps, cache_episodes, completion_frames, horizontal_flip
+    )
     app = FastAPI(title="LeRobot Subtask Annotator")
 
     @app.get("/", response_class=HTMLResponse)
@@ -645,6 +659,7 @@ async function loadTask(){stashCurrent();stop();activeTask=Number($('task').valu
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Changes ('+dirtyIds().length+')'}
 function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
 async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);completionByEpisode.set(id,next.completion_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
 function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
@@ -693,7 +708,7 @@ async function saveAll(){
 }
 $('slider').oninput=event=>{stop();current=Number(event.target.value);showFrame()};$('play').onclick=play;$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
 $('add').onclick=()=>{if(!detail||current<=0||current>=detail.length||boundaries.includes(current))return;boundaries.push(current);boundaries.sort((a,b)=>a-b);updateDraft()};$('save').onclick=saveAll;
-document.addEventListener('keydown',event=>{if(event.key==='ArrowLeft')move(-1);if(event.key==='ArrowRight')move(1);if(event.key===' '){event.preventDefault();play()}});
+document.addEventListener('keydown',event=>{if(event.key==='ArrowLeft')move(-1);if(event.key==='ArrowRight')move(1);if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();changeEpisode(event.key==='ArrowUp'?-1:1)}if(event.key===' '){event.preventDefault();play()}});
 window.onbeforeunload=()=>dirtyIds().length?'You have unsaved annotations.':undefined;init().catch(error=>$('message').textContent=error.message);
 </script></body></html>'''
 
@@ -711,13 +726,23 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Mark the last N frames of each subtask as is_complete=true.",
     )
+    parser.add_argument(
+        "--horizontal-flip",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Horizontally flip images in the web UI only (default: enabled).",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     app = create_app(
-        args.dataset, args.preview_fps, args.cache_episodes, args.completion_frames
+        args.dataset,
+        args.preview_fps,
+        args.cache_episodes,
+        args.completion_frames,
+        args.horizontal_flip,
     )
     print(f"Open http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

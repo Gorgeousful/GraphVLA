@@ -5,6 +5,9 @@ __test__/
 *.pt
 examples/*/result/
 examples/*/eval/output*/
+examples/*/extra
+*.orig
+tests/
 
 # Python caches
 __pycache__/

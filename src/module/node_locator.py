@@ -521,6 +521,36 @@ class NodeLocatorLA:
         self.device_map = device_map
         self.worker = LocateAnythingWorker(model_id, device=device)
 
+    def resize(self, images, scale=1.0):
+        """
+        Resize images in-memory. Accepts file paths, PIL Images, or numpy arrays.
+        Always returns a list of PIL Images.
+
+        Args:
+            images (list): List of file paths (str), PIL Images, or numpy arrays.
+            scale (float): Scale factor applied to both width and height.
+
+        Returns:
+            list[PIL.Image.Image]: Resized (or original) PIL Images.
+        """
+        result = []
+        for img in images:
+            if isinstance(img, str):
+                pil_img = Image.open(img).convert("RGB")
+            elif isinstance(img, np.ndarray):
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            elif isinstance(img, Image.Image):
+                pil_img = img.convert("RGB")
+            else:
+                raise TypeError(f"Unsupported image type: {type(img)}")
+
+            if scale != 1.0:
+                new_w, new_h = int(pil_img.width * scale), int(pil_img.height * scale)
+                pil_img = pil_img.resize((new_w, new_h), Image.BILINEAR)
+
+            result.append(pil_img)
+        return result
+
     def inference(
         self,
         text,
@@ -533,7 +563,7 @@ class NodeLocatorLA:
         temperature=0.7,
         resize_scale=1.0,
     ):
-        """Ground ``text`` and return bbox centers as normalized 0--1000 points."""
+        """Locate ``text`` and return normalized 0--1000 points or boxes."""
         del do_sample, temperature
         if task not in ("pointing", "grounding"):
             raise ValueError("NodeLocatorLA only supports task=pointing or task=grounding.")
@@ -541,30 +571,36 @@ class NodeLocatorLA:
             if len(image) != 1:
                 raise ValueError("Pointing and grounding require exactly one image.")
             image = image[0]
-        image = NodeLocatorRobo.resize(self, [image], scale=resize_scale)[0]
+        image = self.resize([image], scale=resize_scale)[0]
 
-        result = self.worker.ground_multi(image, text)
-        answer = result.get("answer", "")
-        pixel_boxes = self.worker.parse_boxes(answer, image.width, image.height)
-        boxes = [
-            [
-                box["x1"] / image.width * 1000.0,
-                box["y1"] / image.height * 1000.0,
-                box["x2"] / image.width * 1000.0,
-                box["y2"] / image.height * 1000.0,
-            ]
-            for box in pixel_boxes
-        ]
-        points = [
-            ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-            for x1, y1, x2, y2 in boxes
-        ]
-
-        output = {"answer": answer}
         if task == "pointing":
-            output["points"] = points
+            result = self.worker.point(image, text)
+            answer = result.get("answer", "")
+            pixel_points = self.worker.parse_points(answer, image.width, image.height)
+            points = [
+                (
+                    point["x"] / image.width * 1000.0,
+                    point["y"] / image.height * 1000.0,
+                )
+                for point in pixel_points
+            ]
+            boxes = []
+            output = {"answer": answer, "points": points}
         else:
-            output["boxes"] = boxes
+            result = self.worker.ground_multi(image, text)
+            answer = result.get("answer", "")
+            pixel_boxes = self.worker.parse_boxes(answer, image.width, image.height)
+            boxes = [
+                [
+                    box["x1"] / image.width * 1000.0,
+                    box["y1"] / image.height * 1000.0,
+                    box["x2"] / image.width * 1000.0,
+                    box["y2"] / image.height * 1000.0,
+                ]
+                for box in pixel_boxes
+            ]
+            points = []
+            output = {"answer": answer, "boxes": boxes}
 
         if plot:
             if plot_output_dir is None:
@@ -575,8 +611,7 @@ class NodeLocatorLA:
             os.makedirs(plot_output_dir, exist_ok=True)
             base, ext = os.path.splitext(image_name or task)
             plot_filename = f"{base}_{task}_annotated{ext or '.png'}"
-            NodeLocatorRobo.draw_on_image(
-                self,
+            self.draw_on_image(
                 image,
                 points=points if task == "pointing" else None,
                 boxes=boxes if task == "grounding" else None,
@@ -584,6 +619,98 @@ class NodeLocatorLA:
             )
 
         return output
+
+    def draw_on_image(self, image_input, points=None, boxes=None, trajectories=None, output_path=None):
+        """
+        Draw points, bounding boxes, and trajectories on an image.
+
+        Parameters:
+            image_input: PIL Image, numpy array, or file path (str)
+            points: List of points in format [(x, y), ...] where x,y are relative (0~1000)
+            boxes: List of boxes in format [[x1, y1, x2, y2], ...] where coords are relative (0~1000)
+            trajectories: List of trajectories in format [[(x, y), (x, y), ...], ...]
+                        or [[(x, y, d), ...], ...] where x,y are relative (0~1000)
+            output_path: Path to save the output image. Required for PIL/numpy inputs.
+        """
+        try:
+            # Read the image into a cv2 numpy array
+            if isinstance(image_input, str):
+                image = cv2.imread(image_input)
+                if image is None:
+                    raise FileNotFoundError(f"Unable to read image: {image_input}")
+            elif isinstance(image_input, Image.Image):
+                image = cv2.cvtColor(np.array(image_input), cv2.COLOR_RGB2BGR)
+            elif isinstance(image_input, np.ndarray):
+                image = image_input.copy()
+            else:
+                raise TypeError(f"Unsupported image_input type: {type(image_input)}")
+
+            h, w = image.shape[:2]
+
+            def rel_to_abs(x_rel, y_rel):
+                """Convert relative (0~1000) to absolute pixel coords, clamped to image bounds."""
+                x = int(round((x_rel / 1000.0) * w))
+                y = int(round((y_rel / 1000.0) * h))
+                x = max(0, min(w - 1, x))
+                y = max(0, min(h - 1, y))
+                return x, y
+
+            # Draw points
+            if points:
+                for point in points:
+                    x_rel, y_rel = point
+                    x, y = rel_to_abs(x_rel, y_rel)
+                    cv2.circle(image, (x, y), 5, (0, 0, 255), -1)  # Red solid circle
+
+            # Draw bounding boxes
+            if boxes:
+                for box in boxes:
+                    x1r, y1r, x2r, y2r = box
+                    x1, y1 = rel_to_abs(x1r, y1r)
+                    x2, y2 = rel_to_abs(x2r, y2r)
+                    cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green box
+
+            # Draw trajectories
+            if trajectories:
+                for trajectory in trajectories:
+                    if not trajectory or len(trajectory) < 2:
+                        continue
+
+                    # Convert all trajectory points to absolute pixels
+                    abs_pts = []
+                    for p in trajectory:
+                        # support (x,y) or (x,y,d)
+                        x_rel, y_rel = p[0], p[1]
+                        abs_pts.append(rel_to_abs(x_rel, y_rel))
+
+                    # Connect trajectory points with lines
+                    for i in range(1, len(abs_pts)):
+                        cv2.line(image, abs_pts[i - 1], abs_pts[i], (0, 0, 255), 2)  # Blue line
+
+                    # Draw a larger point at the trajectory end
+                    start_x, start_y = abs_pts[0]
+                    cv2.circle(image, (start_x, start_y), 7, (0, 255, 0), -1)  # Red start point
+
+                    # Draw a larger point at the trajectory end
+                    end_x, end_y = abs_pts[-1]
+                    cv2.circle(image, (end_x, end_y), 7, (255, 0, 0), -1)  # Blue end point
+
+            # Determine output path
+            if not output_path:
+                if isinstance(image_input, str):
+                    name, ext = os.path.splitext(image_input)
+                    output_path = f"{name}_annotated{ext}"
+                else:
+                    raise ValueError("output_path is required when image_input is not a file path")
+
+            # Save the result
+            cv2.imwrite(output_path, image)
+            cs.print(f"Annotated image saved to: {output_path}")
+            return output_path
+
+        except Exception as e:
+            cs.print(f"Error processing image: {e}")
+            return None
 
 
 def OnlineTest():
