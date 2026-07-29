@@ -28,8 +28,8 @@ from scipy.spatial.transform import Rotation as R
 from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
-from src.module.node_locator import NodeLocatorLA
-from src.module.node_segmenter import NodeSegmenterSAM2
+from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
+from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
@@ -64,6 +64,8 @@ class Args:
     device: str
     bge_path: str
     task_analyzer_api_key: str | None
+    locator: str = "locateanything"
+    segmenter: str = "sam2"
     execute_chunk_len: int = 5
     seed: int = 42
     complete_threshold: float = 0.5
@@ -257,12 +259,16 @@ class InputPreprocessor:
         num_points: int,
         robot_cls: type[Any],
         dataset_dir: str | Path,
+        locator: str = "locateanything",
+        segmenter: str = "sam2",
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_horizon = history_horizon
         self.future_horizon = future_horizon
         self.num_points = num_points
         self.robot_cls = robot_cls
+        self.locator = locator
+        self.segmenter = segmenter
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.node_segmenter_model = None
@@ -308,7 +314,8 @@ class InputPreprocessor:
         session.object_nodes = self._task_object_nodes(session.taskstructure)
         point_prompts = None
         if session.object_nodes:
-            node_locator = NodeLocatorLA(device_map=self._device("node_locator"))
+            locator_cls = NodeLocatorLA if self.locator == "locateanything" else NodeLocatorRobo
+            node_locator = locator_cls(device_map=self._device("node_locator"))
             try:
                 point_prompts = []
                 for node in session.object_nodes:
@@ -326,9 +333,10 @@ class InputPreprocessor:
             session.initial_points = np.asarray(point_prompts, dtype=np.float32)
 
         node_segmenter_device = self._device("node_segmenter")
+        segmenter_cls = NodeSegmenterSAM2 if self.segmenter == "sam2" else NodeSegmenter
         if self.node_segmenter_model is None:
-            self.node_segmenter_model = NodeSegmenterSAM2(device=node_segmenter_device).model
-        session.object_segmenter = NodeSegmenterSAM2(
+            self.node_segmenter_model = segmenter_cls(device=node_segmenter_device).model
+        session.object_segmenter = segmenter_cls(
             device=node_segmenter_device,
             model=self.node_segmenter_model,
         )
@@ -1029,11 +1037,11 @@ class InferenceServer:
             f"step={session.frame_index} gripper_action[{len(gripper_actions)}]={gripper_actions}",
             markup=False,
         )
-        response_initial_points, response_initial_point_object_ids = (
-            self._active_initial_points_response(session)
+        response_initial_points, response_initial_point_object_ids, response_initial_point_active = (
+            self._initial_points_response(session)
         )
-        response_tracking_points, response_tracking_object_id = self._active_tracking_response(
-            session, current_features
+        response_tracking_points, response_tracking_object_id, response_tracking_point_active = (
+            self._tracking_response(session, current_features)
         )
         response = {
             **outputs,
@@ -1041,8 +1049,10 @@ class InferenceServer:
             "entity_point_mask": self.inference.to_json(model_input["entity_point_mask"]),
             "initial_points": self.inference.to_json(response_initial_points),
             "initial_point_object_ids": self.inference.to_json(response_initial_point_object_ids),
+            "initial_point_active": self.inference.to_json(response_initial_point_active),
             "tracking_point": self.inference.to_json(response_tracking_points),
             "tracking_object_id": self.inference.to_json(response_tracking_object_id),
+            "tracking_point_active": self.inference.to_json(response_tracking_point_active),
             "subtask": session.current_subtask,
             "subtask_index": session.subtask_index,
             "subtask_switched": subtask_switched,
@@ -1074,31 +1084,40 @@ class InferenceServer:
         return outputs, captured_model_input
 
     @staticmethod
-    def _active_initial_points_response(
+    def _initial_points_response(
         session: InferenceSession,
-    ) -> tuple[np.ndarray | None, np.ndarray | None]:
-        if session.initial_points is None or not session.active_object_indices:
-            return None, None
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        if session.initial_points is None:
+            return None, None, None
         points_by_object = np.asarray(session.initial_points, dtype=np.float32)
         point_chunks = []
         id_chunks = []
-        for local_id, object_index in enumerate(session.active_object_indices, start=1):
-            if object_index < 0 or object_index >= len(points_by_object):
-                continue
-            points = points_by_object[object_index]
+        active_chunks = []
+        active_ids = {
+            object_index: local_id
+            for local_id, object_index in enumerate(session.active_object_indices, start=1)
+        }
+        for object_index, points in enumerate(points_by_object):
+            local_id = active_ids.get(object_index, object_index + 1)
             point_chunks.append(points)
             id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
+            active_chunks.append(np.full(len(points), object_index in active_ids, dtype=bool))
         if not point_chunks:
-            return None, None
-        return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
+            return None, None, None
+        return (
+            np.concatenate(point_chunks, axis=0),
+            np.concatenate(id_chunks, axis=0),
+            np.concatenate(active_chunks, axis=0),
+        )
 
     @staticmethod
-    def _active_tracking_response(
+    def _tracking_response(
         session: InferenceSession,
         current_features: Mapping[str, np.ndarray],
-    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
         point_chunks = []
         id_chunks = []
+        active_chunks = []
 
         actor_xyz = np.asarray(current_features.get("gripper_points_xyz", []), dtype=np.float32)
         intrinsic = np.asarray(current_features.get("intrinsic", []), dtype=np.float32)
@@ -1111,18 +1130,26 @@ class InferenceServer:
             actor_points[valid, 2] = 1.0
             point_chunks.append(actor_points)
             id_chunks.append(np.zeros(ACTOR_NUM_POINTS, dtype=np.int64))
+            active_chunks.append(np.ones(ACTOR_NUM_POINTS, dtype=bool))
 
         if session.tracked_points is not None:
             points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
-            for local_id, object_index in enumerate(session.active_object_indices, start=1):
-                if object_index < 0 or object_index >= len(points_by_object):
-                    continue
-                points = points_by_object[object_index]
+            active_ids = {
+                object_index: local_id
+                for local_id, object_index in enumerate(session.active_object_indices, start=1)
+            }
+            for object_index, points in enumerate(points_by_object):
+                local_id = active_ids.get(object_index, object_index + 1)
                 point_chunks.append(points)
                 id_chunks.append(np.full(len(points), local_id, dtype=np.int64))
+                active_chunks.append(np.full(len(points), object_index in active_ids, dtype=bool))
         if not point_chunks:
-            return None, None
-        return np.concatenate(point_chunks, axis=0), np.concatenate(id_chunks, axis=0)
+            return None, None, None
+        return (
+            np.concatenate(point_chunks, axis=0),
+            np.concatenate(id_chunks, axis=0),
+            np.concatenate(active_chunks, axis=0),
+        )
 
     def _validate_request(self, request: Mapping[str, Any]) -> None:
         missing = [key for key in REQUIRED_REQUEST_FIELDS if key not in request]
@@ -1169,6 +1196,18 @@ def parse_args() -> Args:
     parser.add_argument("--ckpt-path", required=True, help="Path to a training checkpoint.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument(
+        "--locator",
+        choices=("locateanything", "robobrain"),
+        default=Args.locator,
+        help="Node locator used to generate point prompts.",
+    )
+    parser.add_argument(
+        "--segmenter",
+        choices=("sam2", "sam3"),
+        default=Args.segmenter,
+        help="Node segmenter used to initialize object masks.",
+    )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
@@ -1248,6 +1287,8 @@ def main() -> None:
             num_points=model_kwargs["num_points"],
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
+            locator=args.locator,
+            segmenter=args.segmenter,
             devices=args.devices,
         ),
         inference = InferenceModel(

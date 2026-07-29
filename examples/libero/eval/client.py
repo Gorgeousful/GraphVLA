@@ -325,20 +325,39 @@ def _draw_response_points(
         if response.get("tracking_point") is not None and response.get("tracking_object_id") is not None:
             tracking_points = np.asarray(response["tracking_point"], dtype=np.float32).reshape(-1, 3)
             tracking_object_ids = np.asarray(response["tracking_object_id"], dtype=np.int64).reshape(-1)
-            for point, object_id in zip(tracking_points, tracking_object_ids, strict=True):
+            tracking_active = np.asarray(
+                response.get("tracking_point_active", np.ones(len(tracking_points), dtype=bool)),
+                dtype=bool,
+            ).reshape(-1)
+            if not (len(tracking_points) == len(tracking_object_ids) == len(tracking_active)):
+                raise ValueError("tracking visualization arrays must have equal lengths")
+            draw_order = np.argsort(tracking_active, kind="stable")
+            for point_index in draw_order:
+                point = tracking_points[point_index]
+                object_id = tracking_object_ids[point_index]
+                is_active = tracking_active[point_index]
                 if not np.isfinite(point[:2]).all():
                     continue
                 x, y = np.rint(point[:2]).astype(int)
                 if 0 <= x < width and 0 <= y < height:
                     color = colors.get(int(object_id), (160, 80, 160))
-                    if float(point[2]) <= 0.5:
+                    if not is_active or float(point[2]) <= 0.5:
                         color = (145, 145, 145)
                     cv2.circle(image, (x, y), 2, color, -1, lineType=cv2.LINE_AA)
                     count += 1
         initial_count = 0
         if "initial_points" in response and response["initial_points"] is not None:
             initial_points = np.asarray(response["initial_points"], dtype=np.float32).reshape(-1, 2)
-            for point in initial_points:
+            initial_active = np.asarray(
+                response.get("initial_point_active", np.ones(len(initial_points), dtype=bool)),
+                dtype=bool,
+            ).reshape(-1)
+            if len(initial_points) != len(initial_active):
+                raise ValueError("initial-point visualization arrays must have equal lengths")
+            draw_order = np.argsort(initial_active, kind="stable")
+            for point_index in draw_order:
+                point = initial_points[point_index]
+                is_active = initial_active[point_index]
                 if not np.isfinite(point).all():
                     continue
                 x, y = np.rint(point).astype(int)
@@ -346,7 +365,7 @@ def _draw_response_points(
                     cv2.drawMarker(
                         image,
                         (x, y),
-                        (255, 230, 40),
+                        (255, 230, 40) if is_active else (145, 145, 145),
                         markerType=cv2.MARKER_TILTED_CROSS,
                         markerSize=10,
                         thickness=2,

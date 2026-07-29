@@ -12,7 +12,7 @@ from pathlib import Path
 class TrainingConfig:
     # common
     resume: bool = True
-    max_steps: int = 100_000
+    max_steps: int = 200_000
     batch_size: int = 64
 
     # gradient
@@ -22,20 +22,20 @@ class TrainingConfig:
 
     # cos
     warmup_steps: int = 1_000
-    peak_lr: float = 1e-5
-    decay_steps: int = 100_000
-    decay_lr: float = 1e-5
+    peak_lr: float = 1e-5 # 2.5e-5
+    decay_steps: int = 1_000_000
+    decay_lr: float = 1e-5 # 2.5e-5
 
     # adamw
-    weight_decay: float = 1e-2
+    weight_decay: float = 1e-2 # 1e-4
     betas: tuple = (0.9, 0.95)
     
     # ckpt
     ckpt_path: str | Path | None = None    
     save_dir: str | Path | None = "examples/libero/result"
-    log_interval: int = 10 # 100
+    log_interval: int = 100
     save_interval: int = 1_000
-    keep_period: int = 5_000
+    keep_period: int = 10_000
 
     # others
     seed: int = 42
