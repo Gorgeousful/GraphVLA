@@ -61,7 +61,7 @@ class DataConfig:
             "out_transforms": self.out_transforms,
         }
 
-LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_0_5_6_7_8"
+LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8"
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -77,6 +77,7 @@ LIBERO_REPACK = {
     },
     "subtask_id": "subtask_id",
     "is_complete": "is_complete",
+    "is_contact": "is_contact",
     "node_points_xyz": "node_points_xyz",
     "valid_node_mask": "valid_node_mask",
     "subtask_node_mask": "subtask_node_mask",
@@ -95,6 +96,7 @@ LIBERO_HORIZON = {
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "is_complete": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "is_contact": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "node_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
@@ -134,10 +136,13 @@ LIBERO_OUT_TRANSFORM = (
     ),
 )
 
+TASKS = None
+
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
     horizon=LIBERO_HORIZON,
     load_videos=False,
     transforms=LIBERO_TRANSFORM,
     out_transforms=LIBERO_OUT_TRANSFORM,
+    tasks=TASKS
 )

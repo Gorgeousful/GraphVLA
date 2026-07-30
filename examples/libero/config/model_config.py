@@ -9,6 +9,7 @@ from typing import Any
 @dataclass
 class ModelConfig:
     num_points: int = 32
+    cls_token_num: int = 1
     history_horizon: int = 9
     future_horizon: int = 10
     condition_dim: int = 384
@@ -22,6 +23,7 @@ class ModelConfig:
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_complete": 0.5,
+        "loss_contact": 0.5,
     })
 
     def to_kwargs(self) -> dict[str, Any]:

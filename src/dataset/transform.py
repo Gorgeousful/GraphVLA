@@ -11,7 +11,6 @@ from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTOR_POINT_INDICES,
     ACTOR_NUM_POINTS,
-    ENTITY_ROLES,
     POINT_FEATURE_DIM,
 )
 cs = Console()
@@ -521,7 +520,6 @@ class CustomTransform(TransformFn):
         scene_condition = self._build_scene_condition(
             data["subtaskstructure"], device=entity_points.device,
         )
-        entity_role_condition = self._build_entity_role_condition(device=entity_points.device)
         state = torch.as_tensor(data["state"], device=entity_points.device, dtype=entity_points.dtype)
         if state.ndim != 2 or state.shape[0] != num_frames or state.shape[1] < 8:
             raise ValueError(f"Expected state [T,>=8], got {tuple(state.shape)}")
@@ -538,12 +536,14 @@ class CustomTransform(TransformFn):
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
             "scene_condition": scene_condition,
-            "entity_role_condition": entity_role_condition,
             "gripper_closedness_history": closedness[:input_horizon],
             "target": {
                 "trajectory": trajectory,
                 "is_complete": torch.as_tensor(
                     data["is_complete"], device=entity_points.device, dtype=entity_points.dtype
+                )[history_horizon].reshape(1),
+                "is_contact": torch.as_tensor(
+                    data["is_contact"], device=entity_points.device, dtype=entity_points.dtype
                 )[history_horizon].reshape(1),
             },
         }
@@ -590,9 +590,6 @@ class CustomTransform(TransformFn):
                 continue
             object_slots[:, slot_index] = node_points_xyz[:, selected_node_indices[role_index]]
         return object_slots
-
-    def _build_entity_role_condition(self, *, device: torch.device) -> torch.Tensor:
-        return torch.stack([self._embed_text(role, device=device) for role in ENTITY_ROLES])
 
     def _build_scene_condition(
         self,

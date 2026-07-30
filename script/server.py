@@ -34,7 +34,6 @@ from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
     ACTOR_NUM_POINTS,
-    ENTITY_ROLES,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
@@ -438,7 +437,6 @@ class InputPreprocessor:
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
         scene_condition_texts = [action_type, action_degree]
-        entity_role_condition_texts = list(ENTITY_ROLES)
         return {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
@@ -446,7 +444,6 @@ class InputPreprocessor:
                 [item["closedness"] for item in frames], dtype=np.float32
             ).reshape(1, len(frames), 1).tolist(),
             "scene_condition_texts": scene_condition_texts,
-            "entity_role_condition_texts": entity_role_condition_texts,
         }
 
     def _frames_from_request(
@@ -921,28 +918,10 @@ class InferenceModel:
             if scene_condition.ndim == 2:
                 scene_condition = scene_condition.unsqueeze(0)
 
-        entity_role_condition = input_data.get("entity_role_condition")
-        if entity_role_condition is None:
-            role_texts = input_data.get("entity_role_condition_texts")
-            if not isinstance(role_texts, Sequence) or isinstance(role_texts, str | bytes):
-                raise TypeError("entity_role_condition_texts must be [actor, patient, target]")
-            if len(role_texts) != len(ENTITY_ROLES):
-                raise ValueError(f"entity_role_condition_texts must contain {len(ENTITY_ROLES)} roles")
-            entity_role_condition = torch.stack([
-                self.embed_text(str(role)) for role in role_texts
-            ]).unsqueeze(0)
-        else:
-            entity_role_condition = torch.as_tensor(
-                entity_role_condition, device=self.device, dtype=torch.float32,
-            )
-            if entity_role_condition.ndim == 2:
-                entity_role_condition = entity_role_condition.unsqueeze(0)
-
         infer_inputs = {
             "entity_points": tensor("entity_points", torch.float32),
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
             "scene_condition": scene_condition,
-            "entity_role_condition": entity_role_condition,
             "gripper_closedness_history": tensor("gripper_closedness_history", torch.float32),
         }
         outputs = self.model.sample(infer_inputs)
@@ -1141,9 +1120,6 @@ class InferenceServer:
 
         outputs, captured_model_input = inference_result
         captured_model_input["scene_condition_texts"] = model_input.get("scene_condition_texts")
-        captured_model_input["entity_role_condition_texts"] = model_input.get(
-            "entity_role_condition_texts"
-        )
         return outputs, captured_model_input
 
     @staticmethod

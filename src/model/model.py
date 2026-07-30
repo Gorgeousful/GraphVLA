@@ -111,6 +111,7 @@ class GraphFlowModel(nn.Module):
     def __init__(
         self,
         num_points: int = 32,
+        cls_token_num: int = 1,
         history_horizon: int = 9,
         future_horizon: int = 10,
         condition_dim: int = 384,
@@ -127,6 +128,7 @@ class GraphFlowModel(nn.Module):
         if num_points < ACTOR_NUM_POINTS:
             raise ValueError(f"num_points must be at least {ACTOR_NUM_POINTS}, got {num_points}")
         self.num_points = num_points
+        self.cls_token_num = cls_token_num
         self.history_horizon = history_horizon
         self.history_steps = history_horizon + 1
         self.future_horizon = future_horizon
@@ -134,14 +136,21 @@ class GraphFlowModel(nn.Module):
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
             hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
-            max_history=self.history_steps, dropout=dropout,
+            max_history=self.history_steps, cls_token_num=cls_token_num, dropout=dropout,
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.complete_head = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 1)
+            nn.Linear(hidden_dim * (2 * cls_token_num + 2), hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
+        )
+        self.contact_head = nn.Sequential(
+            nn.Linear(hidden_dim * (cls_token_num + 1), hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
         )
 
     def set_gradient_checkpointing(self, enabled: bool = True) -> None:
@@ -158,7 +167,6 @@ class GraphFlowModel(nn.Module):
             points,
             batch["entity_point_mask"],
             batch["scene_condition"],
-            batch["entity_role_condition"],
         )
 
     def _actor_history(self, batch: dict[str, Any]) -> torch.Tensor:
@@ -169,6 +177,11 @@ class GraphFlowModel(nn.Module):
                 f"Expected gripper closedness [B,{self.history_steps},1], got {closedness.shape}"
             )
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
+
+    def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
+        patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
+        action_token = memory[:, 3 * self.cls_token_num]
+        return self.contact_head(torch.cat([action_token, patient_cls], dim=-1))
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         memory, relation_local = self._encode(batch)
@@ -187,7 +200,15 @@ class GraphFlowModel(nn.Module):
         loss_complete = F.binary_cross_entropy_with_logits(
             complete_logits, target["is_complete"].to(dtype=complete_logits.dtype)
         )
-        losses = {"loss_flow": loss_flow, "loss_complete": loss_complete}
+        contact_logits = self._contact_logits(memory)
+        loss_contact = F.binary_cross_entropy_with_logits(
+            contact_logits, target["is_contact"].to(dtype=contact_logits.dtype)
+        )
+        losses = {
+            "loss_flow": loss_flow,
+            "loss_complete": loss_complete,
+            "loss_contact": loss_contact,
+        }
         total = sum(value * float(self.weights.get(name, 1.0)) for name, value in losses.items())
         return total, {"loss": total.detach(), **{name: value.detach() for name, value in losses.items()}}
 
@@ -223,4 +244,5 @@ class GraphFlowModel(nn.Module):
             ),
             "gripper_action_plan": state[..., ACTOR_NUM_POINTS * 3 :],
             "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
+            "is_contact": torch.sigmoid(self._contact_logits(memory)),
         }
