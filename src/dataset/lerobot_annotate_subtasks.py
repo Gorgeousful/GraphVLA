@@ -230,6 +230,9 @@ class DatasetStore:
                 "length": int(self.episodes_by_index[episode_index]["length"]),
                 "annotated": episode_index in self.annotated_episodes,
                 "completion_annotated": episode_index in self.completion_episodes,
+                "completion_soft_annotated": (
+                    episode_index in self.completion_soft_column_episodes
+                ),
                 "boundaries": self.boundaries(episode_index),
             }
             for episode_index in self.task_to_episodes.get(task_index, [])
@@ -257,6 +260,9 @@ class DatasetStore:
             "completion_ranges": self.completion_ranges(episode_index),
             "annotated": episode_index in self.annotated_episodes,
             "completion_annotated": episode_index in self.completion_episodes,
+            "completion_soft_annotated": (
+                episode_index in self.completion_soft_column_episodes
+            ),
         }
 
     def completion_ranges(self, episode_index: int) -> list[dict[str, int]]:
@@ -710,7 +716,7 @@ body{margin:0}header{padding:14px 22px;background:#171d27;border-bottom:1px soli
 h1{font-size:18px;margin:0}select,button,input{font:inherit}select,button{background:#222b38;color:#eef3fa;border:1px solid #3b4758;border-radius:7px;padding:8px 11px}
 button{cursor:pointer}button:hover{background:#2d394a}button:disabled{cursor:default;opacity:.55}.layout{display:grid;grid-template-columns:280px minmax(500px,1fr) 320px;height:calc(100vh - 59px)}
 aside,.right{padding:14px;overflow:auto;background:#141a23}.right{border-left:1px solid #2b3442}.episodes{border-right:1px solid #2b3442}
-.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.episode.current{background:#34465f;border-color:#6b8fbd;box-shadow:inset 3px 0 #72a7e8}.episode-status{display:flex;gap:8px;align-items:center}.persisted{color:#77d49b;font-size:12px}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
+.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0;text-align:left}.episode.current{background:#34465f;border-color:#6b8fbd;box-shadow:inset 3px 0 #72a7e8}.episode-status{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}.persisted{color:#77d49b;font-size:12px}.done{color:#77d49b}.pending{color:#e5b86b}.unsaved{color:#ffad55}
 main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow:auto}.viewer{width:min(100%,900px);background:#080a0e;border-radius:10px;overflow:hidden;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
 #frame{max-width:100%;max-height:100%;image-rendering:auto}.timeline{width:min(100%,900px);margin-top:14px}.range-wrap{position:relative;padding-bottom:15px}.range-wrap input{width:100%;margin:0}
 .completion-track,.marker-track{position:absolute;left:8px;right:8px;bottom:0;height:12px;pointer-events:none}.completion-track{z-index:1}.completion-region{position:absolute;top:1px;height:10px;background:#4da3ff;opacity:.5;border-radius:3px}.marker-track{z-index:2}.marker{position:absolute;top:0;width:3px;height:12px;transform:translateX(-1px);border-radius:2px}.marker.saved{background:#63d68b}.marker.unsaved{background:#ffad55}.marker.removed{background:#ef6b73;opacity:.8}
@@ -731,7 +737,7 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <script>
 const $=id=>document.getElementById(id);
 let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null;
-const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),completionByEpisode=new Map();
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),completionByEpisode=new Map(),completionSoftByEpisode=new Map();
 const edited=new Set(),completionPending=new Set();
 async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
 function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
@@ -739,13 +745,13 @@ function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries
 function needsSave(id){return completionPending.has(id)||(edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id)))}
 function dirtyIds(){return [...new Set([...edited,...completionPending])].filter(needsSave).sort((a,b)=>a-b)}
 function saveIds(){return episodes.map(item=>item.episode_index).filter(id=>annotatedByEpisode.get(id)||edited.has(id)||completionPending.has(id))}
-function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);completionByEpisode.set(id,episode.completion_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
-function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);completionByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
+function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);completionByEpisode.set(id,episode.completion_annotated);completionSoftByEpisode.set(id,episode.completion_soft_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
+function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);completionByEpisode.set(id,false);completionSoftByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
 async function init(){tasks=await json('/api/tasks');const pending=await json('/api/completion-pending');for(const episode of pending)rememberCompletionPending(episode);$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Annotated ('+saveIds().length+')'}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
-async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);completionByEpisode.set(id,next.completion_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}if(completionSoftByEpisode.get(id)){const soft=document.createElement('span');soft.className='persisted';soft.textContent='is_complete_soft ✓';right.appendChild(soft)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);completionByEpisode.set(id,next.completion_annotated);completionSoftByEpisode.set(id,next.completion_soft_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
 function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
@@ -776,7 +782,7 @@ async function saveAll(){
       for(const line of lines){
         if(!line.trim())continue;const event=JSON.parse(line);
         if(event.status==='saved'){
-          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);completionByEpisode.set(id,true);completionPending.delete(id);
+          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);completionByEpisode.set(id,true);completionSoftByEpisode.set(id,true);completionPending.delete(id);
           if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
           if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.completion_ranges=completionRangesFromBoundaries(submitted);detail.annotated=true;renderAnnotation()}
           metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;

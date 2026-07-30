@@ -112,6 +112,7 @@ class DatasetStore(BaseDatasetStore):
                 "episode_index": episode_index,
                 "length": int(self.episodes_by_index[episode_index]["length"]),
                 "annotated": episode_index in self.contact_episodes,
+                "soft_annotated": episode_index in self.contact_soft_episodes,
                 "ranges": self.contact_ranges(episode_index),
             }
             for episode_index in self.task_to_episodes.get(task_index, [])
@@ -129,6 +130,7 @@ class DatasetStore(BaseDatasetStore):
             "ranges": self.contact_ranges(episode_index),
             "soft_width": self.soft_width,
             "annotated": episode_index in self.contact_episodes,
+            "soft_annotated": episode_index in self.contact_soft_episodes,
         }
 
     def contact_ranges(self, episode_index: int) -> list[dict[str, int]]:
@@ -510,7 +512,7 @@ HTML = r'''<!doctype html>
 header{height:59px;padding:14px 22px;background:#171d27;border-bottom:1px solid #2b3442;display:flex;gap:20px;align-items:center}h1{font-size:18px;margin:0}
 select,button{font:inherit;background:#222b38;color:#eef3fa;border:1px solid #3b4758;border-radius:7px;padding:8px 11px}button{cursor:pointer}button:hover{background:#2d394a}
 .layout{display:grid;grid-template-columns:270px minmax(500px,1fr) 340px;height:calc(100vh - 59px)}aside{padding:14px;overflow:auto;background:#141a23}.episodes{border-right:1px solid #2b3442}.right{border-left:1px solid #2b3442}
-.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0}.episode.current{background:#34465f;border-color:#6b8fbd}.done{color:#77d49b}.pending{color:#e5b86b}.dirty{color:#ffad55}
+.episode{display:flex;width:100%;justify-content:space-between;margin:5px 0}.episode.current{background:#34465f;border-color:#6b8fbd}.episode-status{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}.done{color:#77d49b}.pending{color:#e5b86b}.dirty{color:#ffad55}
 main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow:auto}.viewer{width:min(100%,900px);background:#080a0e;border-radius:10px;overflow:hidden;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}#frame{max-width:100%;max-height:100%}
 .timeline{width:min(100%,900px);margin-top:14px}.range-wrap{position:relative;padding-bottom:18px}.range-wrap input{width:100%;margin:0}.contact-track{position:absolute;left:8px;right:8px;bottom:0;height:15px;pointer-events:none}.contact-region{position:absolute;bottom:0;height:10px;background:#ef6b73;opacity:.55;border-radius:3px}.contact-keyframe{position:absolute;top:0;width:4px;height:15px;transform:translateX(-2px);border-radius:2px;z-index:2}.contact-keyframe.start{background:#63d68b}.contact-keyframe.end{background:#ef6b73}.contact-keyframe.unsaved{opacity:.65;outline:1px dashed #fff}.contact-keyframe.saved{opacity:1}.contact-keyframe.open{background:#ffad55;opacity:1}
 .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.frame-label{font-variant-numeric:tabular-nums;min-width:175px}.primary{background:#246bce;border-color:#347be0}.end{background:#8b3c43}.save{width:100%;margin-top:14px}
@@ -524,7 +526,7 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 </div></main><aside class="right"><b>Contact ranges (inclusive)</b><div id="ranges"></div><button id="save" class="primary save">Save All Changes (0)</button><div id="message" class="message"></div></aside></div>
 <script>
 const $=id=>document.getElementById(id);let tasks=[],episodes=[],detail=null,current=0,ranges=[],openStart=null,timer=null,activeTask=null;
-const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),edited=new Set();
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),softAnnotatedByEpisode=new Map(),edited=new Set();
 async function json(url,options){const response=await fetch(url,options),body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
 function cloneRanges(values){return (values||[]).map(item=>({...item}))}
 function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
@@ -532,13 +534,13 @@ function stashCurrent(){if(detail)drafts.set(detail.episode_index,cloneRanges(ra
 function needsSave(id){return edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id))}
 function dirtyIds(){return [...edited].filter(needsSave).sort((a,b)=>a-b)}
 function saveIds(){return episodes.map(item=>item.episode_index).filter(id=>annotatedByEpisode.get(id)||edited.has(id))}
-function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);savedByEpisode.set(id,cloneRanges(episode.ranges));if(!drafts.has(id))drafts.set(id,cloneRanges(episode.ranges))}
+function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);softAnnotatedByEpisode.set(id,episode.soft_annotated);savedByEpisode.set(id,cloneRanges(episode.ranges));if(!drafts.has(id))drafts.set(id,cloneRanges(episode.ranges))}
 async function init(){tasks=await json('/api/tasks');for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){if(openStart!==null){$('task').value=activeTask;$('message').textContent='Finish the open contact range before switching tasks.';return}stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 async function selectEpisode(id){if(openStart!==null){$('message').textContent='Finish the open contact range before switching episodes.';return}stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;rememberEpisode(next);ranges=cloneRanges(drafts.get(id));openStart=null;current=0;$('slider').max=detail.length-1;showFrame();render();$('message').textContent=''}
 function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);$('progress').textContent=task?task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved':'';$('save').textContent='Save All Annotated ('+saveIds().length+')'}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index,button=document.createElement('button');button.className='episode'+(detail&&detail.episode_index===id?' current':'');button.onclick=()=>selectEpisode(id);const state=needsSave(id)?'<span class="dirty">Unsaved</span>':(annotatedByEpisode.get(id)?'<span class="done">is_contact ✓</span>':'<span class="pending">Pending</span>');button.innerHTML='<span>Episode '+id+'</span>'+state;box.appendChild(button)}renderProgress()}
+function renderEpisodes(){const box=$("episodes");box.innerHTML="";for(const episode of episodes){const id=episode.episode_index,button=document.createElement("button");button.className="episode"+(detail&&detail.episode_index===id?" current":"");button.onclick=()=>selectEpisode(id);const left=document.createElement("span");left.textContent="Episode "+id;const right=document.createElement("span");right.className="episode-status";if(annotatedByEpisode.get(id)){const hard=document.createElement("span");hard.className="done";hard.textContent="is_contact ✓";right.appendChild(hard)}if(softAnnotatedByEpisode.get(id)){const soft=document.createElement("span");soft.className="done";soft.textContent="is_contact_soft ✓";right.appendChild(soft)}if(needsSave(id)){const dirty=document.createElement("span");dirty.className="dirty";dirty.textContent="Unsaved";right.appendChild(dirty)}else if(!annotatedByEpisode.get(id)){const pending=document.createElement("span");pending.className="pending";pending.textContent="Pending";right.appendChild(pending)}button.append(left,right);box.appendChild(button)}renderProgress()}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Frame '+current+' / '+(detail.length-1)}
 function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
 function play(){if(timer){stop();return}$('play').textContent='⏸ Pause';timer=setInterval(()=>{if(current>=detail.length-1){stop();return}move(detail.preview_stride)},1000/detail.fps*detail.preview_stride)}
@@ -565,7 +567,7 @@ async function saveAll(){
       for(const line of lines){
         if(!line.trim())continue;const event=JSON.parse(line);
         if(event.status==='saved'){
-          const id=event.episode_index,savedRanges=submitted.get(id)||[];savedByEpisode.set(id,cloneRanges(savedRanges));annotatedByEpisode.set(id,true);
+          const id=event.episode_index,savedRanges=submitted.get(id)||[];savedByEpisode.set(id,cloneRanges(savedRanges));annotatedByEpisode.set(id,true);softAnnotatedByEpisode.set(id,true);
           if(equal(drafts.get(id),savedRanges))edited.delete(id);
           if(detail&&id===detail.episode_index)detail.ranges=cloneRanges(savedRanges);
           metadataErrorCount+=(event.metadata_errors||[]).length;render();button.textContent='Saving '+event.completed+' / '+event.total;
@@ -578,7 +580,7 @@ async function saveAll(){
       if(chunk.done)break;
     }
     tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');
-    for(const episode of episodes){annotatedByEpisode.set(episode.episode_index,episode.annotated);if(!edited.has(episode.episode_index)){savedByEpisode.set(episode.episode_index,cloneRanges(episode.ranges));drafts.set(episode.episode_index,cloneRanges(episode.ranges))}}
+    for(const episode of episodes){annotatedByEpisode.set(episode.episode_index,episode.annotated);softAnnotatedByEpisode.set(episode.episode_index,episode.soft_annotated);if(!edited.has(episode.episode_index)){savedByEpisode.set(episode.episode_index,cloneRanges(episode.ranges));drafts.set(episode.episode_index,cloneRanges(episode.ranges))}}
     render();
     if(summary)$('message').textContent='Saved '+summary.saved+' / '+summary.total+' episode(s).'+(summary.failed?' '+summary.failed+' failed and remain unsaved.':'')+(metadataErrorCount?' Metadata sync reported '+metadataErrorCount+' error(s).':'');
   }catch(error){$('message').textContent=error.message}finally{button.disabled=false;renderProgress()}
