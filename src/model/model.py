@@ -122,17 +122,25 @@ class GraphFlowModel(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         sample_steps: int = 10,
+        complete_pos_weight: float = 1.0,
+        contact_pos_weight: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
         if num_points < ACTOR_NUM_POINTS:
             raise ValueError(f"num_points must be at least {ACTOR_NUM_POINTS}, got {num_points}")
+        if complete_pos_weight <= 0:
+            raise ValueError(f"complete_pos_weight must be positive, got {complete_pos_weight}")
+        if contact_pos_weight <= 0:
+            raise ValueError(f"contact_pos_weight must be positive, got {contact_pos_weight}")
         self.num_points = num_points
         self.cls_token_num = cls_token_num
         self.history_horizon = history_horizon
         self.history_steps = history_horizon + 1
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
+        self.complete_pos_weight = float(complete_pos_weight)
+        self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
             hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
@@ -179,6 +187,9 @@ class GraphFlowModel(nn.Module):
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
 
     def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
+        # TODO: Consider using actor CLS + patient CLS instead. Contact is an
+        # actor-patient relation, so patient CLS + action token may not match
+        # the intended contact-head design.
         patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
         action_token = memory[:, 3 * self.cls_token_num]
         return self.contact_head(torch.cat([action_token, patient_cls], dim=-1))
@@ -198,11 +209,15 @@ class GraphFlowModel(nn.Module):
 
         complete_logits = self.complete_head(relation_local.flatten(1))
         loss_complete = F.binary_cross_entropy_with_logits(
-            complete_logits, target["is_complete"].to(dtype=complete_logits.dtype)
+            complete_logits,
+            target["is_complete"].to(dtype=complete_logits.dtype),
+            pos_weight=complete_logits.new_tensor([self.complete_pos_weight]),
         )
         contact_logits = self._contact_logits(memory)
         loss_contact = F.binary_cross_entropy_with_logits(
-            contact_logits, target["is_contact"].to(dtype=contact_logits.dtype)
+            contact_logits,
+            target["is_contact"].to(dtype=contact_logits.dtype),
+            pos_weight=contact_logits.new_tensor([self.contact_pos_weight]),
         )
         losses = {
             "loss_flow": loss_flow,

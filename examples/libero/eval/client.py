@@ -18,6 +18,7 @@ import cv2
 import subprocess
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ class Args:
     tasks: list[int] | None = None
     num_steps_wait: int = 30
     num_trials_per_task: int = 5
+    trials_init_state: list[int] | None = None
     max_steps: int | None = None
     seed: int = 42
     save_video: bool = True
@@ -285,14 +287,22 @@ def _draw_text_rgb_right(
     cv2.putText(image, text, (x, y), font, 0.48, color, 1, cv2.LINE_AA)
 
 
-def _current_complete_score(response: dict[str, Any]) -> float | None:
-    complete_value = response.get("is_complete")
-    if complete_value is None:
+def _current_score(response: dict[str, Any], name: str) -> float | None:
+    value = response.get(name)
+    if value is None:
         return None
 
-    scores = _first_batch(complete_value).astype(np.float32).reshape(-1)
+    scores = _first_batch(value).astype(np.float32).reshape(-1)
     finite_scores = scores[np.isfinite(scores)]
     return None if finite_scores.size == 0 else float(np.max(finite_scores))
+
+
+def _draw_response_scores(image: np.ndarray, response: dict[str, Any]) -> None:
+    for name, y in (("is_complete", 18), ("is_contact", 38)):
+        score = _current_score(response, name)
+        text = "-" if score is None else f"{score:.2f}"
+        color = (80, 255, 80) if score is not None and score >= 0.5 else (255, 255, 255)
+        _draw_text_rgb_right(image, text, y, color=color)
 
 
 def _draw_response_points(
@@ -373,14 +383,7 @@ def _draw_response_points(
                     )
                     initial_count += 1
         _draw_text_rgb(image, f"tracking in={count} initial={initial_count}", (8, 18))
-        complete_score = _current_complete_score(response)
-        if complete_score is None:
-            complete_text = "-"
-            complete_color = (255, 255, 255)
-        else:
-            complete_text = f"{complete_score:.2f}"
-            complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
-        _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
+        _draw_response_scores(image, response)
         return image
 
     if frame_id is not None and intrinsic is not None and response.get("gripper_points_xyz_plan") is not None:
@@ -402,14 +405,7 @@ def _draw_response_points(
 
     label_frame = "-" if frame_id is None else str(frame_id)
     _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))
-    complete_score = _current_complete_score(response)
-    if complete_score is None:
-        complete_text = "-"
-        complete_color = (255, 255, 255)
-    else:
-        complete_text = f"{complete_score:.2f}"
-        complete_color = (80, 255, 80) if complete_score >= 0.5 else (255, 255, 255)
-    _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
+    _draw_response_scores(image, response)
     return image
 
 
@@ -511,6 +507,7 @@ def parse_args() -> Args:
     parser.add_argument("--tasks", type=_parse_tasks, default=Args.tasks)
     parser.add_argument("--num-steps-wait", type=int, default=Args.num_steps_wait)
     parser.add_argument("--num-trials-per-task", type=int, default=Args.num_trials_per_task)
+    parser.add_argument("--trials-init-state", type=int, nargs="+", default=Args.trials_init_state)
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument("--no-save-video", action="store_true")
@@ -525,6 +522,7 @@ def parse_args() -> Args:
         tasks=ns.tasks,
         num_steps_wait=ns.num_steps_wait,
         num_trials_per_task=ns.num_trials_per_task,
+        trials_init_state=ns.trials_init_state,
         max_steps=ns.max_steps,
         seed=ns.seed,
         save_video=not ns.no_save_video,
@@ -546,7 +544,8 @@ def main() -> None:
             raise ValueError(f"task id {task_id} out of range for {args.task_suite_name}: 0-{num_tasks_in_suite - 1}")
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
-    suite_output_dir = DEFAULT_OUTPUT_DIR / args.task_suite_name
+    timestamp = datetime.now().strftime("%m%d-%H%M")
+    suite_output_dir = DEFAULT_OUTPUT_DIR / f"{args.task_suite_name}-{timestamp}"
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -561,6 +560,20 @@ def main() -> None:
     for task_order, task_id in enumerate(task_ids, start=1):
         task = task_suite.get_task(task_id)
         initial_states = task_suite.get_task_init_states(task_id)
+        init_state_ids = (
+            args.trials_init_state
+            if args.trials_init_state is not None
+            else list(range(args.num_trials_per_task))
+        )
+        invalid_init_state_ids = [
+            state_id for state_id in init_state_ids
+            if state_id < 0 or state_id >= len(initial_states)
+        ]
+        if invalid_init_state_ids:
+            raise ValueError(
+                f"initial state indices {invalid_init_state_ids} out of range for task {task_id}; "
+                f"available range is 0-{len(initial_states) - 1}"
+            )
         env, task_description = _get_libero_env(
             task,
             LIBERO_ENV_RESOLUTION,
@@ -572,28 +585,31 @@ def main() -> None:
             task_episodes = 0
             task_successes = 0
             task_progress = 0.0
+            episode_results: list[dict[str, Any]] = []
 
-            for episode_idx in range(args.num_trials_per_task):
+            for episode_idx, init_state_id in enumerate(init_state_ids):
                 logging.info("Task %s episode %s: %s", task_id, episode_idx, task_description)
                 cs.print(
                     f"[cyan]task {task_order}/{len(task_ids)}[/cyan] "
-                    f"id={task_id} episode {episode_idx + 1}/{args.num_trials_per_task}: "
+                    f"id={task_id} episode {episode_idx + 1}/{len(init_state_ids)} "
+                    f"init_state={init_state_id}: "
                     f"{task_description}"
                 )
                 env.reset()
-                obs = env.set_init_state(initial_states[episode_idx])
+                obs = env.set_init_state(initial_states[init_state_id])
                 client.reset_episode(env=env)
                 prediction_images = []
                 tracking_images = []
                 done = False
                 server_done = False
+                interrupted = False
 
                 try:
                     for step in range(max_steps + args.num_steps_wait):
                         if step < args.num_steps_wait:
                             cs.print(
                                 f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                                f"episode {episode_idx + 1}/{args.num_trials_per_task} "
+                                f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                             )
                             action = _dummy_action(obs)
@@ -601,7 +617,7 @@ def main() -> None:
                             policy_step = step - args.num_steps_wait + 1
                             cs.print(
                                 f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                                f"episode {episode_idx + 1}/{args.num_trials_per_task} "
+                                f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"step {policy_step}/{max_steps}[/dim]"
                             )
                             action = client.infer(_prepare_observation(obs, env), task_description)
@@ -635,23 +651,15 @@ def main() -> None:
                             break
 
                 except KeyboardInterrupt:
-                    if args.save_video:
-                        video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_interrupted"
-                        _save_video_ffmpeg(
-                            prediction_images,
-                            video_dir / f"{video_stem}_prediction.mp4",
-                            fps=float(args.control_freq),
-                        )
-                        _save_video_ffmpeg(
-                            tracking_images,
-                            video_dir / f"{video_stem}_tracking.mp4",
-                            fps=float(args.control_freq),
-                        )
-                    raise
+                    interrupted = True
+                    cs.print(
+                        f"[yellow]task={task_id} episode={episode_idx} interrupted; "
+                        "saving current progress and continuing[/yellow]"
+                    )
 
                 task_episodes += 1
                 total_episodes += 1
-                env_success = bool(done)
+                env_success = bool(done) and not interrupted
                 if env_success:
                     task_successes += 1
                     total_successes += 1
@@ -667,10 +675,20 @@ def main() -> None:
                 total_progress += progress
 
                 if args.save_video:
-                    suffix = "success" if env_success else "failure"
+                    suffix = "interrupted" if interrupted else ("success" if env_success else "failure")
                     video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_{suffix}"
                     _save_video_ffmpeg(prediction_images, video_dir / f"{video_stem}_prediction.mp4", fps=float(args.control_freq))
                     _save_video_ffmpeg(tracking_images, video_dir / f"{video_stem}_tracking.mp4", fps=float(args.control_freq))
+
+                episode_results.append({
+                    "episode_id": episode_idx,
+                    "init_state_id": init_state_id,
+                    "success": env_success,
+                    "interrupted": interrupted,
+                    "progress": progress,
+                    "completed_subtasks": completed_subtasks,
+                    "completed_goals": completed_goal_states,
+                })
 
                 cs.print(
                     f"task={task_id} episode={episode_idx} success={env_success} env_done={done} server_done={server_done} "
@@ -686,6 +704,7 @@ def main() -> None:
                 "success_rate": float(task_successes) / float(task_episodes),
                 "progress_rate": float(task_progress) / float(task_episodes),
                 "num_episodes": task_episodes,
+                "episodes": episode_results,
             }
             task_results.append(task_result)
         finally:

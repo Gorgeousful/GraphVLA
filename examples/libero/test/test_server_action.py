@@ -18,7 +18,9 @@ def test_to_action_recovers_xyz_pose_and_direct_command(predicted_action, expect
             assert return_residual
             return np.asarray([0.0] * 6 + [gripper_width], dtype=np.float64), 0.001
 
-    adapter = EmbodimentAdapter(future_horizon=3, robot_cls=lambda **_: Robot())
+    adapter = EmbodimentAdapter(
+        future_horizon=3, robot_cls=lambda **_: Robot(), action_mode="discrete"
+    )
     xyz_step = [[0.0,0.0,0.5],[0.1,0.0,0.5],[-0.1,0.0,0.5]]
     outputs = {
         "gripper_points_xyz_plan": [[xyz_step, xyz_step, xyz_step]],
@@ -41,7 +43,9 @@ def test_gripper_command_uses_session_deadband_hysteresis() -> None:
         def project_xyz_to_gripper(self, xyz, *, gripper_width, **_):
             return np.asarray([0.0] * 6 + [gripper_width], dtype=np.float64), 0.0
 
-    adapter = EmbodimentAdapter(future_horizon=1, robot_cls=lambda **_: Robot())
+    adapter = EmbodimentAdapter(
+        future_horizon=1, robot_cls=lambda **_: Robot(), action_mode="discrete"
+    )
     session = SimpleNamespace(benchmark="libero", gripper_command=-1.0, frame_index=0)
     request = {
         "observation.state": [0.0] * 6 + [0.02, -0.02],
@@ -59,6 +63,29 @@ def test_gripper_command_uses_session_deadband_hysteresis() -> None:
     assert command_for(0.1) == pytest.approx(-1.0)
     assert command_for(0.8) == pytest.approx(1.0)
     assert command_for(0.0) == pytest.approx(1.0)
+
+
+def test_gripper_command_defaults_to_continuous_clipped_output() -> None:
+    class Robot:
+        def project_xyz_to_gripper(self, xyz, *, gripper_width, **_):
+            return np.asarray([0.0] * 6 + [gripper_width], dtype=np.float64), 0.0
+
+    adapter = EmbodimentAdapter(future_horizon=3, robot_cls=lambda **_: Robot())
+    xyz_step = [[0.0,0.0,0.5],[0.1,0.0,0.5],[-0.1,0.0,0.5]]
+    outputs = {
+        "gripper_points_xyz_plan": [[xyz_step, xyz_step, xyz_step]],
+        "gripper_action_plan": [[[0.1], [0.6], [1.5]]],
+    }
+    request = {
+        "observation.state": [0.0] * 6 + [0.02, -0.02],
+        "camera.extrinsics": np.eye(4).tolist(),
+    }
+    session = SimpleNamespace(benchmark="libero", gripper_command=-1.0, frame_index=0)
+
+    actions, _ = adapter.to_action(outputs, {}, request, session)
+
+    assert [action[6] for action in actions] == pytest.approx([0.1, 0.6, 1.0])
+    assert session.gripper_command == pytest.approx(1.0)
 
 
 def test_release_actions_hold_latest_observed_pose_and_open_gripper() -> None:

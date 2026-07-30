@@ -20,6 +20,8 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     sample_steps: int = 10
+    complete_pos_weight: float = 10.0
+    contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_complete": 0.5,

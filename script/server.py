@@ -67,6 +67,7 @@ class Args:
     locator_mode: str = "point"
     locator_scale: float = 1.0
     segmenter: str = "sam2"
+    action_mode: str = "continuous"
     execute_chunk_len: int = 5
     seed: int = 42
     complete_threshold: float = 0.5
@@ -169,10 +170,15 @@ class TopLevelTaskPlanner:
             return False
 
         frame_scores = self._completion_frame_scores(outputs)
+        contact_score = self._output_score(outputs, "is_contact")
+        contact_text = "-" if contact_score is None else f"{contact_score:.4f}"
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for frame_id, score in frame_scores:
-            score_text = f"step={session.frame_index} {subtask_label} f={frame_id} complete_score={score:.4f}"
+            score_text = (
+                f"step={session.frame_index} {subtask_label} f={frame_id} "
+                f"complete_score={score:.4f} contact_score={contact_text}"
+            )
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
                 session.complete_streak += 1
@@ -232,21 +238,24 @@ class TopLevelTaskPlanner:
         self,
         outputs: Mapping[str, Any],
     ) -> list[tuple[int, float]]:
-        complete_value = outputs.get("is_complete")
-        if complete_value is None:
-            return []
+        score = self._output_score(outputs, "is_complete")
+        return [] if score is None else [(0, score)]
 
-        if isinstance(complete_value, torch.Tensor):
-            complete_value = complete_value.detach().cpu().numpy()
-        scores = np.asarray(complete_value, dtype=float)
+    @staticmethod
+    def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
+        value = outputs.get(name)
+        if value is None:
+            return None
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().numpy()
+        scores = np.asarray(value, dtype=float)
         if scores.ndim >= 2 and scores.shape[0] == 1:
             scores = scores[0]
         if scores.ndim == 0:
             scores = scores.reshape(1)
         else:
             scores = scores.reshape(scores.shape[0], -1).max(axis=1)
-
-        return [(0, float(scores.max()))]
+        return float(scores.max())
 
 
 class InputPreprocessor:
@@ -761,9 +770,18 @@ class InputPreprocessor:
 class EmbodimentAdapter:
     """Recover benchmark executable actions from transformed model outputs."""
 
-    def __init__(self, *, future_horizon: int, robot_cls: type[Any]) -> None:
+    def __init__(
+        self,
+        *,
+        future_horizon: int,
+        robot_cls: type[Any],
+        action_mode: str = "continuous",
+    ) -> None:
+        if action_mode not in {"continuous", "discrete"}:
+            raise ValueError(f"Unsupported action mode: {action_mode!r}")
         self.future_horizon = future_horizon
         self.robot_cls = robot_cls
+        self.action_mode = action_mode
         self.robot: Any = None
 
     def to_action(
@@ -804,10 +822,13 @@ class EmbodimentAdapter:
             gripper_widths.append(current_width)
             action = self._to_libero_pose(action)
             predicted_command = float(np.clip(gripper_actions[future_index], -1.0, 1.0))
-            if predicted_command > 0.2:
-                session.gripper_command = 1.0
-            elif predicted_command < -0.2:
-                session.gripper_command = -1.0
+            if self.action_mode == "continuous":
+                session.gripper_command = predicted_command
+            else:
+                if predicted_command > 0.2:
+                    session.gripper_command = 1.0
+                elif predicted_command < -0.2:
+                    session.gripper_command = -1.0
             action[6] = session.gripper_command
             actions.append(action.astype(np.float32).tolist())
 
@@ -1259,6 +1280,12 @@ def parse_args() -> Args:
         default=Args.segmenter,
         help="Node segmenter used to initialize object masks.",
     )
+    parser.add_argument(
+        "--action-mode",
+        choices=("continuous", "discrete"),
+        default=Args.action_mode,
+        help="Gripper action postprocessing mode.",
+    )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
@@ -1353,7 +1380,11 @@ def main() -> None:
             device=torch.device(args.devices["inference"]),
             bge_path=args.bge_path,
         ),
-        embodiment=EmbodimentAdapter(future_horizon=future_horizon, robot_cls=GeomRobot),
+        embodiment=EmbodimentAdapter(
+            future_horizon=future_horizon,
+            robot_cls=GeomRobot,
+            action_mode=args.action_mode,
+        ),
     )
     server.serve_forever()
 
