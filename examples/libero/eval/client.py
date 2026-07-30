@@ -479,7 +479,7 @@ def _default_max_steps(task_suite_name: str) -> int:
         return 280
     if task_suite_name == "libero_goal":
         return 300
-    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom"}:
+    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom", "libero_swap_test"}:
         return 520
     if task_suite_name == "libero_90":
         return 400
@@ -588,50 +588,66 @@ def main() -> None:
                 done = False
                 server_done = False
 
-                for step in range(max_steps + args.num_steps_wait):
-                    if step < args.num_steps_wait:
-                        cs.print(
-                            f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                            f"episode {episode_idx + 1}/{args.num_trials_per_task} "
-                            f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
-                        )
-                        action = _dummy_action(obs)
-                    else:
-                        policy_step = step - args.num_steps_wait + 1
-                        cs.print(
-                            f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                            f"episode {episode_idx + 1}/{args.num_trials_per_task} "
-                            f"step {policy_step}/{max_steps}[/dim]"
-                        )
-                        action = client.infer(_prepare_observation(obs, env), task_description)
-                        if client.episode_done:
-                            server_done = True
+                try:
+                    for step in range(max_steps + args.num_steps_wait):
+                        if step < args.num_steps_wait:
                             cs.print(
-                                f"[green]server completed episode at policy step {policy_step}[/green]"
+                                f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
+                                f"episode {episode_idx + 1}/{args.num_trials_per_task} "
+                                f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                             )
+                            action = _dummy_action(obs)
+                        else:
+                            policy_step = step - args.num_steps_wait + 1
+                            cs.print(
+                                f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
+                                f"episode {episode_idx + 1}/{args.num_trials_per_task} "
+                                f"step {policy_step}/{max_steps}[/dim]"
+                            )
+                            action = client.infer(_prepare_observation(obs, env), task_description)
+                            if client.episode_done:
+                                server_done = True
+                                cs.print(
+                                    f"[green]server completed episode at policy step {policy_step}[/green]"
+                                )
+                                break
+
+                        frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
+                        prediction_images.append(
+                            _draw_response_points(
+                                frame,
+                                client.last_response,
+                                client.last_action_frame_id,
+                                mode="prediction",
+                                intrinsic=client.intrinsic,
+                            )
+                        )
+                        tracking_images.append(
+                            _draw_response_points(
+                                frame,
+                                client.last_response,
+                                client.last_action_frame_id,
+                                mode="tracking",
+                            )
+                        )
+                        obs, _, done, _ = env.step(np.asarray(action, dtype=np.float32).tolist())
+                        if done:
                             break
 
-                    frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
-                    prediction_images.append(
-                        _draw_response_points(
-                            frame,
-                            client.last_response,
-                            client.last_action_frame_id,
-                            mode="prediction",
-                            intrinsic=client.intrinsic,
+                except KeyboardInterrupt:
+                    if args.save_video:
+                        video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_interrupted"
+                        _save_video_ffmpeg(
+                            prediction_images,
+                            video_dir / f"{video_stem}_prediction.mp4",
+                            fps=float(args.control_freq),
                         )
-                    )
-                    tracking_images.append(
-                        _draw_response_points(
-                            frame,
-                            client.last_response,
-                            client.last_action_frame_id,
-                            mode="tracking",
+                        _save_video_ffmpeg(
+                            tracking_images,
+                            video_dir / f"{video_stem}_tracking.mp4",
+                            fps=float(args.control_freq),
                         )
-                    )
-                    obs, _, done, _ = env.step(np.asarray(action, dtype=np.float32).tolist())
-                    if done:
-                        break
+                    raise
 
                 task_episodes += 1
                 total_episodes += 1

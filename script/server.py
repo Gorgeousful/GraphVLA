@@ -65,6 +65,8 @@ class Args:
     bge_path: str
     task_analyzer_api_key: str | None
     locator: str = "locateanything"
+    locator_mode: str = "point"
+    locator_scale: float = 1.0
     segmenter: str = "sam2"
     execute_chunk_len: int = 5
     seed: int = 42
@@ -260,6 +262,8 @@ class InputPreprocessor:
         robot_cls: type[Any],
         dataset_dir: str | Path,
         locator: str = "locateanything",
+        locator_mode: str = "point",
+        locator_scale: float = 1.0,
         segmenter: str = "sam2",
         devices: Mapping[str, str] | None = None,
     ) -> None:
@@ -268,6 +272,8 @@ class InputPreprocessor:
         self.num_points = num_points
         self.robot_cls = robot_cls
         self.locator = locator
+        self.locator_mode = locator_mode
+        self.locator_scale = locator_scale
         self.segmenter = segmenter
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
@@ -313,24 +319,38 @@ class InputPreprocessor:
             raise RuntimeError("taskstructure is missing before perception initialization")
         session.object_nodes = self._task_object_nodes(session.taskstructure)
         point_prompts = None
+        box_prompts = None
         if session.object_nodes:
             locator_cls = NodeLocatorLA if self.locator == "locateanything" else NodeLocatorRobo
             node_locator = locator_cls(device_map=self._device("node_locator"))
             try:
-                point_prompts = []
-                for node in session.object_nodes:
-                    points = self._locate_node_points(node_locator, frame.image, node["name"])
-                    cs.print(
-                        f"node locator node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
-                        markup=False,
-                    )
-                    point_prompts.append(points)
+                if self.locator_mode == "box":
+                    box_prompts = []
+                    initial_points = []
+                    for node in session.object_nodes:
+                        box = self._locate_node_box(node_locator, frame.image, node["name"])
+                        cs.print(
+                            f"node locator node={node['name']} pixel_xyxy={np.round(box, 1).tolist()}",
+                            markup=False,
+                        )
+                        box_prompts.append(box)
+                        initial_points.append([[(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]])
+                    session.initial_points = np.asarray(initial_points, dtype=np.float32)
+                else:
+                    point_prompts = []
+                    for node in session.object_nodes:
+                        points = self._locate_node_points(node_locator, frame.image, node["name"])
+                        cs.print(
+                            f"node locator node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
+                            markup=False,
+                        )
+                        point_prompts.append(points)
+                    session.initial_points = np.asarray(point_prompts, dtype=np.float32)
             finally:
                 del node_locator
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-            session.initial_points = np.asarray(point_prompts, dtype=np.float32)
 
         node_segmenter_device = self._device("node_segmenter")
         segmenter_cls = NodeSegmenterSAM2 if self.segmenter == "sam2" else NodeSegmenter
@@ -343,7 +363,12 @@ class InputPreprocessor:
 
         if session.object_nodes:
             session.point_tracker = PointTracker(device=self._device("point_tracker"))
-            object_masks = session.object_segmenter.predict(frame.image, points=point_prompts, anchor_frame=True)
+            object_masks = session.object_segmenter.predict(
+                frame.image,
+                points=point_prompts,
+                boxes=box_prompts,
+                anchor_frame=True,
+            )
             object_points = np.stack(
                 [sample_points_from_mask(mask, num_points=self.num_points) for mask in object_masks],
                 axis=0,
@@ -527,11 +552,32 @@ class InputPreprocessor:
         image: np.ndarray,
         node_name: str,
     ) -> list[list[float]]:
-        result = node_locator.inference(text=node_name, image=Image.fromarray(image))
+        result = node_locator.inference(
+            text=node_name,
+            image=Image.fromarray(image),
+            resize_scale=self.locator_scale,
+        )
         points = result.get("points") or []
         if not points:
             raise RuntimeError(f"Node locator found no points for node={node_name!r}")
         return self._locator_points_to_pixels(points, image.shape[:2])
+
+    def _locate_node_box(
+        self,
+        node_locator: Any,
+        image: np.ndarray,
+        node_name: str,
+    ) -> list[float]:
+        result = node_locator.inference(
+            text=node_name,
+            image=Image.fromarray(image),
+            task="grounding",
+            resize_scale=self.locator_scale,
+        )
+        boxes = result.get("boxes") or []
+        if not boxes:
+            raise RuntimeError(f"Node locator found no boxes for node={node_name!r}")
+        return self._locator_boxes_to_pixels(boxes, image.shape[:2])[0]
 
     @staticmethod
     def _load_norm_stats(dataset_dir: Path) -> dict[str, Any]:
@@ -671,6 +717,21 @@ class InputPreprocessor:
         return converted
 
     @staticmethod
+    def _locator_boxes_to_pixels(boxes: list[list[float]], image_size: tuple[int, int]) -> list[list[float]]:
+        height, width = image_size
+        converted = []
+        for x1, y1, x2, y2 in boxes:
+            xs = sorted((float(x1) / 1000.0 * width, float(x2) / 1000.0 * width))
+            ys = sorted((float(y1) / 1000.0 * height, float(y2) / 1000.0 * height))
+            converted.append([
+                float(np.clip(xs[0], 0, width - 1)),
+                float(np.clip(ys[0], 0, height - 1)),
+                float(np.clip(xs[1], 0, width - 1)),
+                float(np.clip(ys[1], 0, height - 1)),
+            ])
+        return converted
+
+    @staticmethod
     def _largest_mask(masks: list[np.ndarray], image_shape: tuple[int, int]) -> np.ndarray:
         height, width = image_shape
         valid_masks = [np.asarray(mask, dtype=bool) for mask in masks if np.asarray(mask).any()]
@@ -755,7 +816,6 @@ class EmbodimentAdapter:
 
         if len(actions) != self.future_horizon:
             raise RuntimeError(f"Expected {self.future_horizon} actions, got {len(actions)}")
-        cs.print(f"step={session.frame_index} gripper SVD residual mean={np.mean(residuals):.6f} max={np.max(residuals):.6f}")
         return actions, gripper_widths
 
     def release_actions(
@@ -1032,6 +1092,9 @@ class InferenceServer:
         else:
             actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
             executed_actions = actions[:self.execute_chunk_len]
+            # to_action decodes the full horizon and updates the hysteresis state
+            # along the way. Only commit the last command that will actually run.
+            session.gripper_command = float(executed_actions[-1][-1])
         gripper_actions = [float(action[-1]) for action in executed_actions]
         cs.print(
             f"step={session.frame_index} gripper_action[{len(gripper_actions)}]={gripper_actions}",
@@ -1203,6 +1266,18 @@ def parse_args() -> Args:
         help="Node locator used to generate point prompts.",
     )
     parser.add_argument(
+        "--locator-scale",
+        type=float,
+        default=Args.locator_scale,
+        help="Scale factor applied to the image before node locator inference.",
+    )
+    parser.add_argument(
+        "--locator-mode",
+        choices=("point", "box"),
+        default=Args.locator_mode,
+        help="Prompt type generated by the node locator.",
+    )
+    parser.add_argument(
         "--segmenter",
         choices=("sam2", "sam3"),
         default=Args.segmenter,
@@ -1239,6 +1314,8 @@ def parse_args() -> Args:
         help='JSON device map for server modules, e.g. {"inference":"cuda:0","node_segmenter":"cuda:1"}.',
     )
     namespace = parser.parse_args()
+    if namespace.locator_scale <= 0:
+        parser.error("--locator-scale must be positive")
     namespace.devices = parse_devices(namespace.devices, default_device=namespace.device)
     return Args(**vars(namespace))
 
@@ -1288,6 +1365,8 @@ def main() -> None:
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
             locator=args.locator,
+            locator_mode=args.locator_mode,
+            locator_scale=args.locator_scale,
             segmenter=args.segmenter,
             devices=args.devices,
         ),

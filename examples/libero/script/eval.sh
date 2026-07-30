@@ -1,14 +1,16 @@
 # robobrain环境 0723
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0728/checkpoints/step_150000.pt \
+--ckpt-path examples/libero/result/0728/checkpoints/step_200000.pt \
 --execute-chunk-len 5 \
---complete-window 1
+--complete-window 1 \
+--locator-scale 4.0 \
+--locator-mode box
 
-# libero_10
+# libero_10 # 2 0 1 6 4
 python -m examples.libero.eval.client \
 --task-suite-name libero_10 \
---tasks 6 \
+--tasks 1 \
 --num-trials-per-task 3 \
 --max-steps 750 \
 --control-freq 10
@@ -17,8 +19,16 @@ python -m examples.libero.eval.client \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom \
 --tasks 1 \
---num-trials-per-task 50 \
---max-steps 950 \
+--num-trials-per-task 3 \
+--max-steps 750 \
+--control-freq 10
+
+# libero_swap_test
+python -m examples.libero.eval.client \
+--task-suite-name libero_swap_test \
+--tasks 1 \
+--num-trials-per-task 3 \
+--max-steps 750 \
 --control-freq 10
 
 
@@ -66,3 +76,16 @@ python -m examples.libero.eval.client_offline \
 # 7	Put both the alphabet soup and the cream cheese box in the basket
 # 8	Put both moka pots on the stove
 # 9	Put the yellow and white mug in the microwave and close it
+
+# libero_swap_test（顺序与 libero_with_depth_0_5_6_7_8 的 task_index 0-4 对齐）
+# 0: moka pot on stove -> turn stove on
+# 1: tomato sauce -> alphabet soup
+# 2: butter -> cream cheese box
+# 3: chocolate pudding right -> white mug on plate
+# 4: yellow-white mug right plate -> white mug left plate
+# python -m examples.libero.eval.client \
+# --task-suite-name libero_swap_test \
+# --tasks 0,1,2,3,4 \
+# --num-trials-per-task 3 \
+# --max-steps 750 \
+# --control-freq 10

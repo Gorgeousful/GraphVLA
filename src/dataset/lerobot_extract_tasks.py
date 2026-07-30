@@ -9,6 +9,7 @@ import json
 import math
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("dataset", type=Path, help="Source LeRobot v2 dataset directory.")
     parser.add_argument("task_indices", type=int, nargs="+", help="Source task_index values to extract.")
     parser.add_argument("--output", type=Path, help="Defaults to <dataset>_<ids>.")
+    parser.add_argument("--workers", type=int, default=8, help="Parallel episode workers (default: 8).")
     return parser.parse_args()
 
 
@@ -166,7 +168,7 @@ def make_info(
     return info
 
 
-def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
+def extract_dataset(source: Path, output: Path, requested: list[int], workers: int = 8) -> None:
     source = source.resolve()
     if not source.is_dir():
         raise NotADirectoryError(f"Dataset directory does not exist: {source}")
@@ -174,6 +176,8 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
         raise FileExistsError(f"Output already exists: {output}")
     if source == output.resolve():
         raise ValueError("Output must differ from the source dataset")
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
 
     info = load_json(source / "meta" / "info.json")
     if not str(info.get("codebase_version", "")).startswith("v2"):
@@ -199,11 +203,18 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
     temp_parent = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     staging = temp_parent / output.name
     try:
-        new_episodes = []
-        new_episode_stats = []
-        global_index = 0
         chunks_size = int(info["chunks_size"])
+        jobs = []
+        global_index = 0
         for new_episode, (episode, old_task) in enumerate(chosen_episodes):
+            length = int(episode["length"])
+            jobs.append((new_episode, episode, old_task, global_index))
+            global_index += length
+
+        def process_episode(
+            job: tuple[int, dict[str, Any], int, int],
+        ) -> tuple[dict[str, Any], dict[str, Any] | None, int, int, int]:
+            new_episode, episode, old_task, episode_global_index = job
             old_episode = int(episode["episode_index"])
             source_path = source_episode_path(source, info, old_episode)
             if not source_path.is_file():
@@ -225,7 +236,9 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
                 table, "episode_index", np.full(length, new_episode, dtype=np.int64)
             )
             table = replace_index_column(
-                table, "index", np.arange(global_index, global_index + length, dtype=np.int64)
+                table,
+                "index",
+                np.arange(episode_global_index, episode_global_index + length, dtype=np.int64),
             )
             table = replace_index_column(
                 table, "task_index", np.full(length, task_remap[old_task], dtype=np.int64)
@@ -234,20 +247,37 @@ def extract_dataset(source: Path, output: Path, requested: list[int]) -> None:
             destination.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(table, destination)
             copy_episode_videos(source, staging, info, keys, old_episode, new_episode)
+            episode_stats = None
             if uses_episode_stats:
                 if old_episode not in source_episode_stats:
                     raise ValueError(f"Missing episodes_stats entry for episode {old_episode}")
-                new_episode_stats.append(
-                    reindex_episode_stats(
-                        source_episode_stats[old_episode], new_episode, task_remap[old_task], global_index, length
-                    )
+                episode_stats = reindex_episode_stats(
+                    source_episode_stats[old_episode],
+                    new_episode,
+                    task_remap[old_task],
+                    episode_global_index,
+                    length,
                 )
-            new_episodes.append({**episode, "episode_index": new_episode, "length": length})
-            global_index += length
-            print(
-                f"[{new_episode + 1}/{len(chosen_episodes)}] "
-                f"episode {old_episode} -> {new_episode} ({length} frames)"
+            return (
+                {**episode, "episode_index": new_episode, "length": length},
+                episode_stats,
+                old_episode,
+                new_episode,
+                length,
             )
+
+        new_episodes = []
+        new_episode_stats = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            results = executor.map(process_episode, jobs)
+            for completed, (episode, stats, old_episode, new_episode, length) in enumerate(results, 1):
+                new_episodes.append(episode)
+                if stats is not None:
+                    new_episode_stats.append(stats)
+                print(
+                    f"[{completed}/{len(chosen_episodes)}] "
+                    f"episode {old_episode} -> {new_episode} ({length} frames)"
+                )
 
         write_json(
             staging / "meta" / "info.json",
@@ -269,7 +299,7 @@ def main() -> None:
     args = parse_args()
     suffix = "_" + "_".join(str(index) for index in args.task_indices)
     output = args.output or args.dataset.with_name(args.dataset.name + suffix)
-    extract_dataset(args.dataset, output, args.task_indices)
+    extract_dataset(args.dataset, output, args.task_indices, args.workers)
     print(f"Output: {output.resolve()}")
 
 

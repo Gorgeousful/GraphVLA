@@ -13,7 +13,6 @@ import tempfile
 import threading
 from collections import OrderedDict
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +28,6 @@ from pydantic import BaseModel
 
 
 AGENT_IMAGE_KEYS = ("image", "observation.images.image")
-ANNOTATIONS_FILE = "subtask_annotations.jsonl"
 SUBTASK_FEATURE = {"dtype": "int64", "shape": [1], "names": None}
 IS_COMPLETE_FEATURE = {"dtype": "bool", "shape": [1], "names": None}
 
@@ -70,9 +68,12 @@ def exclusive_dataset_lock(meta_dir: Path):
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
-def encode_jpeg(image: Image.Image | np.ndarray) -> bytes:
+def encode_jpeg(image: Image.Image | np.ndarray, scale: float = 1.0) -> bytes:
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image)
+    if scale != 1.0:
+        size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+        image = image.resize(size, Image.Resampling.BILINEAR)
     buffer = io.BytesIO()
     image.convert("RGB").save(buffer, format="JPEG", quality=88)
     return buffer.getvalue()
@@ -98,21 +99,24 @@ class DatasetStore:
         cache_episodes: int,
         completion_frames: int,
         horizontal_flip: bool,
+        preview_scale: float = 0.5,
     ) -> None:
         self.root = root.resolve()
         self.meta_dir = self.root / "meta"
         self.info_path = self.meta_dir / "info.json"
-        self.annotations_path = self.meta_dir / ANNOTATIONS_FILE
         self.info = load_json(self.info_path)
         if preview_fps <= 0:
             raise ValueError("preview_fps must be greater than zero")
         if completion_frames <= 0:
             raise ValueError("completion_frames must be greater than zero")
+        if not 0 < preview_scale <= 1:
+            raise ValueError("preview_scale must be in (0, 1]")
         self.tasks = load_jsonl(self.meta_dir / "tasks.jsonl")
         self.episodes = load_jsonl(self.meta_dir / "episodes.jsonl")
         self.preview_fps = preview_fps
         self.completion_frames = completion_frames
         self.horizontal_flip = horizontal_flip
+        self.preview_scale = preview_scale
         self.cache_episodes = max(1, cache_episodes)
         self.lock = threading.RLock()
         self.frame_cache: OrderedDict[int, dict[int, bytes]] = OrderedDict()
@@ -122,7 +126,6 @@ class DatasetStore:
         self.task_index_by_text = {row["task"]: int(row["task_index"]) for row in self.tasks}
         self.task_to_episodes = self._index_task_episodes()
         self.image_key, self.image_dtype = self._agent_image_feature()
-        self.annotations = self._load_annotations()
         schemas = {
             episode_index: set(pq.read_schema(self.episode_path(episode_index)).names)
             for episode_index in self.episodes_by_index
@@ -133,12 +136,7 @@ class DatasetStore:
         self.completion_column_episodes = {
             episode_index for episode_index, names in schemas.items() if "is_complete" in names
         }
-        self.completion_episodes = {
-            episode_index
-            for episode_index in self.completion_column_episodes
-            if self.annotations.get(episode_index, {}).get("completion_frames")
-            == self.completion_frames
-        }
+        self.completion_episodes = set(self.completion_column_episodes)
         features = self.info.get("features", {})
         if self.annotated_episodes and features.get("subtask_id") != SUBTASK_FEATURE:
             self._ensure_info_features(include_completion=False)
@@ -172,14 +170,6 @@ class DatasetStore:
         raise ValueError(
             "Dataset has no agent-view RGB feature; expected 'image' or 'observation.images.image'"
         )
-
-    def _load_annotations(self) -> dict[int, dict[str, Any]]:
-        if not self.annotations_path.is_file():
-            return {}
-        return {
-            int(row["episode_index"]): row
-            for row in load_jsonl(self.annotations_path)
-        }
 
     def episode_path(self, episode_index: int) -> Path:
         chunks_size = int(self.info["chunks_size"])
@@ -258,8 +248,6 @@ class DatasetStore:
         if "subtask_id" in pq.read_schema(path).names:
             values = pq.read_table(path, columns=["subtask_id"])["subtask_id"].to_pylist()
             return [index for index in range(1, len(values)) if values[index] != values[index - 1]]
-        if episode_index in self.annotations:
-            return list(self.annotations[episode_index]["boundaries"])
         return []
 
     def frame(self, episode_index: int, frame_index: int) -> bytes:
@@ -294,7 +282,7 @@ class DatasetStore:
             with Image.open(io.BytesIO(payloads[frame_index])) as image:
                 if self.horizontal_flip:
                     image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                return encode_jpeg(image)
+                return encode_jpeg(image, self.preview_scale)
 
         path = self.video_path(episode_index)
         capture = cv2.VideoCapture(str(path))
@@ -310,7 +298,7 @@ class DatasetStore:
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         if self.horizontal_flip:
             frame_rgb = np.fliplr(frame_rgb)
-        return encode_jpeg(frame_rgb)
+        return encode_jpeg(frame_rgb, self.preview_scale)
 
     def save_annotation(self, episode_index: int, boundaries: list[int]) -> dict[str, Any]:
         result = self.save_annotations([(episode_index, boundaries)])
@@ -328,24 +316,15 @@ class DatasetStore:
             episode = self._episode(episode_index)
             length = int(episode["length"])
             validated = validate_boundaries(boundaries, length)
-            task_index = next(
-                self.task_index_by_text[text]
-                for text in episode["tasks"]
-                if text in self.task_index_by_text
-            )
             subtask_ids = np.searchsorted(validated, np.arange(length), side="right") + 1
             is_complete = completion_mask(validated, length, self.completion_frames)
-            prepared.append(
-                (episode_index, task_index, length, validated, subtask_ids, is_complete)
-            )
+            prepared.append((episode_index, subtask_ids, is_complete))
 
         saved = []
         failures = []
         metadata_errors = []
         with self.lock, exclusive_dataset_lock(self.meta_dir):
-            self.annotations = self._load_annotations()
-            timestamp = datetime.now(timezone.utc).isoformat()
-            for episode_index, task_index, length, boundaries, subtask_ids, is_complete in prepared:
+            for episode_index, subtask_ids, is_complete in prepared:
                 try:
                     self._write_episode_annotations(episode_index, subtask_ids, is_complete)
                 except Exception as error:
@@ -355,14 +334,6 @@ class DatasetStore:
                 self.annotated_episodes.add(episode_index)
                 self.completion_column_episodes.add(episode_index)
                 self.completion_episodes.add(episode_index)
-                self.annotations[episode_index] = {
-                    "episode_index": episode_index,
-                    "task_index": task_index,
-                    "length": length,
-                    "boundaries": boundaries,
-                    "completion_frames": self.completion_frames,
-                    "updated_at": timestamp,
-                }
             if saved:
                 try:
                     self._ensure_info_features(
@@ -371,16 +342,6 @@ class DatasetStore:
                     )
                 except Exception as error:
                     metadata_errors.append({"path": str(self.info_path), "error": str(error)})
-                rows = [self.annotations[index] for index in sorted(self.annotations)]
-                try:
-                    atomic_write_text(
-                        self.annotations_path,
-                        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
-                    )
-                except Exception as error:
-                    metadata_errors.append(
-                        {"path": str(self.annotations_path), "error": str(error)}
-                    )
         result: dict[str, Any] = {"saved_episode_indices": saved}
         if failures:
             result["failures"] = failures
@@ -499,9 +460,10 @@ def create_app(
     cache_episodes: int = 2,
     completion_frames: int = 5,
     horizontal_flip: bool = True,
+    preview_scale: float = 0.5,
 ) -> FastAPI:
     store = DatasetStore(
-        Path(dataset), preview_fps, cache_episodes, completion_frames, horizontal_flip
+        Path(dataset), preview_fps, cache_episodes, completion_frames, horizontal_flip, preview_scale
     )
     app = FastAPI(title="LeRobot Subtask Annotator")
 
@@ -719,6 +681,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8008)
     parser.add_argument("--preview-fps", type=float, default=5)
+    parser.add_argument("--preview-scale", type=float, default=1.0)
     parser.add_argument("--cache-episodes", type=int, default=2)
     parser.add_argument(
         "--completion-frames",
@@ -743,6 +706,7 @@ def main() -> None:
         args.cache_episodes,
         args.completion_frames,
         args.horizontal_flip,
+        args.preview_scale,
     )
     print(f"Open http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

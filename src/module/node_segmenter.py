@@ -89,7 +89,7 @@ class NodeSegmenter:
             result.append(mask)
         return result
 
-    def _reset_point(self, frame_rgb, points):
+    def _reset_point(self, frame_rgb, points=None, boxes=None):
         self.prompt_state = None
         h, w = frame_rgb.shape[:2]
         tracker = self.model.tracker
@@ -101,19 +101,34 @@ class NodeSegmenter:
         )
         inference_state["images"] = [self._preprocess(frame_rgb)]
 
-        for node_idx, node_points in enumerate(points):
-            pts_array = np.array(node_points, dtype=np.float32)
-            pts_array[:, 0] /= w
-            pts_array[:, 1] /= h
-            np.clip(pts_array, 0, 1, out=pts_array)
+        if boxes is not None:
+            for node_idx, node_box in enumerate(boxes):
+                box = np.asarray(node_box, dtype=np.float32).copy()
+                if box.shape != (4,):
+                    raise ValueError("each object box must have shape (4,) in XYXY format")
+                box[[0, 2]] /= w
+                box[[1, 3]] /= h
+                np.clip(box, 0, 1, out=box)
+                tracker.add_new_points_or_box(
+                    inference_state=inference_state,
+                    frame_idx=0,
+                    obj_id=node_idx,
+                    box=torch.from_numpy(box).to(self.device),
+                )
+        else:
+            for node_idx, node_points in enumerate(points):
+                pts_array = np.array(node_points, dtype=np.float32)
+                pts_array[:, 0] /= w
+                pts_array[:, 1] /= h
+                np.clip(pts_array, 0, 1, out=pts_array)
 
-            tracker.add_new_points_or_box(
-                inference_state=inference_state,
-                frame_idx=0,
-                obj_id=node_idx,
-                points=torch.from_numpy(pts_array).to(self.device),
-                labels=torch.ones(len(node_points), dtype=torch.int32, device=self.device),
-            )
+                tracker.add_new_points_or_box(
+                    inference_state=inference_state,
+                    frame_idx=0,
+                    obj_id=node_idx,
+                    points=torch.from_numpy(pts_array).to(self.device),
+                    labels=torch.ones(len(node_points), dtype=torch.int32, device=self.device),
+                )
 
         obj_ids = None
         video_res_masks = None
@@ -189,13 +204,16 @@ class NodeSegmenter:
             frame_masks.extend(self._update_prompt(frame) for frame in frames[1:])
             return frame_masks
 
-    def reset(self, frame_rgb, points=None, prompt=None):
+    def reset(self, frame_rgb, points=None, boxes=None, prompt=None):
         with self._device_context():
+            if sum(value is not None for value in (points, boxes, prompt)) != 1:
+                raise ValueError("exactly one of points, boxes, or prompt is required")
             if points is not None:
                 return self._reset_point(frame_rgb, points)
+            if boxes is not None:
+                return self._reset_point(frame_rgb, boxes=boxes)
             if prompt is not None:
                 return self._reset_prompt(frame_rgb, prompt)
-            raise ValueError("either points or prompt is required")
 
     def update(self, frame_rgb):
         with self._device_context():
@@ -203,9 +221,9 @@ class NodeSegmenter:
                 return self._update_prompt(frame_rgb)
             return self._update_point(frame_rgb)
 
-    def predict(self, frame_rgb, points=None, prompt=None, anchor_frame=True):
+    def predict(self, frame_rgb, points=None, boxes=None, prompt=None, anchor_frame=True):
         if anchor_frame:
-            return self.reset(frame_rgb, points=points, prompt=prompt)
+            return self.reset(frame_rgb, points=points, boxes=boxes, prompt=prompt)
         return self.update(frame_rgb)
 
     def draw_on_image(self, image, masks, labels=None, save_path=None):
@@ -327,27 +345,36 @@ class NodeSegmenterSAM2:
             for i in range(self.num_objects)
         ]
 
-    def reset(self, frame_rgb, points):
+    def reset(self, frame_rgb, points=None, boxes=None):
         frame_rgb = np.asarray(frame_rgb)
         if frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3:
             raise ValueError("frame_rgb must have shape (H, W, 3)")
-        if not points:
-            raise ValueError("points must contain at least one object")
+        if (points is None) == (boxes is None):
+            raise ValueError("exactly one of points or boxes is required")
 
-        point_groups = []
-        for node_points in points:
-            pts = np.asarray(node_points, dtype=np.float32)
-            if pts.ndim != 2 or pts.shape[0] == 0 or pts.shape[1] != 2:
-                raise ValueError("each object must have one or more (x, y) points")
-            point_groups.append(pts.tolist())
+        predictor_kwargs = {}
+        if boxes is not None:
+            box_groups = np.asarray(boxes, dtype=np.float32)
+            if box_groups.ndim != 2 or box_groups.shape[0] == 0 or box_groups.shape[1] != 4:
+                raise ValueError("boxes must have shape (N, 4) in XYXY format")
+            self.num_objects = len(box_groups)
+            predictor_kwargs["bboxes"] = box_groups.tolist()
+        else:
+            point_groups = []
+            for node_points in points:
+                pts = np.asarray(node_points, dtype=np.float32)
+                if pts.ndim != 2 or pts.shape[0] == 0 or pts.shape[1] != 2:
+                    raise ValueError("each object must have one or more (x, y) points")
+                point_groups.append(pts.tolist())
+            self.num_objects = len(point_groups)
+            predictor_kwargs["points"] = point_groups
+            predictor_kwargs["labels"] = [[1] * len(node_points) for node_points in point_groups]
 
-        self.num_objects = len(point_groups)
         self.output_size = frame_rgb.shape[:2]
         self.predictor.request_reset()
         self.predictor(
             source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR),
-            points=point_groups,
-            labels=[[1] * len(node_points) for node_points in point_groups],
+            **predictor_kwargs,
         )
         return self._extract_masks()
 
@@ -363,8 +390,8 @@ class NodeSegmenterSAM2:
         self.predictor(source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
         return self._extract_masks()
 
-    def predict(self, frame_rgb, points=None, anchor_frame=True):
-        return self.reset(frame_rgb, points=points) if anchor_frame else self.update(frame_rgb)
+    def predict(self, frame_rgb, points=None, boxes=None, anchor_frame=True):
+        return self.reset(frame_rgb, points=points, boxes=boxes) if anchor_frame else self.update(frame_rgb)
 
     def draw_on_image(self, image, masks, labels=None, save_path=None):
         return NodeSegmenter.draw_on_image(self, image, masks, labels, save_path)
