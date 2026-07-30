@@ -62,6 +62,7 @@ class DataConfig:
         }
 
 LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8"
+LIBERO_USE_SOFT = True
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -105,6 +106,16 @@ LIBERO_HORIZON = {
     "actions": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
+if LIBERO_USE_SOFT:
+    LIBERO_REPACK.update({
+        "is_complete_soft": "is_complete_soft",
+        "is_contact_soft": "is_contact_soft",
+    })
+    LIBERO_HORIZON.update({
+        "is_complete_soft": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+        "is_contact_soft": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    })
+
 LIBERO_TRANSFORM = (
     RepackTransform(structure=LIBERO_REPACK),
     PromptFromTask(tasks=load_lerobot_tasks(LIBERO_DATASET_DIR)),
@@ -122,6 +133,7 @@ LIBERO_TRANSFORM = (
     CustomTransform(
         mode="build_model_input",
         dataset_dir=LIBERO_DATASET_DIR,
+        extra={"use_soft": LIBERO_USE_SOFT},
     ),
 )
 

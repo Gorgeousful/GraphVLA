@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from lerobot_annotate_subtasks import (
 
 
 IS_CONTACT_FEATURE = {"dtype": "bool", "shape": [1], "names": None}
+IS_CONTACT_SOFT_FEATURE = {"dtype": "float32", "shape": [1], "names": None}
 
 
 class ContactRange(BaseModel):
@@ -52,8 +54,10 @@ class DatasetStore(BaseDatasetStore):
         root: Path,
         preview_fps: float,
         cache_episodes: int,
+        soft_width: int,
         horizontal_flip: bool,
         preview_scale: float = 0.5,
+        save_workers: int = 4,
     ) -> None:
         super().__init__(
             root=root,
@@ -62,16 +66,30 @@ class DatasetStore(BaseDatasetStore):
             completion_frames=1,
             horizontal_flip=horizontal_flip,
             preview_scale=preview_scale,
+            save_workers=save_workers,
         )
+        if soft_width < 0:
+            raise ValueError("soft_width must be non-negative")
+        self.soft_width = soft_width
         self.contact_episodes = {
             episode_index
             for episode_index in self.episodes_by_index
             if "is_contact" in pq.read_schema(self.episode_path(episode_index)).names
         }
-        if self.contact_episodes and self.info.get("features", {}).get(
-            "is_contact"
-        ) != IS_CONTACT_FEATURE:
-            self._ensure_contact_feature()
+        self.contact_soft_episodes = {
+            episode_index
+            for episode_index in self.episodes_by_index
+            if "is_contact_soft" in pq.read_schema(self.episode_path(episode_index)).names
+        }
+        features = self.info.get("features", {})
+        if (
+            self.contact_episodes
+            and features.get("is_contact") != IS_CONTACT_FEATURE
+        ) or (
+            self.contact_soft_episodes
+            and features.get("is_contact_soft") != IS_CONTACT_SOFT_FEATURE
+        ):
+            self._ensure_contact_features()
 
     def task_rows(self) -> list[dict[str, Any]]:
         return [
@@ -109,6 +127,7 @@ class DatasetStore(BaseDatasetStore):
             "fps": fps,
             "preview_stride": max(1, round(fps / self.preview_fps)),
             "ranges": self.contact_ranges(episode_index),
+            "soft_width": self.soft_width,
             "annotated": episode_index in self.contact_episodes,
         }
 
@@ -130,48 +149,113 @@ class DatasetStore(BaseDatasetStore):
     def save_annotations(
         self, requests: list[tuple[int, list[dict[str, int]]]]
     ) -> dict[str, Any]:
-        episode_indices = [episode_index for episode_index, _ in requests]
-        if len(episode_indices) != len(set(episode_indices)):
-            raise ValueError("each episode_index may appear only once")
-
-        saved = []
-        failures = []
-        metadata_errors = []
-        with self.lock, exclusive_dataset_lock(self.meta_dir):
-            for episode_index, ranges in requests:
-                try:
-                    episode = self._episode(episode_index)
-                    length = int(episode["length"])
-                    mask = contact_mask(validate_ranges(ranges, length), length)
-                    self._write_contact_column(episode_index, mask)
-                except Exception as error:
-                    failures.append({"episode_index": episode_index, "error": str(error)})
-                    continue
-                saved.append(episode_index)
-                self.contact_episodes.add(episode_index)
-            if saved:
-                try:
-                    self._ensure_contact_feature()
-                except Exception as error:
-                    metadata_errors.append({"path": str(self.info_path), "error": str(error)})
-
-        result: dict[str, Any] = {"saved_episode_indices": saved}
+        events = list(self.save_annotation_events(requests))
+        saved_events = [event for event in events if event["status"] == "saved"]
+        result: dict[str, Any] = {
+            "saved_episode_indices": [event["episode_index"] for event in saved_events],
+            "changed_episode_indices": [
+                event["episode_index"] for event in saved_events if event["changed"]
+            ],
+            "skipped_episode_indices": [
+                event["episode_index"] for event in saved_events if not event["changed"]
+            ],
+        }
+        failures = [event for event in events if event["status"] == "failed"]
+        metadata_errors = [
+            error
+            for event in events
+            if event["status"] == "metadata_error"
+            for error in event["errors"]
+        ]
         if failures:
             result["failures"] = failures
         if metadata_errors:
             result["metadata_errors"] = metadata_errors
         return result
 
-    def _write_contact_column(
-        self, episode_index: int, is_contact: np.ndarray
-    ) -> None:
+    def save_annotation_events(
+        self, requests: list[tuple[int, list[dict[str, int]]]]
+    ):
+        episode_indices = [episode_index for episode_index, _ in requests]
+        if len(episode_indices) != len(set(episode_indices)):
+            raise ValueError("each episode_index may appear only once")
+
+        prepared = []
+        for episode_index, ranges in requests:
+            episode = self._episode(episode_index)
+            length = int(episode["length"])
+            validated = validate_ranges(ranges, length)
+            mask = contact_mask(validated, length)
+            soft_mask = contact_soft_mask(validated, length, self.soft_width)
+            prepared.append((episode_index, mask, soft_mask))
+
+        saved = []
+        with self.lock, exclusive_dataset_lock(self.meta_dir):
+            if prepared:
+                with ThreadPoolExecutor(
+                    max_workers=min(self.save_workers, len(prepared))
+                ) as executor:
+                    futures = {
+                        executor.submit(
+                            self._write_contact_columns,
+                            episode_index,
+                            mask,
+                            soft_mask,
+                        ): episode_index
+                        for episode_index, mask, soft_mask in prepared
+                    }
+                    for future in as_completed(futures):
+                        episode_index = futures[future]
+                        try:
+                            changed = future.result()
+                        except Exception as error:
+                            yield {
+                                "episode_index": episode_index,
+                                "status": "failed",
+                                "error": str(error),
+                            }
+                            continue
+                        saved.append(episode_index)
+                        self.contact_episodes.add(episode_index)
+                        self.contact_soft_episodes.add(episode_index)
+                        yield {
+                            "episode_index": episode_index,
+                            "status": "saved",
+                            "changed": changed,
+                        }
+            if saved:
+                try:
+                    self._ensure_contact_features()
+                except Exception as error:
+                    yield {
+                        "status": "metadata_error",
+                        "errors": [{"path": str(self.info_path), "error": str(error)}],
+                    }
+
+    def _write_contact_columns(
+        self,
+        episode_index: int,
+        is_contact: np.ndarray,
+        is_contact_soft: np.ndarray,
+    ) -> bool:
         path = self.episode_path(episode_index)
         source = pq.ParquetFile(path)
-        if source.metadata.num_rows != len(is_contact):
+        if source.metadata.num_rows != len(is_contact) or len(is_contact) != len(is_contact_soft):
             raise ValueError(
                 f"Episode {episode_index} parquet has {source.metadata.num_rows} rows, "
                 f"expected {len(is_contact)}"
             )
+        expected = {
+            "is_contact": is_contact,
+            "is_contact_soft": is_contact_soft,
+        }
+        if all(name in source.schema_arrow.names for name in expected):
+            current = source.read(columns=list(expected))
+            if all(
+                np.array_equal(current[name].to_numpy(zero_copy_only=False), values)
+                for name, values in expected.items()
+            ):
+                return False
         compression = source.metadata.row_group(0).column(0).compression.lower()
         handle, temporary = tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".parquet", dir=path.parent
@@ -183,15 +267,23 @@ class DatasetStore(BaseDatasetStore):
             for row_group in range(source.num_row_groups):
                 table = source.read_row_group(row_group)
                 length = table.num_rows
-                column = pa.array(
-                    is_contact[offset : offset + length], type=pa.bool_()
+                columns = (
+                    (
+                        "is_contact",
+                        pa.array(is_contact[offset : offset + length], type=pa.bool_()),
+                    ),
+                    (
+                        "is_contact_soft",
+                        pa.array(
+                            is_contact_soft[offset : offset + length], type=pa.float32()
+                        ),
+                    ),
                 )
-                if "is_contact" in table.column_names:
-                    table = table.set_column(
-                        table.column_names.index("is_contact"), "is_contact", column
-                    )
-                else:
-                    table = table.append_column("is_contact", column)
+                for name, column in columns:
+                    if name in table.column_names:
+                        table = table.set_column(table.column_names.index(name), name, column)
+                    else:
+                        table = table.append_column(name, column)
                 if writer is None:
                     writer = pq.ParquetWriter(
                         temporary, table.schema, compression=compression
@@ -204,16 +296,25 @@ class DatasetStore(BaseDatasetStore):
             writer = None
             os.chmod(temporary, path.stat().st_mode)
             os.replace(temporary, path)
+            return True
         finally:
             if writer is not None:
                 writer.close()
             Path(temporary).unlink(missing_ok=True)
 
-    def _ensure_contact_feature(self) -> None:
-        if self.info.get("features", {}).get("is_contact") == IS_CONTACT_FEATURE:
+    def _ensure_contact_features(self) -> None:
+        required = {}
+        if self.contact_episodes:
+            required["is_contact"] = IS_CONTACT_FEATURE
+        if self.contact_soft_episodes:
+            required["is_contact_soft"] = IS_CONTACT_SOFT_FEATURE
+        if all(
+            self.info.get("features", {}).get(name) == feature
+            for name, feature in required.items()
+        ):
             return
         updated_info = copy.deepcopy(self.info)
-        updated_info.setdefault("features", {})["is_contact"] = IS_CONTACT_FEATURE
+        updated_info.setdefault("features", {}).update(required)
         atomic_write_text(
             self.info_path,
             json.dumps(updated_info, ensure_ascii=False, indent=2) + "\n",
@@ -246,6 +347,27 @@ def contact_mask(ranges: list[dict[str, int]], length: int) -> np.ndarray:
     return mask
 
 
+def contact_soft_mask(
+    ranges: list[dict[str, int]], length: int, soft_width: int
+) -> np.ndarray:
+    soft = contact_mask(ranges, length).astype(np.float32)
+    if soft_width == 0:
+        return soft
+    weights = 0.5 * (
+        1.0 + np.cos(np.pi * np.arange(1, soft_width + 1) / (soft_width + 1))
+    )
+    for item in ranges:
+        left_width = min(soft_width, item["start"])
+        if left_width:
+            indices = item["start"] - np.arange(1, left_width + 1)
+            soft[indices] = np.maximum(soft[indices], weights[:left_width])
+        right_width = min(soft_width, length - item["end"] - 1)
+        if right_width:
+            indices = item["end"] + np.arange(1, right_width + 1)
+            soft[indices] = np.maximum(soft[indices], weights[:right_width])
+    return soft
+
+
 def true_ranges(values: list[bool]) -> list[dict[str, int]]:
     mask = np.asarray(values, dtype=np.bool_)
     padded = np.pad(mask.astype(np.int8), (1, 1))
@@ -260,11 +382,19 @@ def create_app(
     dataset: Path | str,
     preview_fps: float = 5,
     cache_episodes: int = 2,
+    soft_width: int = 2,
     horizontal_flip: bool = True,
     preview_scale: float = 0.5,
+    save_workers: int = 4,
 ) -> FastAPI:
     store = DatasetStore(
-        Path(dataset), preview_fps, cache_episodes, horizontal_flip, preview_scale
+        root=Path(dataset),
+        preview_fps=preview_fps,
+        cache_episodes=cache_episodes,
+        soft_width=soft_width,
+        horizontal_flip=horizontal_flip,
+        preview_scale=preview_scale,
+        save_workers=save_workers,
     )
     app = FastAPI(title="LeRobot Contact Annotator")
 
@@ -336,44 +466,32 @@ def create_app(
             total = len(request.annotations)
             saved = 0
             failed = 0
-            for completed, item in enumerate(request.annotations, start=1):
-                try:
-                    result = store.save_annotations([(
-                        item.episode_index,
-                        [value.model_dump() for value in item.ranges],
-                    )])
-                    failures = result.get("failures", [])
-                    if failures:
-                        failed += 1
-                        event = {
-                            "episode_index": item.episode_index,
-                            "status": "failed",
-                            "error": failures[0]["error"],
-                            "completed": completed,
-                            "total": total,
-                        }
-                    else:
-                        saved += 1
-                        event = {
-                            "episode_index": item.episode_index,
-                            "status": "saved",
-                            "completed": completed,
-                            "total": total,
-                        }
-                        if result.get("metadata_errors"):
-                            event["metadata_errors"] = result["metadata_errors"]
-                except Exception as error:
-                    failed += 1
-                    event = {
-                        "episode_index": item.episode_index,
-                        "status": "failed",
-                        "error": str(error),
-                        "completed": completed,
-                        "total": total,
-                    }
+            completed = 0
+            metadata_errors = []
+            requests = [
+                (
+                    item.episode_index,
+                    [value.model_dump() for value in item.ranges],
+                )
+                for item in request.annotations
+            ]
+            for event in store.save_annotation_events(requests):
+                if event["status"] == "metadata_error":
+                    metadata_errors.extend(event["errors"])
+                    continue
+                completed += 1
+                saved += event["status"] == "saved"
+                failed += event["status"] == "failed"
+                event.update({"completed": completed, "total": total})
                 yield json.dumps(event, ensure_ascii=False) + "\n"
             yield json.dumps(
-                {"status": "done", "saved": saved, "failed": failed, "total": total}
+                {
+                    "status": "done",
+                    "saved": saved,
+                    "failed": failed,
+                    "total": total,
+                    "metadata_errors": metadata_errors,
+                }
             ) + "\n"
 
         return StreamingResponse(
@@ -413,12 +531,13 @@ function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
 function stashCurrent(){if(detail)drafts.set(detail.episode_index,cloneRanges(ranges))}
 function needsSave(id){return edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id))}
 function dirtyIds(){return [...edited].filter(needsSave).sort((a,b)=>a-b)}
+function saveIds(){return episodes.map(item=>item.episode_index).filter(id=>annotatedByEpisode.get(id)||edited.has(id))}
 function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);savedByEpisode.set(id,cloneRanges(episode.ranges));if(!drafts.has(id))drafts.set(id,cloneRanges(episode.ranges))}
 async function init(){tasks=await json('/api/tasks');for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){if(openStart!==null){$('task').value=activeTask;$('message').textContent='Finish the open contact range before switching tasks.';return}stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 async function selectEpisode(id){if(openStart!==null){$('message').textContent='Finish the open contact range before switching episodes.';return}stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;rememberEpisode(next);ranges=cloneRanges(drafts.get(id));openStart=null;current=0;$('slider').max=detail.length-1;showFrame();render();$('message').textContent=''}
 function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
-function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);$('progress').textContent=task?task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved':'';$('save').textContent='Save All Changes ('+dirtyIds().length+')'}
+function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);$('progress').textContent=task?task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved':'';$('save').textContent='Save All Annotated ('+saveIds().length+')'}
 function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index,button=document.createElement('button');button.className='episode'+(detail&&detail.episode_index===id?' current':'');button.onclick=()=>selectEpisode(id);const state=needsSave(id)?'<span class="dirty">Unsaved</span>':(annotatedByEpisode.get(id)?'<span class="done">is_contact ✓</span>':'<span class="pending">Pending</span>');button.innerHTML='<span>Episode '+id+'</span>'+state;box.appendChild(button)}renderProgress()}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Frame '+current+' / '+(detail.length-1)}
 function move(delta){if(!detail)return;current=Math.max(0,Math.min(detail.length-1,current+delta));showFrame()}
@@ -429,8 +548,8 @@ function render(){renderEpisodes();const box=$('ranges');box.innerHTML='';ranges
 $('contactToggle').onclick=()=>{if(!detail)return;if(openStart===null){const previous=ranges[ranges.length-1];if(previous&&current<=previous.end){$('message').textContent='The new start must be after the previous contact end.';return}openStart=current;$('message').textContent='';changed();return}if(current<openStart){$('message').textContent='Contact end cannot precede contact start.';return}ranges.push({start:openStart,end:current});openStart=null;$('message').textContent='';changed()};
 async function saveAll(){
   if(openStart!==null){$('message').textContent='Finish the open contact range before saving.';return}
-  stashCurrent();const ids=dirtyIds();
-  if(!ids.length){$('message').textContent='There are no unsaved changes.';return}
+  stashCurrent();const ids=saveIds();
+  if(!ids.length){$('message').textContent='There are no annotated episodes in this task.';return}
   const button=$('save');button.disabled=true;button.textContent='Saving 0 / '+ids.length;
   let summary=null,metadataErrorCount=0;
   try{
@@ -454,7 +573,7 @@ async function saveAll(){
         }else if(event.status==='failed'){
           render();button.textContent='Saving '+event.completed+' / '+event.total;
           $('message').textContent='Episode '+event.episode_index+' failed and remains unsaved: '+event.error;
-        }else if(event.status==='done')summary=event;
+        }else if(event.status==='done'){summary=event;metadataErrorCount+=(event.metadata_errors||[]).length}
       }
       if(chunk.done)break;
     }
@@ -481,6 +600,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preview-scale", type=float, default=1.0)
     parser.add_argument("--cache-episodes", type=int, default=2)
     parser.add_argument(
+        "--soft-width",
+        type=int,
+        default=2,
+        help="Raised-cosine soft-label width on both sides of each contact interval.",
+    )
+    parser.add_argument(
+        "--save-workers",
+        type=int,
+        default=4,
+        help="Number of episode parquet files written concurrently by Save All.",
+    )
+    parser.add_argument(
         "--horizontal-flip",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -492,7 +623,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     app = create_app(
-        args.dataset, args.preview_fps, args.cache_episodes, args.horizontal_flip, args.preview_scale
+        dataset=args.dataset,
+        preview_fps=args.preview_fps,
+        cache_episodes=args.cache_episodes,
+        soft_width=args.soft_width,
+        horizontal_flip=args.horizontal_flip,
+        preview_scale=args.preview_scale,
+        save_workers=args.save_workers,
     )
     print(f"Open http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

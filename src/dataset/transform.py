@@ -56,6 +56,7 @@ class SubtaskBoundryPadding(TransformFn):
     fields: Sequence[str] = (
         "subtask_id",
         "is_complete",
+        "is_complete_soft",
         "node_points_xyz",
         "valid_node_mask",
         "subtask_node_mask",
@@ -532,6 +533,7 @@ class CustomTransform(TransformFn):
         future_gripper = gripper_points_xyz[input_horizon:input_horizon + future_horizon]
         future_action = action[input_horizon:input_horizon + future_horizon, -1:]
         trajectory = torch.cat([future_gripper.flatten(1), future_action], dim=-1)
+        target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
@@ -540,10 +542,12 @@ class CustomTransform(TransformFn):
             "target": {
                 "trajectory": trajectory,
                 "is_complete": torch.as_tensor(
-                    data["is_complete"], device=entity_points.device, dtype=entity_points.dtype
+                    data[f"is_complete{target_suffix}"], device=entity_points.device,
+                    dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
                 "is_contact": torch.as_tensor(
-                    data["is_contact"], device=entity_points.device, dtype=entity_points.dtype
+                    data[f"is_contact{target_suffix}"], device=entity_points.device,
+                    dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
             },
         }
