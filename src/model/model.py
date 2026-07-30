@@ -151,12 +151,12 @@ class GraphFlowModel(nn.Module):
             flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.complete_head = nn.Sequential(
-            nn.Linear(hidden_dim * (2 * cls_token_num + 2), hidden_dim),
+            nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
         self.contact_head = nn.Sequential(
-            nn.Linear(hidden_dim * (cls_token_num + 1), hidden_dim),
+            nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
@@ -187,12 +187,9 @@ class GraphFlowModel(nn.Module):
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
 
     def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
-        # TODO: Consider using actor CLS + patient CLS instead. Contact is an
-        # actor-patient relation, so patient CLS + action token may not match
-        # the intended contact-head design.
+        actor_cls = memory[:, :self.cls_token_num].flatten(1)
         patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
-        action_token = memory[:, 3 * self.cls_token_num]
-        return self.contact_head(torch.cat([action_token, patient_cls], dim=-1))
+        return self.contact_head(torch.cat([actor_cls, patient_cls], dim=-1))
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         memory, relation_local = self._encode(batch)

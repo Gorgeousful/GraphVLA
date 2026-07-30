@@ -150,9 +150,6 @@ class EntityEncoder(nn.Module):
             scene_tokens = global_cls[:, global_entity_tokens:]
 
         current_cls = cls[:, -1]
-        relation_local = torch.cat([
-            current_cls[:, 1:3].flatten(1, 2),
-            scene_tokens,
-        ], dim=1)
+        relation_local = current_cls[:, 1:3].flatten(1, 2)
         memory = torch.cat([current_cls.flatten(1, 2), scene_tokens], dim=1)
         return self.norm(memory), self.norm(relation_local)
