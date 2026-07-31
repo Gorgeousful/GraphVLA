@@ -1,4 +1,5 @@
 # robobrain环境 0723
+CUDA_VISIBLE_DEVICES=1 \
 python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/0731-contact-7/checkpoints/step_30000.pt \
@@ -21,7 +22,7 @@ python -m examples.libero.eval.client \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom \
 --tasks 1 \
---num-trials-per-task 3 \ 
+--num-trials-per-task 3 \
 --max-steps 750 \
 --control-freq 10
 

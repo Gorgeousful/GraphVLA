@@ -9,7 +9,6 @@ recovery live in script/server.py.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import dataclasses
 import json
 import logging
@@ -34,7 +33,7 @@ from robosuite.utils.camera_utils import (
     get_camera_intrinsic_matrix,
     get_real_depth_map,
 )
-import websockets
+from websockets.sync.client import ClientConnection, connect
 
 from src.common.geom_utils import rot_transform
 
@@ -105,6 +104,7 @@ class InferenceClient:
         self.last_response: dict[str, Any] | None = None
         self.last_action_frame_id: int | None = None
         self.episode_done = False
+        self.websocket: ClientConnection | None = None
 
     def reset_episode(self, *, env: Any) -> None:
         self.pending_observations.reset()
@@ -143,8 +143,7 @@ class InferenceClient:
             request["reset"] = True
             self.first_request = False
 
-        uri = f"ws://{self.host}:{self.port}"
-        response = asyncio.run(self._websocket_json(uri, request))
+        response = self._websocket_json(request)
         if "error" in response:
             raise RuntimeError(response["error"])
         self.pending_observations.reset()
@@ -164,12 +163,18 @@ class InferenceClient:
                 raise ValueError(f"action[{index}] contains non-finite values: {array}")
         return action
 
-    @staticmethod
-    async def _websocket_json(uri: str, data: dict[str, Any]) -> dict[str, Any]:
-        async with websockets.connect(uri, max_size=None, proxy=None) as websocket:
-            await websocket.send(json.dumps(data))
-            message = await websocket.recv()
+    def _websocket_json(self, data: dict[str, Any]) -> dict[str, Any]:
+        if self.websocket is None:
+            uri = f"ws://{self.host}:{self.port}"
+            self.websocket = connect(uri, max_size=None, proxy=None, open_timeout=120)
+        self.websocket.send(json.dumps(data))
+        message = self.websocket.recv()
         return json.loads(message)
+
+    def close(self) -> None:
+        if self.websocket is not None:
+            self.websocket.close()
+            self.websocket = None
 
 
 
@@ -710,6 +715,7 @@ def main() -> None:
         finally:
             env.close()
 
+    client.close()
     result = {
         "task_suite": args.task_suite_name,
         "success_rate": float(total_successes) / float(total_episodes) if total_episodes else 0.0,
