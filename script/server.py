@@ -37,6 +37,7 @@ from src.common.schema import (
     ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
+    LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
 )
@@ -799,20 +800,18 @@ class EmbodimentAdapter:
             raise ValueError("action_plan contains non-finite values")
 
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
-        state = np.asarray(request["observation.state"], dtype=np.float64)
-        state = state[-1] if state.ndim == 2 else state
-        if state.size < 8:
-            raise ValueError(
-                f"observation.state must contain at least 8 values, got {state.size}"
-            )
-        current_width = abs(float(state[6])) + abs(float(state[7]))
 
         actions = []
         for trajectory in trajectories:
             points = trajectory[:-1].reshape(ACTOR_NUM_POINTS, POINT_FEATURE_DIM)
+            predicted_width = float(np.clip(
+                np.linalg.norm(points[1] - points[2]),
+                0.0,
+                LIBERO_GRIPPER_MAX_WIDTH,
+            ))
             action, _ = self._robot().project_actor_xyz_to_gripper(
                 points,
-                gripper_width=current_width,
+                gripper_width=predicted_width,
                 extrinsic=extrinsic,
                 return_residual=True,
             )

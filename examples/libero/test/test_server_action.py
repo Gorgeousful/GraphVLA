@@ -84,8 +84,12 @@ def _request() -> dict:
     }
 
 
-def test_actor_trajectory_is_fitted_and_gripper_value_is_preserved() -> None:
-    points = np.arange(9, dtype=np.float64).reshape(3, 3)
+def test_actor_trajectory_uses_predicted_width_and_preserves_gripper_value() -> None:
+    points = np.asarray([
+        [0.0, 0.0, 0.0],
+        [0.0, 0.03, 0.05],
+        [0.0, -0.03, 0.05],
+    ])
     trajectory = np.concatenate([points.reshape(-1), [0.25]])
     adapter = EmbodimentAdapter(future_horizon=1, robot_cls=_TrajectoryRobot)
     session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
@@ -97,8 +101,23 @@ def test_actor_trajectory_is_fitted_and_gripper_value_is_preserved() -> None:
     )
 
     np.testing.assert_allclose(adapter.robot.points, points)
-    assert adapter.robot.kwargs["gripper_width"] == pytest.approx(0.04)
+    assert adapter.robot.kwargs["gripper_width"] == pytest.approx(0.06)
     assert actions[0][6] == pytest.approx(0.25)
+
+
+def test_predicted_width_is_clipped_to_gripper_limit() -> None:
+    points = np.asarray([
+        [0.0, 0.0, 0.0],
+        [0.0, 0.10, 0.05],
+        [0.0, -0.10, 0.05],
+    ])
+    trajectory = np.concatenate([points.reshape(-1), [0.0]])
+    adapter = EmbodimentAdapter(future_horizon=1, robot_cls=_TrajectoryRobot)
+    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
+
+    adapter.to_action({"action_plan": [[trajectory]]}, _request(), session)
+
+    assert adapter.robot.kwargs["gripper_width"] == pytest.approx(0.08)
 
 
 def test_gripper_command_uses_session_deadband_hysteresis() -> None:
