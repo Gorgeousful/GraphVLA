@@ -9,8 +9,10 @@ import torch
 from rich.console import Console
 from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
+    ACTION_DIM,
     ACTOR_POINT_INDICES,
     ACTOR_NUM_POINTS,
+    GRIPPER_NUM_POINTS,
     POINT_FEATURE_DIM,
 )
 cs = Console()
@@ -424,9 +426,9 @@ class CustomTransform(TransformFn):
         outputs = data.get("outputs", data)
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
-        if "gripper_points_xyz_plan" in outputs:
-            outputs["gripper_points_xyz_plan"] = self._unnormalize_output_field(
-                outputs["gripper_points_xyz_plan"].clone(), field="camera_xyz", context=data,
+        if "action_plan" in outputs:
+            outputs["action_plan"] = self._unnormalize_output_field(
+                outputs["action_plan"].clone(), field="camera_action", context=data,
             )
         return data
 
@@ -460,10 +462,11 @@ class CustomTransform(TransformFn):
         )
         if node_points_xyz.ndim != 4 or node_points_xyz.shape[-1] != POINT_FEATURE_DIM:
             raise ValueError(f"Expected node_points_xyz [T,N,P,3], got {tuple(node_points_xyz.shape)}")
-        if gripper_points_xyz.ndim != 3 or gripper_points_xyz.shape[1:] != (ACTOR_NUM_POINTS, 3):
+        if gripper_points_xyz.ndim != 3 or gripper_points_xyz.shape[1:] != (GRIPPER_NUM_POINTS, 3):
             raise ValueError(
-                f"Expected gripper_points_xyz [T,{ACTOR_NUM_POINTS},3], got {tuple(gripper_points_xyz.shape)}"
+                f"Expected gripper_points_xyz [T,{GRIPPER_NUM_POINTS},3], got {tuple(gripper_points_xyz.shape)}"
             )
+        actor_points = gripper_points_xyz[:, ACTOR_POINT_INDICES]
         history_horizon = int(data["history_horizon"])
         future_horizon = int(data["future_horizon"])
         num_frames = gripper_points_xyz.shape[0]
@@ -496,7 +499,7 @@ class CustomTransform(TransformFn):
         points_per_entity = object_points.shape[2]
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
         entity_mask = torch.zeros((num_frames, 3, points_per_entity), dtype=torch.bool, device=object_points.device)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = gripper_points_xyz
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_points
         entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
@@ -521,26 +524,17 @@ class CustomTransform(TransformFn):
         scene_condition = self._build_scene_condition(
             data["subtaskstructure"], device=entity_points.device,
         )
-        state = torch.as_tensor(data["state"], device=entity_points.device, dtype=entity_points.dtype)
-        if state.ndim != 2 or state.shape[0] != num_frames or state.shape[1] < 8:
-            raise ValueError(f"Expected state [T,>=8], got {tuple(state.shape)}")
-        width = state[:, 6].abs() + state[:, 7].abs()
-        openness = (width / 0.08).clamp(0.0, 1.0)
-        closedness = (1.0 - 2.0 * openness).unsqueeze(-1)
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
-        if action.ndim != 2 or action.shape[0] != num_frames:
-            raise ValueError(f"Expected action [T,A], got {tuple(action.shape)}")
-        future_gripper = gripper_points_xyz[input_horizon:input_horizon + future_horizon]
-        future_action = action[input_horizon:input_horizon + future_horizon, -1:]
-        trajectory = torch.cat([future_gripper.flatten(1), future_action], dim=-1)
+        if action.shape != (num_frames, ACTION_DIM):
+            raise ValueError(f"Expected action [T,{ACTION_DIM}], got {tuple(action.shape)}")
+        future_action = action[input_horizon:input_horizon + future_horizon]
         target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
             "scene_condition": scene_condition,
-            "gripper_closedness_history": closedness[:input_horizon],
             "target": {
-                "trajectory": trajectory,
+                "action": future_action,
                 "is_complete": torch.as_tensor(
                     data[f"is_complete{target_suffix}"], device=entity_points.device,
                     dtype=entity_points.dtype,

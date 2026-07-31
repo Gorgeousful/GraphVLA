@@ -26,7 +26,6 @@ LIBERO_ROOT = Path("/data0/luokang/research/LIBERO")
 if str(LIBERO_ROOT) not in sys.path:
     sys.path.insert(0, str(LIBERO_ROOT))
 
-from libero.libero import benchmark
 import numpy as np
 from rich.console import Console
 from robosuite.utils.camera_utils import (
@@ -36,7 +35,6 @@ from robosuite.utils.camera_utils import (
 )
 import websockets
 
-from src.common.geom_utils import rot_transform
 
 cs = Console()
 
@@ -200,7 +198,7 @@ def _get_libero_env(task: Any, resolution: int, seed: int, control_freq: int) ->
         "camera_heights": resolution,
         "camera_widths": resolution,
         "camera_depths": True,
-        "control_delta": False,
+        "control_delta": True,
         "control_freq": control_freq,
     }
     env = OffScreenRenderEnv(**env_args)
@@ -228,35 +226,10 @@ def _prepare_observation(obs: dict[str, Any], env: Any) -> dict[str, Any]:
     }
 
 
-def transform_hand_to_gripper(hand_pos: np.ndarray, hand_quat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    hand_pose = np.eye(4, dtype=np.float64)
-    hand_pose[:3, 3] = np.asarray(hand_pos, dtype=np.float64)
-    hand_pose[:3, :3] = rot_transform(
-        np.asarray(hand_quat, dtype=np.float64),
-        input_format="quat",
-        target_format="matrix",
-    )
-    local_rotation = np.asarray(
-        [
-            [0.0, 1.0, 0.0, 0.0],
-            [-1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-        dtype=np.float64,
-    )
-    gripper_pose = hand_pose @ local_rotation
-    gripper_quat = rot_transform(gripper_pose[:3, :3], input_format="matrix", target_format="quat")
-    return gripper_pose[:3, 3].astype(np.float32), gripper_quat.astype(np.float32)
-
-
-def _dummy_action(obs: dict[str, Any]) -> np.ndarray:
-    gripper_pos, gripper_quat = transform_hand_to_gripper(
-        obs["robot0_eef_pos"],
-        obs["robot0_eef_quat"],
-    )
-    gripper_axis_angle = rot_transform(gripper_quat, input_format="quat", target_format="axis_angle").astype(np.float32)
-    return np.concatenate((gripper_pos, gripper_axis_angle, np.asarray([-1.0], dtype=np.float32)))
+def _dummy_action() -> np.ndarray:
+    action = np.zeros(7, dtype=np.float32)
+    action[6] = -1.0
+    return action
 
 
 def _first_batch(value: Any) -> np.ndarray:
@@ -386,25 +359,24 @@ def _draw_response_points(
         _draw_response_scores(image, response)
         return image
 
-    if frame_id is not None and intrinsic is not None and response.get("gripper_points_xyz_plan") is not None:
-        xyz_plan = _first_batch(response["gripper_points_xyz_plan"]).astype(np.float32)
+    if frame_id is not None and response.get("action_plan") is not None:
+        action_plan = _first_batch(response["action_plan"]).astype(np.float32)
         future_index = int(frame_id) - 1
-        intrinsic = np.asarray(intrinsic, dtype=np.float32)
-        if xyz_plan.ndim == 3 and 0 <= future_index < xyz_plan.shape[0] and intrinsic.shape == (3, 3):
-            xyz = xyz_plan[future_index]
-            actor_pixels = np.empty((xyz.shape[0], 2), dtype=np.float32)
-            actor_pixels[:, 0] = xyz[:, 0] / xyz[:, 2] * intrinsic[0, 0] + intrinsic[0, 2]
-            actor_pixels[:, 1] = xyz[:, 1] / xyz[:, 2] * intrinsic[1, 1] + intrinsic[1, 2]
-            for point in actor_pixels:
-                if not np.isfinite(point).all():
-                    continue
-                x, y = np.rint(point).astype(int)
-                if 0 <= x < width and 0 <= y < height:
-                    cv2.circle(image, (x, y), 4, colors[0], -1, lineType=cv2.LINE_AA)
-                    count += 1
+        if action_plan.ndim == 2 and action_plan.shape[1] == 7 and 0 <= future_index < len(action_plan):
+            action = action_plan[future_index]
+            _draw_text_rgb(
+                image,
+                f"camera delta xyz={np.round(action[:3], 3).tolist()}",
+                (8, 38),
+            )
+            _draw_text_rgb(
+                image,
+                f"camera delta rot={np.round(action[3:6], 3).tolist()} grip={action[6]:.2f}",
+                (8, 58),
+            )
 
     label_frame = "-" if frame_id is None else str(frame_id)
-    _draw_text_rgb(image, f"prediction f={label_frame} out={count}", (8, 18))
+    _draw_text_rgb(image, f"prediction action f={label_frame}", (8, 18))
     _draw_response_scores(image, response)
     return image
 
@@ -530,6 +502,8 @@ def parse_args() -> Args:
 
 
 def main() -> None:
+    from libero.libero import benchmark
+
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
     cs.print(args, markup=False)
@@ -612,7 +586,7 @@ def main() -> None:
                                 f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                             )
-                            action = _dummy_action(obs)
+                            action = _dummy_action()
                         else:
                             policy_step = step - args.num_steps_wait + 1
                             cs.print(

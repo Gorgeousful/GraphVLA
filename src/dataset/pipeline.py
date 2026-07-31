@@ -69,6 +69,7 @@ class OfflinePipeline:
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
+            "actions_camera": False,
         }
         unknown_overwrite = set(config.overwrite or {}) - set(overwrite_defaults)
         if unknown_overwrite:
@@ -201,6 +202,7 @@ class OfflinePipeline:
             or "subtask_node_mask" not in df.columns
         )
         need_gripper_points_xyz = self.overwrite["gripper_points_xyz"] or "gripper_points_xyz" not in df.columns
+        need_actions_camera = self.overwrite["actions_camera"] or "actions_camera" not in df.columns
         if "subtask_id" not in df.columns:
             raise KeyError(f"subtask_id is required in {parquet_path}")
         if (
@@ -208,6 +210,7 @@ class OfflinePipeline:
             and not need_valid_node_mask
             and not need_subtask_node_mask
             and not need_gripper_points_xyz
+            and not need_actions_camera
         ):
             return
 
@@ -235,6 +238,8 @@ class OfflinePipeline:
 
         if need_gripper_points_xyz:
             df["gripper_points_xyz"] = self._build_gripper_points_xyz(df, task_index)
+        if need_actions_camera:
+            df["actions_camera"] = self._build_actions_camera(df, task_index)
 
         if self.config.debug:
             cs.print(f"[yellow]debug dry-run: skip writing parquet {parquet_path}[/yellow]")
@@ -250,6 +255,7 @@ class OfflinePipeline:
             "valid_node_mask": pa.list_(pa.bool_()),
             "subtask_node_mask": pa.list_(pa.bool_()),
             "gripper_points_xyz": pa.list_(pa.list_(pa.float32())),
+            "actions_camera": pa.list_(pa.float32()),
         }
         for name, target_type in target_types.items():
             if name not in table.column_names:
@@ -488,8 +494,28 @@ class OfflinePipeline:
             state = np.asarray(raw_state, dtype=np.float64)
             if state.size < 8:
                 raise ValueError("state must contain at least 8 values to build gripper_points_xyz")
-            xyz = geometry.project_gripper_to_xyz(tcp_state=state[:6], extrinsic=extrinsic)
+            gripper_width = abs(float(state[6])) + abs(float(state[7]))
+            xyz = geometry.project_gripper_to_xyz(
+                tcp_state=state[:6],
+                extrinsic=extrinsic,
+                gripper_width=gripper_width,
+            )
             results.append(np.asarray(xyz, dtype=np.float32).tolist())
+        return results
+
+    def _build_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
+        camera = self._load_libero_cameras()[int(task_index)]["agentview"]
+        extrinsic = np.asarray(camera["extrinsic"], dtype=np.float64)
+        world_to_camera_rotation = extrinsic[:3, :3].T
+        results = []
+        for raw_action in df["actions"]:
+            action = np.asarray(raw_action, dtype=np.float64)
+            if action.shape != (7,):
+                raise ValueError(f"actions must have shape (7,), got {action.shape}")
+            camera_action = action.copy()
+            camera_action[:3] = world_to_camera_rotation @ action[:3]
+            camera_action[3:6] = world_to_camera_rotation @ action[3:6]
+            results.append(camera_action.astype(np.float32).tolist())
         return results
 
 
@@ -558,7 +584,7 @@ class OfflinePipeline:
             cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
             cs.print(
                 "parquet fields: node_points_xyz, valid_node_mask, subtask_node_mask, "
-                "gripper_points_xyz"
+                "gripper_points_xyz, actions_camera"
             )
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
@@ -784,8 +810,13 @@ class OfflinePipeline:
             },
             "gripper_points_xyz": {
                 "dtype": "float32",
-                "shape": [3, 3],
+                "shape": [6, 3],
                 "names": ["point", "xyz"],
+            },
+            "actions_camera": {
+                "dtype": "float32",
+                "shape": [7],
+                "names": ["actions"],
             },
         }
 
@@ -879,6 +910,7 @@ if __name__ == "__main__":
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
+            "actions_camera": False,
         },
         task_analyzer_api_key=api_key,
         debug=args.debug,

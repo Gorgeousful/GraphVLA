@@ -23,7 +23,6 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from rich.console import Console
-from scipy.spatial.transform import Rotation as R
 
 from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
@@ -33,8 +32,10 @@ from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
+    ACTION_DIM,
     ACTOR_NUM_POINTS,
-    LIBERO_GRIPPER_MAX_WIDTH,
+    ACTOR_POINT_INDICES,
+    GRIPPER_NUM_POINTS,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
 )
@@ -316,7 +317,6 @@ class InputPreprocessor:
             "tracks": np.asarray(session.tracked_points, dtype=np.float32),
             "metric_depth": np.asarray(frame.metric_depth, dtype=np.float32),
             "gripper_points_xyz": np.asarray(gripper_points_xyz, dtype=np.float32),
-            "closedness": self._state_to_closedness(frame),
             "intrinsic": np.asarray(frame.intrinsic, dtype=np.float32),
         }
         session.frame_index += 1
@@ -396,18 +396,12 @@ class InputPreprocessor:
         state = frame.state
         if state.size < 8:
             raise ValueError(f"observation.state must contain at least 8 values, got {state.size}")
+        gripper_width = abs(float(state[6])) + abs(float(state[7]))
         return self._robot().project_gripper_to_xyz(
             tcp_state=state[:6],
             extrinsic=frame.extrinsic,
+            gripper_width=gripper_width,
         )
-
-    @staticmethod
-    def _state_to_closedness(frame: ObservationFrame) -> np.ndarray:
-        if frame.state.size < 8:
-            raise ValueError(f"observation.state must contain at least 8 values, got {frame.state.size}")
-        width = abs(float(frame.state[6])) + abs(float(frame.state[7]))
-        openness = np.clip(width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0)
-        return np.asarray(1.0 - 2.0 * openness, dtype=np.float32)
 
     def _build_model_input(
         self,
@@ -431,7 +425,8 @@ class InputPreprocessor:
             axis=0,
         )
         actor_xyz = np.stack([
-            self._normalize_field(item["gripper_points_xyz"], "camera_xyz") for item in frames
+            self._normalize_field(item["gripper_points_xyz"], "camera_xyz")[list(ACTOR_POINT_INDICES)]
+            for item in frames
         ], axis=0)
         entity_points = np.zeros(
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
@@ -449,9 +444,6 @@ class InputPreprocessor:
         return {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
-            "gripper_closedness_history": np.asarray(
-                [item["closedness"] for item in frames], dtype=np.float32
-            ).reshape(1, len(frames), 1).tolist(),
             "scene_condition_texts": scene_condition_texts,
         }
 
@@ -768,60 +760,49 @@ class InputPreprocessor:
 
 
 class EmbodimentAdapter:
-    """Recover benchmark executable actions from transformed model outputs."""
+    """Convert camera-frame delta actions into LIBERO world-frame actions."""
 
     def __init__(
         self,
         *,
         future_horizon: int,
-        robot_cls: type[Any],
         action_mode: str = "continuous",
     ) -> None:
         if action_mode not in {"continuous", "discrete"}:
             raise ValueError(f"Unsupported action mode: {action_mode!r}")
         self.future_horizon = future_horizon
-        self.robot_cls = robot_cls
         self.action_mode = action_mode
-        self.robot: Any = None
 
     def to_action(
         self,
         outputs: Mapping[str, Any],
-        model_input: Mapping[str, Any],
         request: Mapping[str, Any],
         session: InferenceSession,
-    ) -> tuple[list[list[float]], list[float]]:
+    ) -> list[list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        required_outputs = {"gripper_points_xyz_plan", "gripper_action_plan"}
-        missing_outputs = required_outputs.difference(outputs)
-        if missing_outputs:
-            raise KeyError(f"Model outputs are missing required heads: {sorted(missing_outputs)}")
+        if "action_plan" not in outputs:
+            raise KeyError("Model outputs are missing required head: action_plan")
 
-        gripper_points_xyz = np.asarray(outputs["gripper_points_xyz_plan"], dtype=np.float32)[0]
-        gripper_actions = np.asarray(outputs["gripper_action_plan"], dtype=np.float32)[0].reshape(-1)
-        extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
-        state = np.asarray(request["observation.state"], dtype=np.float64)
-        state = state[-1] if state.ndim == 2 else state
-        current_width = abs(float(state[6])) + abs(float(state[7]))
-
-        actions = []
-        gripper_widths = []
-        residuals = []
-        for future_index in range(self.future_horizon):
-            points = gripper_points_xyz[future_index]
-            if points.shape != (ACTOR_NUM_POINTS, 3) or not np.isfinite(points).all():
-                raise ValueError(f"Invalid gripper XYZ at future index {future_index}: {points}")
-            action, residual = self._robot().project_xyz_to_gripper(
-                points,
-                gripper_width=current_width,
-                extrinsic=extrinsic,
-                return_residual=True,
+        camera_actions = np.asarray(outputs["action_plan"], dtype=np.float64)
+        expected_shape = (1, self.future_horizon, ACTION_DIM)
+        if camera_actions.shape != expected_shape:
+            raise ValueError(
+                f"action_plan must have shape {expected_shape}, got {camera_actions.shape}"
             )
-            residuals.append(residual)
-            gripper_widths.append(current_width)
-            action = self._to_libero_pose(action)
-            predicted_command = float(np.clip(gripper_actions[future_index], -1.0, 1.0))
+        camera_actions = camera_actions[0]
+        if not np.isfinite(camera_actions).all():
+            raise ValueError("action_plan contains non-finite values")
+
+        extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
+        camera_to_world_rotation = extrinsic[:3, :3]
+        world_actions = camera_actions.copy()
+        world_actions[:, :3] = camera_actions[:, :3] @ camera_to_world_rotation.T
+        world_actions[:, 3:6] = camera_actions[:, 3:6] @ camera_to_world_rotation.T
+        world_actions = np.clip(world_actions, -1.0, 1.0)
+
+        for action in world_actions:
+            predicted_command = float(action[6])
             if self.action_mode == "continuous":
                 session.gripper_command = predicted_command
             else:
@@ -830,52 +811,17 @@ class EmbodimentAdapter:
                 elif predicted_command < -0.2:
                     session.gripper_command = -1.0
             action[6] = session.gripper_command
-            actions.append(action.astype(np.float32).tolist())
+        return world_actions.astype(np.float32).tolist()
 
-        if len(actions) != self.future_horizon:
-            raise RuntimeError(f"Expected {self.future_horizon} actions, got {len(actions)}")
-        return actions, gripper_widths
-
+    @staticmethod
     def release_actions(
-        self,
-        request: Mapping[str, Any],
         session: InferenceSession,
         chunk_len: int,
     ) -> list[list[float]]:
-        state = np.asarray(request["observation.state"], dtype=np.float64)
-        state = state[-1] if state.ndim == 2 else state
-        if state.size < 6:
-            raise ValueError(f"observation.state must contain at least 6 values, got {state.size}")
-        action = np.zeros(7, dtype=np.float64)
-        action[:6] = state[:6]
-        action = self._to_libero_pose(action)
+        action = np.zeros(ACTION_DIM, dtype=np.float32)
         action[6] = -1.0
         session.gripper_command = -1.0
-        return [action.astype(np.float32).tolist() for _ in range(chunk_len)]
-
-    def _robot(self) -> Any:
-        if self.robot is None:
-            self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
-        return self.robot
-
-    def _to_libero_pose(self, action: np.ndarray) -> np.ndarray:
-        action = np.asarray(action, dtype=np.float64).copy()
-        pose = np.eye(4, dtype=np.float64)
-        pose[:3, 3] = action[:3]
-        pose[:3, :3] = R.from_rotvec(action[3:6]).as_matrix()
-        local_rotation = np.asarray(
-            [
-                [0.0, 1.0, 0.0, 0.0],
-                [-1.0, 0.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-            dtype=np.float64,
-        )
-        action_pose = pose @ local_rotation
-        action[:3] = action_pose[:3, 3]
-        action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
-        return action
+        return [action.tolist() for _ in range(chunk_len)]
 
     @staticmethod
     def _current_camera_matrix(request: Mapping[str, Any], key: str, shape: tuple[int, int]) -> np.ndarray:
@@ -943,7 +889,6 @@ class InferenceModel:
             "entity_points": tensor("entity_points", torch.float32),
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
             "scene_condition": scene_condition,
-            "gripper_closedness_history": tensor("gripper_closedness_history", torch.float32),
         }
         outputs = self.model.sample(infer_inputs)
         output_data = {"outputs": outputs, "batch": infer_inputs}
@@ -1085,12 +1030,11 @@ class InferenceServer:
 
         if release_requested or session.task_complete:
             executed_actions = self.embodiment.release_actions(
-                request,
                 session,
                 self.execute_chunk_len,
             )
         else:
-            actions, _ = self.embodiment.to_action(outputs, model_input, request, session)
+            actions = self.embodiment.to_action(outputs, request, session)
             executed_actions = actions[:self.execute_chunk_len]
             # to_action decodes the full horizon and updates the hysteresis state
             # along the way. Only commit the last command that will actually run.
@@ -1180,6 +1124,8 @@ class InferenceServer:
         active_chunks = []
 
         actor_xyz = np.asarray(current_features.get("gripper_points_xyz", []), dtype=np.float32)
+        if actor_xyz.shape == (GRIPPER_NUM_POINTS, 3):
+            actor_xyz = actor_xyz[list(ACTOR_POINT_INDICES)]
         intrinsic = np.asarray(current_features.get("intrinsic", []), dtype=np.float32)
         if actor_xyz.shape == (ACTOR_NUM_POINTS, 3) and intrinsic.shape == (3, 3):
             valid = np.isfinite(actor_xyz).all(axis=1) & (actor_xyz[:, 2] > 1e-6)
@@ -1382,7 +1328,6 @@ def main() -> None:
         ),
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
-            robot_cls=GeomRobot,
             action_mode=args.action_mode,
         ),
     )

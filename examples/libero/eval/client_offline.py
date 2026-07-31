@@ -197,28 +197,21 @@ def _draw_response_points(
                     count += 1
         label = f"tracking frame={frame_id} in={count}"
     elif mode == "prediction":
-        xyz_plan = response.get("gripper_points_xyz_plan")
-        if xyz_plan is not None and intrinsic is not None:
-            plan = np.asarray(xyz_plan, dtype=np.float32)
-            plan = plan[0] if plan.ndim == 4 else plan
+        action_plan = response.get("action_plan")
+        if action_plan is not None:
+            plan = np.asarray(action_plan, dtype=np.float32)
+            plan = plan[0] if plan.ndim == 3 else plan
             future_index = frame_id - 1
-            if plan.ndim == 3 and 0 <= future_index < plan.shape[0]:
-                xyz = plan[future_index]
-                pixels = np.stack(
-                    (
-                        xyz[:, 0] / xyz[:, 2] * intrinsic[0, 0] + intrinsic[0, 2],
-                        xyz[:, 1] / xyz[:, 2] * intrinsic[1, 1] + intrinsic[1, 2],
-                    ),
-                    axis=-1,
+            if plan.ndim == 2 and plan.shape[1] == 7 and 0 <= future_index < len(plan):
+                action = plan[future_index]
+                label = (
+                    f"prediction action future={frame_id} "
+                    f"xyz={np.round(action[:3], 3).tolist()} grip={action[6]:.2f}"
                 )
-                for point in pixels:
-                    if not np.isfinite(point).all():
-                        continue
-                    x, y = np.rint(point).astype(int)
-                    if 0 <= x < width and 0 <= y < height:
-                        cv2.circle(image, (x, y), 4, colors[0], -1, lineType=cv2.LINE_AA)
-                        count += 1
-        label = f"prediction future={frame_id}"
+            else:
+                label = f"prediction action future={frame_id}"
+        else:
+            label = f"prediction action future={frame_id}"
     else:
         raise ValueError(f"unknown visualization mode: {mode}")
 

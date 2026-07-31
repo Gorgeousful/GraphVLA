@@ -64,7 +64,7 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action",
 )
 LIBERO_USE_SOFT = True
 
@@ -87,8 +87,7 @@ LIBERO_REPACK = {
     "valid_node_mask": "valid_node_mask",
     "subtask_node_mask": "subtask_node_mask",
     "gripper_points_xyz": "gripper_points_xyz",
-    "state": "state",
-    "action": "actions",
+    "action": "actions_camera",
 }
 
 LIBERO_HISTORY_HORIZON = 9
@@ -106,8 +105,7 @@ LIBERO_HORIZON = {
     "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "gripper_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "actions": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "actions_camera": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
 if LIBERO_USE_SOFT:
@@ -128,7 +126,7 @@ LIBERO_TRANSFORM = (
 
     Normalize(
         norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
-        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz"},
+        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz", "action": "camera_action"},
         use_quantiles=True,
         quantile_to_neg_one_one=True,
     ),

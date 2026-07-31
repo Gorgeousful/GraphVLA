@@ -9,13 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import ACTOR_NUM_POINTS
+from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import make_scheduler, sample_time, training_path
 from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
-
-
-TRAJECTORY_DIM = ACTOR_NUM_POINTS * 3 + 1
 
 
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
@@ -27,14 +24,13 @@ def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
     return torch.cat([angles.sin(), angles.cos()], dim=-1).to(time.dtype)
 
 
-class JointTrajectoryFlow(nn.Module):
-    """Condition future flow queries on the full 10D actor history."""
+class ActionFlow(nn.Module):
+    """Denoise future actions conditioned on encoder memory."""
 
     def __init__(
         self,
         hidden_dim: int,
         horizon: int,
-        history_steps: int,
         layers: int,
         heads: int,
         mlp_ratio: float,
@@ -42,8 +38,7 @@ class JointTrajectoryFlow(nn.Module):
     ) -> None:
         super().__init__()
         self.horizon = horizon
-        self.history_steps = history_steps
-        self.input_projection = nn.Linear(TRAJECTORY_DIM, hidden_dim)
+        self.input_projection = nn.Linear(ACTION_DIM, hidden_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
@@ -52,61 +47,39 @@ class JointTrajectoryFlow(nn.Module):
             RotaryFlowBlock(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
         ])
         self.norm = AdaRMSNorm(hidden_dim)
-        self.output_projection = nn.Linear(hidden_dim, TRAJECTORY_DIM)
+        self.output_projection = nn.Linear(hidden_dim, ACTION_DIM)
         self.gradient_checkpointing = False
-
-        self_attention_mask = torch.ones(
-            history_steps + horizon, history_steps + horizon, dtype=torch.bool
-        )
-        self_attention_mask[:history_steps, history_steps:] = False
-        self.register_buffer("self_attention_mask", self_attention_mask, persistent=False)
 
     def forward(
         self,
         state: torch.Tensor,
         time: torch.Tensor,
         memory: torch.Tensor,
-        history_state: torch.Tensor,
     ) -> torch.Tensor:
-        if state.ndim != 3 or state.shape[1:] != (self.horizon, TRAJECTORY_DIM):
+        if state.ndim != 3 or state.shape[1:] != (self.horizon, ACTION_DIM):
             raise ValueError(
-                f"Expected flow state [B,{self.horizon},{TRAJECTORY_DIM}], got {state.shape}"
-            )
-        if history_state.ndim != 3 or history_state.shape[1:] != (
-            self.history_steps, TRAJECTORY_DIM
-        ):
-            raise ValueError(
-                f"Expected history state [B,{self.history_steps},{TRAJECTORY_DIM}], "
-                f"got {history_state.shape}"
+                f"Expected flow state [B,{self.horizon},{ACTION_DIM}], got {state.shape}"
             )
 
-        token = self.input_projection(torch.cat([history_state, state], dim=1))
+        token = self.input_projection(state)
         condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
-        history_positions = torch.arange(
-            1 - self.history_steps, 1, device=state.device
-        )
-        future_positions = torch.arange(
-            1, self.horizon + 1, device=state.device, dtype=history_positions.dtype
-        )
-        token_positions = torch.cat([history_positions, future_positions])
+        token_positions = torch.arange(1, self.horizon + 1, device=state.device)
         memory_positions = torch.zeros(
             memory.shape[1], device=memory.device, dtype=token_positions.dtype
         )
         for block in self.blocks:
             token = checkpoint(
                 block, token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
                 use_reentrant=False, preserve_rng_state=False,
             ) if self.gradient_checkpointing and self.training else block(
                 token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
             )
         hidden, _ = self.norm(token, condition)
-        return self.output_projection(hidden[:, self.history_steps:])
+        return self.output_projection(hidden)
 
 
 class GraphFlowModel(nn.Module):
-    """Single joint trajectory flow with the unchanged completion head."""
+    """Action flow with unchanged completion and contact heads."""
 
     def __init__(
         self,
@@ -146,9 +119,8 @@ class GraphFlowModel(nn.Module):
             hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
             max_history=self.history_steps, cls_token_num=cls_token_num, dropout=dropout,
         )
-        self.flow = JointTrajectoryFlow(
-            hidden_dim, future_horizon, self.history_steps,
-            flow_layers, num_heads, mlp_ratio, dropout,
+        self.flow = ActionFlow(
+            hidden_dim, future_horizon, flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.complete_head = nn.Sequential(
             nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
@@ -177,15 +149,6 @@ class GraphFlowModel(nn.Module):
             batch["scene_condition"],
         )
 
-    def _actor_history(self, batch: dict[str, Any]) -> torch.Tensor:
-        actor_xyz = batch["entity_points"][:, :, 0, :ACTOR_NUM_POINTS].flatten(2)
-        closedness = batch["gripper_closedness_history"]
-        if closedness.shape != (*actor_xyz.shape[:2], 1):
-            raise ValueError(
-                f"Expected gripper closedness [B,{self.history_steps},1], got {closedness.shape}"
-            )
-        return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
-
     def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
         patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
         return self.contact_head(patient_cls)
@@ -193,14 +156,14 @@ class GraphFlowModel(nn.Module):
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         memory, relation_local = self._encode(batch)
         target = batch["target"]
-        trajectory = target["trajectory"]
-        if trajectory.shape[1:] != (self.future_horizon, TRAJECTORY_DIM):
+        action = target["action"]
+        if action.shape[1:] != (self.future_horizon, ACTION_DIM):
             raise ValueError(
-                f"Expected target trajectory [B,{self.future_horizon},{TRAJECTORY_DIM}], got {trajectory.shape}"
+                f"Expected target action [B,{self.future_horizon},{ACTION_DIM}], got {action.shape}"
             )
-        time = sample_time(trajectory.shape[0], trajectory.device)
-        state, target_velocity, _ = training_path(trajectory, time)
-        velocity = self.flow(state, time, memory, self._actor_history(batch))
+        time = sample_time(action.shape[0], action.device)
+        state, target_velocity, _ = training_path(action, time)
+        velocity = self.flow(state, time, memory)
         loss_flow = F.mse_loss(velocity, target_velocity)
 
         complete_logits = self.complete_head(relation_local.flatten(1))
@@ -235,25 +198,22 @@ class GraphFlowModel(nn.Module):
         state = noise
         if state is None:
             state = torch.randn(
-                batch_size, self.future_horizon, TRAJECTORY_DIM,
+                batch_size, self.future_horizon, ACTION_DIM,
                 device=memory.device, dtype=memory.dtype,
             )
-        elif state.shape != (batch_size, self.future_horizon, TRAJECTORY_DIM):
+        elif state.shape != (batch_size, self.future_horizon, ACTION_DIM):
             raise ValueError(
-                f"Expected noise [B,{self.future_horizon},{TRAJECTORY_DIM}], got {state.shape}"
+                f"Expected noise [B,{self.future_horizon},{ACTION_DIM}], got {state.shape}"
             )
 
         scheduler = make_scheduler(num_steps or self.sample_steps, memory.device)
         for timestep in scheduler.timesteps:
             time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
-            velocity = self.flow(state, time, memory, self._actor_history(batch))
+            velocity = self.flow(state, time, memory)
             state = scheduler.step(velocity, timestep, state).prev_sample
 
         return {
-            "gripper_points_xyz_plan": state[..., : ACTOR_NUM_POINTS * 3].view(
-                batch_size, self.future_horizon, ACTOR_NUM_POINTS, 3
-            ),
-            "gripper_action_plan": state[..., ACTOR_NUM_POINTS * 3 :],
+            "action_plan": state,
             "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
             "is_contact": torch.sigmoid(self._contact_logits(memory)),
         }

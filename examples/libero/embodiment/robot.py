@@ -210,20 +210,7 @@ class GeomFrankaPanda:
         points_local = self._pose_keypoints_local
         point_names = ("root_uvd", "left_base_uvd", "right_base_uvd")
         if gripper_width is not None:
-            width = float(gripper_width)
-            if not np.isfinite(width):
-                raise ValueError(f"gripper_width must be finite, got {gripper_width!r}")
-            width = float(np.clip(width, 0.0, self._MAX_GRIPPER_WIDTH))
-            half_width = width / 2.0
-            fingertips_local = np.asarray(
-                [
-                    [0.0, half_width, self._FINGERTIP_CONTACT_Z],
-                    [0.0, -half_width, self._FINGERTIP_CONTACT_Z],
-                ],
-                dtype=np.float64,
-            )
-            tcp_local = fingertips_local.mean(axis=0, keepdims=True)
-            points_local = np.concatenate([points_local, fingertips_local, tcp_local], axis=0)
+            points_local = self._gripper_keypoints_local(gripper_width)
             point_names += ("left_fingertip_uvd", "right_fingertip_uvd", "tcp_uvd")
 
         points_camera = transform_points(points_local, local_to_camera)
@@ -237,11 +224,14 @@ class GeomFrankaPanda:
         self,
         tcp_state: Iterable[float],
         extrinsic: np.ndarray,
+        gripper_width: float,
         world_transform: np.ndarray | None = None,
     ) -> np.ndarray:
-        """Return root, left-base and right-base points in camera coordinates."""
+        """Return all six gripper keypoints in camera coordinates."""
         local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
-        return transform_points(self._pose_keypoints_local, local_to_camera)
+        return transform_points(
+            self._gripper_keypoints_local(gripper_width), local_to_camera
+        )
 
     def project_uvd_to_gripper(
         self,
@@ -304,13 +294,13 @@ class GeomFrankaPanda:
         *,
         return_residual: bool = False,
     ) -> np.ndarray | tuple[np.ndarray, float]:
-        """Recover a legal gripper pose from three camera-XYZ keypoints."""
+        """Recover a legal gripper pose from all six camera-XYZ keypoints."""
         points_camera = np.asarray(points_camera, dtype=np.float64)
-        if points_camera.shape != (3, 3):
-            raise ValueError(f"Expected root/left_base/right_base XYZ [3,3], got {points_camera.shape}")
+        if points_camera.shape != (6, 3):
+            raise ValueError(f"Expected six gripper XYZ keypoints [6,3], got {points_camera.shape}")
         return self._fit_points_to_gripper(
             points_camera,
-            self._pose_keypoints_local,
+            self._gripper_keypoints_local(gripper_width),
             gripper_width=gripper_width,
             extrinsic=extrinsic,
             world_transform=world_transform,
@@ -363,6 +353,22 @@ class GeomFrankaPanda:
         return (result, residual) if return_residual else result
 
     #: private
+    def _gripper_keypoints_local(self, gripper_width: float) -> np.ndarray:
+        """Return root, finger bases, fingertips and TCP in the gripper frame."""
+        width = float(gripper_width)
+        if not np.isfinite(width):
+            raise ValueError(f"gripper_width must be finite, got {gripper_width!r}")
+        half_width = float(np.clip(width, 0.0, self._MAX_GRIPPER_WIDTH)) / 2.0
+        fingertips = np.asarray(
+            [
+                [0.0, half_width, self._FINGERTIP_CONTACT_Z],
+                [0.0, -half_width, self._FINGERTIP_CONTACT_Z],
+            ],
+            dtype=np.float64,
+        )
+        tcp = fingertips.mean(axis=0, keepdims=True)
+        return np.concatenate([self._pose_keypoints_local, fingertips, tcp], axis=0)
+
     def _build_pose_keypoints_local(self) -> np.ndarray:
         """Return root and fully-open finger-base anchors in the gripper frame."""
         joint_ids = [

@@ -141,3 +141,46 @@ def test_projected_fingertip_width_is_clipped_and_nonfinite_width_is_rejected() 
             extrinsic=EXTRINSIC,
             gripper_width=np.nan,
         )
+
+
+@pytest.mark.parametrize("gripper_width", [0.0, 0.03, 0.08])
+def test_six_xyz_keypoints_recover_pose(gripper_width: float) -> None:
+    geometry = GeomFrankaPanda()
+    tcp_state = np.asarray([0.08, -0.04, 1.1, 0.2, -0.1, 0.3], dtype=np.float64)
+
+    xyz = geometry.project_gripper_to_xyz(
+        tcp_state=tcp_state,
+        extrinsic=EXTRINSIC,
+        gripper_width=gripper_width,
+    )
+    recovered, residual = geometry.project_xyz_to_gripper(
+        xyz,
+        gripper_width=gripper_width,
+        extrinsic=EXTRINSIC,
+        return_residual=True,
+    )
+
+    assert xyz.shape == (6, 3)
+    np.testing.assert_allclose(xyz[5], (xyz[3] + xyz[4]) / 2.0, atol=1e-12)
+    np.testing.assert_allclose(np.linalg.norm(xyz[3] - xyz[4]), gripper_width, atol=1e-12)
+    np.testing.assert_allclose(recovered[:6], tcp_state, atol=1e-7)
+    np.testing.assert_allclose(recovered[6], gripper_width, atol=1e-12)
+    assert residual < 1e-12
+
+
+def test_xyz_projection_rejects_invalid_width_and_point_count() -> None:
+    geometry = GeomFrankaPanda()
+    tcp_state = np.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="gripper_width must be finite"):
+        geometry.project_gripper_to_xyz(
+            tcp_state=tcp_state,
+            extrinsic=EXTRINSIC,
+            gripper_width=np.nan,
+        )
+    with pytest.raises(ValueError, match="six gripper XYZ keypoints"):
+        geometry.project_xyz_to_gripper(
+            np.zeros((3, 3)),
+            gripper_width=0.03,
+            extrinsic=EXTRINSIC,
+        )
