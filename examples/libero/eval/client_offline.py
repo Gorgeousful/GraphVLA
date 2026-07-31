@@ -20,6 +20,7 @@ from rich.console import Console
 from examples.libero.config.data_config import LIBERO_DATASET_DIR
 from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 from src.dataset.dataset import make_lerobot_dataset
+from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS, POINT_FEATURE_DIM
 
 
 cs = Console()
@@ -176,8 +177,15 @@ def _draw_response_points(
 ) -> np.ndarray:
     image = np.ascontiguousarray(image_rgb.copy())
     height, width = image.shape[:2]
-    colors = {0: (255, 80, 40), 1: (60, 60, 255), 2: (255, 144, 30)}
+    colors = {
+        0: (255, 80, 40),
+        1: (60, 60, 255),
+        2: (255, 144, 30),
+        3: (50, 205, 50),
+        4: (0, 215, 255),
+    }
     count = 0
+    projected_prediction_points: list[tuple[int, int, tuple[int, int, int]]] = []
     if mode == "tracking":
         points = response.get("tracking_point")
         object_ids = response.get("tracking_object_id")
@@ -202,16 +210,32 @@ def _draw_response_points(
             plan = np.asarray(action_plan, dtype=np.float32)
             plan = plan[0] if plan.ndim == 3 else plan
             future_index = frame_id - 1
-            if plan.ndim == 2 and plan.shape[1] == 7 and 0 <= future_index < len(plan):
-                action = plan[future_index]
-                label = (
-                    f"prediction action future={frame_id} "
-                    f"xyz={np.round(action[:3], 3).tolist()} grip={action[6]:.2f}"
-                )
+            if plan.ndim == 2 and plan.shape[1] == ACTION_DIM and 0 <= future_index < len(plan):
+                trajectory = plan[future_index]
+                points = trajectory[:-1].reshape(ACTOR_NUM_POINTS, POINT_FEATURE_DIM)
+                if intrinsic is not None:
+                    camera_matrix = np.asarray(intrinsic, dtype=np.float32)
+                    if camera_matrix.shape != (3, 3):
+                        raise ValueError(
+                            f"intrinsic must have shape (3,3), got {camera_matrix.shape}"
+                        )
+                    for point, color in zip(points, colors.values(), strict=True):
+                        if not np.isfinite(point).all() or point[2] <= 1e-6:
+                            continue
+                        x = int(round(float(
+                            point[0] / point[2] * camera_matrix[0, 0] + camera_matrix[0, 2]
+                        )))
+                        y = int(round(float(
+                            point[1] / point[2] * camera_matrix[1, 1] + camera_matrix[1, 2]
+                        )))
+                        if 0 <= x < width and 0 <= y < height:
+                            projected_prediction_points.append((x, y, color))
+                            count += 1
+                label = f"prediction points future={frame_id} in={count} grip={trajectory[-1]:.2f}"
             else:
-                label = f"prediction action future={frame_id}"
+                label = f"prediction points future={frame_id}"
         else:
-            label = f"prediction action future={frame_id}"
+            label = f"prediction points future={frame_id}"
     else:
         raise ValueError(f"unknown visualization mode: {mode}")
 
@@ -225,6 +249,8 @@ def _draw_response_points(
             scores = scores[np.isfinite(scores)]
             right_label = "-" if scores.size == 0 else f"{scores.max():.2f}"
     _draw_label(image, label, right_label)
+    for x, y, color in projected_prediction_points:
+        cv2.circle(image, (x, y), 5, color, -1, lineType=cv2.LINE_AA)
     return image
 
 

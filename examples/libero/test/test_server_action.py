@@ -35,9 +35,9 @@ def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
     assert np.asarray(captured["tcp_state"]) == pytest.approx(frame.state[:6])
 
 
-def test_online_model_input_selects_root_and_fingertips_without_closedness() -> None:
+def test_online_model_input_selects_five_actor_points_without_closedness() -> None:
     preprocessor = object.__new__(InputPreprocessor)
-    preprocessor.num_points = 4
+    preprocessor.num_points = 5
     preprocessor.norm_stats = {
         "camera_xyz": {
             "q01": [0.0, 0.0, 0.0],
@@ -47,7 +47,7 @@ def test_online_model_input_selects_root_and_fingertips_without_closedness() -> 
     gripper = np.zeros((6, 3), dtype=np.float32)
     gripper[:, 0] = np.arange(6, dtype=np.float32) / 10.0
     frame = {
-        "tracks": np.zeros((0, 4, 3), dtype=np.float32),
+        "tracks": np.zeros((0, 5, 3), dtype=np.float32),
         "metric_depth": np.ones((2, 2), dtype=np.float32),
         "gripper_points_xyz": gripper,
         "intrinsic": np.eye(3, dtype=np.float32),
@@ -61,8 +61,8 @@ def test_online_model_input_selects_root_and_fingertips_without_closedness() -> 
 
     model_input = preprocessor._build_model_input(session, [frame, frame], subtask)
 
-    actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :3]
-    expected = (gripper[[0, 3, 4]] * 2.0 - 1.0)[None]
+    actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :5]
+    expected = (gripper[[0, 1, 2, 3, 4]] * 2.0 - 1.0)[None]
     np.testing.assert_allclose(actor, np.repeat(expected, 2, axis=0), atol=1e-6)
     assert "gripper_closedness_history" not in model_input
 
@@ -71,7 +71,7 @@ class _TrajectoryRobot:
     def __init__(self, **_):
         pass
 
-    def project_actor_xyz_to_gripper(self, points, **kwargs):
+    def project_pose_xyz_to_gripper(self, points, **kwargs):
         self.points = np.asarray(points)
         self.kwargs = kwargs
         return np.zeros(7, dtype=np.float64), 0.0
@@ -84,9 +84,11 @@ def _request() -> dict:
     }
 
 
-def test_actor_trajectory_uses_predicted_width_and_preserves_gripper_value() -> None:
+def test_actor_trajectory_uses_rigid_pose_points_and_preserves_gripper_value() -> None:
     points = np.asarray([
         [0.0, 0.0, 0.0],
+        [0.0, 0.04, 0.02],
+        [0.0, -0.04, 0.02],
         [0.0, 0.03, 0.05],
         [0.0, -0.03, 0.05],
     ])
@@ -100,24 +102,8 @@ def test_actor_trajectory_uses_predicted_width_and_preserves_gripper_value() -> 
         session,
     )
 
-    np.testing.assert_allclose(adapter.robot.points, points)
-    assert adapter.robot.kwargs["gripper_width"] == pytest.approx(0.06)
+    np.testing.assert_allclose(adapter.robot.points, points[:3])
     assert actions[0][6] == pytest.approx(0.25)
-
-
-def test_predicted_width_is_clipped_to_gripper_limit() -> None:
-    points = np.asarray([
-        [0.0, 0.0, 0.0],
-        [0.0, 0.10, 0.05],
-        [0.0, -0.10, 0.05],
-    ])
-    trajectory = np.concatenate([points.reshape(-1), [0.0]])
-    adapter = EmbodimentAdapter(future_horizon=1, robot_cls=_TrajectoryRobot)
-    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
-
-    adapter.to_action({"action_plan": [[trajectory]]}, _request(), session)
-
-    assert adapter.robot.kwargs["gripper_width"] == pytest.approx(0.08)
 
 
 def test_gripper_command_uses_session_deadband_hysteresis() -> None:
@@ -127,7 +113,7 @@ def test_gripper_command_uses_session_deadband_hysteresis() -> None:
     session = SimpleNamespace(benchmark="libero", gripper_command=-1.0)
 
     def command_for(predicted_action: float) -> float:
-        trajectory = [0.0] * 9 + [predicted_action]
+        trajectory = [0.0] * 15 + [predicted_action]
         return adapter.to_action(
             {"action_plan": [[trajectory]]}, _request(), session
         )[0][6]
@@ -140,7 +126,7 @@ def test_gripper_command_uses_session_deadband_hysteresis() -> None:
 def test_continuous_gripper_action_is_clipped() -> None:
     adapter = EmbodimentAdapter(future_horizon=1, robot_cls=_TrajectoryRobot)
     session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
-    predicted = [0.0] * 9 + [1.5]
+    predicted = [0.0] * 15 + [1.5]
 
     action = adapter.to_action(
         {"action_plan": [[predicted]]},
@@ -151,13 +137,16 @@ def test_continuous_gripper_action_is_clipped() -> None:
     assert action[6] == pytest.approx(1.0)
 
 
-def test_release_actions_are_zero_delta_and_open_gripper() -> None:
+def test_release_actions_hold_latest_absolute_pose_and_open_gripper() -> None:
     adapter = EmbodimentAdapter(future_horizon=10, robot_cls=_TrajectoryRobot)
     session = SimpleNamespace(gripper_command=1.0)
+    request = _request()
 
-    actions = adapter.release_actions(session, chunk_len=3)
+    actions = adapter.release_actions(request, session, chunk_len=3)
 
-    expected = np.zeros(7, dtype=np.float32)
+    expected = np.zeros(7, dtype=np.float64)
+    expected[:6] = np.asarray(request["observation.state"])[:6]
+    expected = adapter._to_libero_pose(expected)
     expected[6] = -1.0
     np.testing.assert_allclose(actions, np.repeat(expected[None], 3, axis=0))
     assert session.gripper_command == pytest.approx(-1.0)

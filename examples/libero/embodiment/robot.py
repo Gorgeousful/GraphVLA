@@ -307,26 +307,24 @@ class GeomFrankaPanda:
             return_residual=return_residual,
         )
 
-    def project_actor_xyz_to_gripper(
+    def project_pose_xyz_to_gripper(
         self,
         points_camera: np.ndarray,
-        gripper_width: float,
         extrinsic: np.ndarray | None = None,
         world_transform: np.ndarray | None = None,
         *,
         return_residual: bool = False,
     ) -> np.ndarray | tuple[np.ndarray, float]:
-        """Recover a gripper pose from root and the two fingertip XYZ points."""
+        """Recover a gripper pose from root and the two rigid base XYZ points."""
         points_camera = np.asarray(points_camera, dtype=np.float64)
         if points_camera.shape != (3, 3):
             raise ValueError(
-                f"Expected root/fingertips XYZ [3,3], got {points_camera.shape}"
+                f"Expected root/bases XYZ [3,3], got {points_camera.shape}"
             )
-        points_local = self._gripper_keypoints_local(gripper_width)[[0, 3, 4]]
         return self._fit_points_to_gripper(
             points_camera,
-            points_local,
-            gripper_width=gripper_width,
+            self._pose_keypoints_local,
+            gripper_width=0.0,
             extrinsic=extrinsic,
             world_transform=world_transform,
             return_residual=return_residual,

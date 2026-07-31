@@ -36,8 +36,8 @@ from src.common.schema import (
     ACTION_DIM,
     ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
+    ACTOR_POSE_POINT_INDICES,
     GRIPPER_NUM_POINTS,
-    LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
 )
@@ -804,14 +804,9 @@ class EmbodimentAdapter:
         actions = []
         for trajectory in trajectories:
             points = trajectory[:-1].reshape(ACTOR_NUM_POINTS, POINT_FEATURE_DIM)
-            predicted_width = float(np.clip(
-                np.linalg.norm(points[1] - points[2]),
-                0.0,
-                LIBERO_GRIPPER_MAX_WIDTH,
-            ))
-            action, _ = self._robot().project_actor_xyz_to_gripper(
-                points,
-                gripper_width=predicted_width,
+            pose_points = points[list(ACTOR_POSE_POINT_INDICES)]
+            action, _ = self._robot().project_pose_xyz_to_gripper(
+                pose_points,
                 extrinsic=extrinsic,
                 return_residual=True,
             )
@@ -828,15 +823,24 @@ class EmbodimentAdapter:
             actions.append(action.astype(np.float32).tolist())
         return actions
 
-    @staticmethod
     def release_actions(
+        self,
+        request: Mapping[str, Any],
         session: InferenceSession,
         chunk_len: int,
     ) -> list[list[float]]:
-        action = np.zeros(7, dtype=np.float32)
+        state = np.asarray(request["observation.state"], dtype=np.float64)
+        state = state[-1] if state.ndim == 2 else state
+        if state.size < 6:
+            raise ValueError(
+                f"observation.state must contain at least 6 values, got {state.size}"
+            )
+        action = np.zeros(7, dtype=np.float64)
+        action[:6] = state[:6]
+        action = self._to_libero_pose(action)
         action[6] = -1.0
         session.gripper_command = -1.0
-        return [action.tolist() for _ in range(chunk_len)]
+        return [action.astype(np.float32).tolist() for _ in range(chunk_len)]
 
     def _robot(self) -> Any:
         if self.robot is None:
@@ -1067,6 +1071,7 @@ class InferenceServer:
 
         if release_requested or session.task_complete:
             executed_actions = self.embodiment.release_actions(
+                request,
                 session,
                 self.execute_chunk_len,
             )

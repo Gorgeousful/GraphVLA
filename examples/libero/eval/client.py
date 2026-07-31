@@ -35,6 +35,9 @@ from robosuite.utils.camera_utils import (
 )
 import websockets
 
+from src.common.geom_utils import rot_transform
+from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS, POINT_FEATURE_DIM
+
 
 cs = Console()
 
@@ -198,7 +201,7 @@ def _get_libero_env(task: Any, resolution: int, seed: int, control_freq: int) ->
         "camera_heights": resolution,
         "camera_widths": resolution,
         "camera_depths": True,
-        "control_delta": True,
+        "control_delta": False,
         "control_freq": control_freq,
     }
     env = OffScreenRenderEnv(**env_args)
@@ -226,10 +229,27 @@ def _prepare_observation(obs: dict[str, Any], env: Any) -> dict[str, Any]:
     }
 
 
-def _dummy_action() -> np.ndarray:
-    action = np.zeros(7, dtype=np.float32)
-    action[6] = -1.0
-    return action
+def _hold_action(obs: dict[str, Any]) -> np.ndarray:
+    hand_pose = np.eye(4, dtype=np.float64)
+    hand_pose[:3, 3] = np.asarray(obs["robot0_eef_pos"], dtype=np.float64)
+    hand_pose[:3, :3] = rot_transform(
+        np.asarray(obs["robot0_eef_quat"], dtype=np.float64),
+        input_format="quat",
+        target_format="matrix",
+    )
+    local_rotation = np.asarray([
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
+    gripper_pose = hand_pose @ local_rotation
+    axis_angle = rot_transform(
+        gripper_pose[:3, :3], input_format="matrix", target_format="axis_angle"
+    )
+    return np.concatenate([
+        gripper_pose[:3, 3], axis_angle, np.asarray([-1.0])
+    ]).astype(np.float32)
 
 
 def _first_batch(value: Any) -> np.ndarray:
@@ -303,6 +323,7 @@ def _draw_response_points(
         6: (255, 255, 0),
     }
     count = 0
+    projected_prediction_points: list[tuple[int, int, tuple[int, int, int]]] = []
 
     if mode == "tracking":
         if response.get("tracking_point") is not None and response.get("tracking_object_id") is not None:
@@ -362,22 +383,29 @@ def _draw_response_points(
     if frame_id is not None and response.get("action_plan") is not None:
         action_plan = _first_batch(response["action_plan"]).astype(np.float32)
         future_index = int(frame_id) - 1
-        if action_plan.ndim == 2 and action_plan.shape[1] == 7 and 0 <= future_index < len(action_plan):
-            action = action_plan[future_index]
-            _draw_text_rgb(
-                image,
-                f"camera delta xyz={np.round(action[:3], 3).tolist()}",
-                (8, 38),
-            )
-            _draw_text_rgb(
-                image,
-                f"camera delta rot={np.round(action[3:6], 3).tolist()} grip={action[6]:.2f}",
-                (8, 58),
-            )
+        if action_plan.ndim == 2 and action_plan.shape[1] == ACTION_DIM and 0 <= future_index < len(action_plan):
+            trajectory = action_plan[future_index]
+            points = trajectory[:-1].reshape(ACTOR_NUM_POINTS, POINT_FEATURE_DIM)
+            if intrinsic is not None:
+                camera_matrix = np.asarray(intrinsic, dtype=np.float32)
+                if camera_matrix.shape != (3, 3):
+                    raise ValueError(f"intrinsic must have shape (3,3), got {camera_matrix.shape}")
+                point_colors = tuple(colors[index] for index in range(ACTOR_NUM_POINTS))
+                for point, color in zip(points, point_colors, strict=True):
+                    if not np.isfinite(point).all() or point[2] <= 1e-6:
+                        continue
+                    x = int(round(float(point[0] / point[2] * camera_matrix[0, 0] + camera_matrix[0, 2])))
+                    y = int(round(float(point[1] / point[2] * camera_matrix[1, 1] + camera_matrix[1, 2])))
+                    if 0 <= x < width and 0 <= y < height:
+                        projected_prediction_points.append((x, y, color))
+                        count += 1
+            _draw_text_rgb(image, f"predicted points={count} grip={trajectory[-1]:.2f}", (8, 38))
 
     label_frame = "-" if frame_id is None else str(frame_id)
-    _draw_text_rgb(image, f"prediction action f={label_frame}", (8, 18))
+    _draw_text_rgb(image, f"prediction points f={label_frame}", (8, 18))
     _draw_response_scores(image, response)
+    for x, y, color in projected_prediction_points:
+        cv2.circle(image, (x, y), 5, color, -1, lineType=cv2.LINE_AA)
     return image
 
 
@@ -586,7 +614,7 @@ def main() -> None:
                                 f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                             )
-                            action = _dummy_action()
+                            action = _hold_action(obs)
                         else:
                             policy_step = step - args.num_steps_wait + 1
                             cs.print(

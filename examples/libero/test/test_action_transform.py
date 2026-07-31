@@ -6,7 +6,7 @@ from src.common.schema import ACTION_DIM, ACTOR_POINT_INDICES, ROBOT_ACTION_DIM
 from src.dataset.transform import CustomTransform
 
 
-def test_build_model_input_selects_root_and_fingertips_and_future_actions() -> None:
+def test_build_model_input_selects_five_actor_points_and_future_actions() -> None:
     num_frames = 4
     gripper = torch.zeros(num_frames, 6, 3)
     gripper[:, :, 0] = torch.arange(6)
@@ -18,7 +18,7 @@ def test_build_model_input_selects_root_and_fingertips_and_future_actions() -> N
         2, 8, device=device
     )
     data = {
-        "node_points_xyz": torch.randn(num_frames, 2, 4, 3),
+        "node_points_xyz": torch.randn(num_frames, 2, 5, 3),
         "gripper_points_xyz": gripper,
         "valid_node_mask": torch.ones(num_frames, 2, dtype=torch.bool),
         "subtask_node_mask": torch.ones(num_frames, 2, dtype=torch.bool),
@@ -35,7 +35,7 @@ def test_build_model_input_selects_root_and_fingertips_and_future_actions() -> N
     result = transform.build_model_input(data)
 
     expected_actor = gripper[:2, ACTOR_POINT_INDICES]
-    torch.testing.assert_close(result["entity_points"][:, 0, :3], expected_actor)
+    torch.testing.assert_close(result["entity_points"][:, 0, :5], expected_actor)
     expected_target = torch.cat([
         gripper[2:4, ACTOR_POINT_INDICES].flatten(1),
         action[2:4, -1:],
@@ -71,5 +71,5 @@ def test_build_model_output_unnormalizes_xyz_and_preserves_gripper_action() -> N
 
     result = transform.build_model_output(data)
 
-    expected = torch.tensor([1.0, 11.0, 21.0] * 3 + [0.37])
+    expected = torch.tensor([1.0, 11.0, 21.0] * 5 + [0.37])
     torch.testing.assert_close(result["outputs"]["action_plan"][0, 0], expected)

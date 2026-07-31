@@ -8,7 +8,7 @@ from src.model.model import ACTION_DIM, GraphFlowModel
 
 def _make_model() -> GraphFlowModel:
     return GraphFlowModel(
-        num_points=4,
+        num_points=5,
         history_horizon=1,
         future_horizon=3,
         condition_dim=8,
@@ -24,8 +24,8 @@ def _make_model() -> GraphFlowModel:
 
 def _make_batch(batch_size: int = 2) -> dict:
     return {
-        "entity_points": torch.randn(batch_size, 2, 3, 4, 3),
-        "entity_point_mask": torch.ones(batch_size, 2, 3, 4, dtype=torch.bool),
+        "entity_points": torch.randn(batch_size, 2, 3, 5, 3),
+        "entity_point_mask": torch.ones(batch_size, 2, 3, 5, dtype=torch.bool),
         "scene_condition": torch.randn(batch_size, 2, 8),
         "target": {
             "action": torch.randn(batch_size, 3, ACTION_DIM),
@@ -35,7 +35,7 @@ def _make_batch(batch_size: int = 2) -> dict:
     }
 
 
-def test_forward_uses_ten_dimensional_actor_action_target() -> None:
+def test_forward_uses_sixteen_dimensional_actor_action_target() -> None:
     model = _make_model()
     batch = _make_batch()
 
@@ -68,5 +68,5 @@ def test_rejects_seven_dimensional_robot_action_target() -> None:
     batch = _make_batch()
     batch["target"]["action"] = torch.randn(2, 3, 7)
 
-    with pytest.raises(ValueError, match=r"Expected target action .*10"):
+    with pytest.raises(ValueError, match=r"Expected target action .*16"):
         model(batch)

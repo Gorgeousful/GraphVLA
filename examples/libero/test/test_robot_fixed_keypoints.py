@@ -168,25 +168,22 @@ def test_six_xyz_keypoints_recover_pose(gripper_width: float) -> None:
     assert residual < 1e-12
 
 
-@pytest.mark.parametrize("gripper_width", [0.01, 0.03, 0.08])
-def test_actor_xyz_keypoints_recover_pose(gripper_width: float) -> None:
+def test_pose_xyz_keypoints_recover_pose() -> None:
     geometry = GeomFrankaPanda()
     tcp_state = np.asarray([0.08, -0.04, 1.1, 0.2, -0.1, 0.3], dtype=np.float64)
     xyz = geometry.project_gripper_to_xyz(
         tcp_state=tcp_state,
         extrinsic=EXTRINSIC,
-        gripper_width=gripper_width,
-    )[[0, 3, 4]]
+        gripper_width=0.03,
+    )[:3]
 
-    recovered, residual = geometry.project_actor_xyz_to_gripper(
+    recovered, residual = geometry.project_pose_xyz_to_gripper(
         xyz,
-        gripper_width=np.linalg.norm(xyz[1] - xyz[2]),
         extrinsic=EXTRINSIC,
         return_residual=True,
     )
 
     np.testing.assert_allclose(recovered[:6], tcp_state, atol=1e-7)
-    np.testing.assert_allclose(recovered[6], gripper_width, atol=1e-12)
     assert residual < 1e-12
 
 
