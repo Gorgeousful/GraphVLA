@@ -126,7 +126,7 @@ LIBERO_TRANSFORM = (
 
     Normalize(
         norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
-        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz", "action": "camera_action"},
+        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz"},
         use_quantiles=True,
         quantile_to_neg_one_one=True,
     ),

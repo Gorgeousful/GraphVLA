@@ -14,6 +14,7 @@ from src.common.schema import (
     ACTOR_NUM_POINTS,
     GRIPPER_NUM_POINTS,
     POINT_FEATURE_DIM,
+    ROBOT_ACTION_DIM,
 )
 cs = Console()
 DataDict = dict[str, Any]
@@ -427,8 +428,15 @@ class CustomTransform(TransformFn):
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
         if "action_plan" in outputs:
-            outputs["action_plan"] = self._unnormalize_output_field(
-                outputs["action_plan"].clone(), field="camera_action", context=data,
+            plan = outputs["action_plan"].clone()
+            points = self._unnormalize_output_field(
+                plan[..., :-1].reshape(
+                    *plan.shape[:-1], ACTOR_NUM_POINTS, POINT_FEATURE_DIM
+                ),
+                field="camera_xyz", context=data,
+            )
+            outputs["action_plan"] = torch.cat(
+                [points.flatten(-2), plan[..., -1:]], dim=-1
             )
         return data
 
@@ -525,9 +533,15 @@ class CustomTransform(TransformFn):
             data["subtaskstructure"], device=entity_points.device,
         )
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
-        if action.shape != (num_frames, ACTION_DIM):
-            raise ValueError(f"Expected action [T,{ACTION_DIM}], got {tuple(action.shape)}")
-        future_action = action[input_horizon:input_horizon + future_horizon]
+        if action.shape != (num_frames, ROBOT_ACTION_DIM):
+            raise ValueError(
+                f"Expected robot action [T,{ROBOT_ACTION_DIM}], got {tuple(action.shape)}"
+            )
+        future_actor = actor_points[input_horizon:input_horizon + future_horizon]
+        future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
+        future_action = torch.cat(
+            [future_actor.flatten(1), future_gripper], dim=-1
+        )
         target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],

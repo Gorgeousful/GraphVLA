@@ -23,6 +23,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from rich.console import Console
+from scipy.spatial.transform import Rotation as R
 
 from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
@@ -760,18 +761,21 @@ class InputPreprocessor:
 
 
 class EmbodimentAdapter:
-    """Convert camera-frame delta actions into LIBERO world-frame actions."""
+    """Recover LIBERO actions from camera-XYZ actor trajectories."""
 
     def __init__(
         self,
         *,
         future_horizon: int,
+        robot_cls: type[Any],
         action_mode: str = "continuous",
     ) -> None:
         if action_mode not in {"continuous", "discrete"}:
             raise ValueError(f"Unsupported action mode: {action_mode!r}")
         self.future_horizon = future_horizon
+        self.robot_cls = robot_cls
         self.action_mode = action_mode
+        self.robot: Any = None
 
     def to_action(
         self,
@@ -784,25 +788,36 @@ class EmbodimentAdapter:
         if "action_plan" not in outputs:
             raise KeyError("Model outputs are missing required head: action_plan")
 
-        camera_actions = np.asarray(outputs["action_plan"], dtype=np.float64)
+        trajectories = np.asarray(outputs["action_plan"], dtype=np.float64)
         expected_shape = (1, self.future_horizon, ACTION_DIM)
-        if camera_actions.shape != expected_shape:
+        if trajectories.shape != expected_shape:
             raise ValueError(
-                f"action_plan must have shape {expected_shape}, got {camera_actions.shape}"
+                f"action_plan must have shape {expected_shape}, got {trajectories.shape}"
             )
-        camera_actions = camera_actions[0]
-        if not np.isfinite(camera_actions).all():
+        trajectories = trajectories[0]
+        if not np.isfinite(trajectories).all():
             raise ValueError("action_plan contains non-finite values")
 
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
-        camera_to_world_rotation = extrinsic[:3, :3]
-        world_actions = camera_actions.copy()
-        world_actions[:, :3] = camera_actions[:, :3] @ camera_to_world_rotation.T
-        world_actions[:, 3:6] = camera_actions[:, 3:6] @ camera_to_world_rotation.T
-        world_actions = np.clip(world_actions, -1.0, 1.0)
+        state = np.asarray(request["observation.state"], dtype=np.float64)
+        state = state[-1] if state.ndim == 2 else state
+        if state.size < 8:
+            raise ValueError(
+                f"observation.state must contain at least 8 values, got {state.size}"
+            )
+        current_width = abs(float(state[6])) + abs(float(state[7]))
 
-        for action in world_actions:
-            predicted_command = float(action[6])
+        actions = []
+        for trajectory in trajectories:
+            points = trajectory[:-1].reshape(ACTOR_NUM_POINTS, POINT_FEATURE_DIM)
+            action, _ = self._robot().project_actor_xyz_to_gripper(
+                points,
+                gripper_width=current_width,
+                extrinsic=extrinsic,
+                return_residual=True,
+            )
+            action = self._to_libero_pose(action)
+            predicted_command = float(np.clip(trajectory[-1], -1.0, 1.0))
             if self.action_mode == "continuous":
                 session.gripper_command = predicted_command
             else:
@@ -811,17 +826,40 @@ class EmbodimentAdapter:
                 elif predicted_command < -0.2:
                     session.gripper_command = -1.0
             action[6] = session.gripper_command
-        return world_actions.astype(np.float32).tolist()
+            actions.append(action.astype(np.float32).tolist())
+        return actions
 
     @staticmethod
     def release_actions(
         session: InferenceSession,
         chunk_len: int,
     ) -> list[list[float]]:
-        action = np.zeros(ACTION_DIM, dtype=np.float32)
+        action = np.zeros(7, dtype=np.float32)
         action[6] = -1.0
         session.gripper_command = -1.0
         return [action.tolist() for _ in range(chunk_len)]
+
+    def _robot(self) -> Any:
+        if self.robot is None:
+            self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
+        return self.robot
+
+    @staticmethod
+    def _to_libero_pose(action: np.ndarray) -> np.ndarray:
+        action = np.asarray(action, dtype=np.float64).copy()
+        pose = np.eye(4, dtype=np.float64)
+        pose[:3, 3] = action[:3]
+        pose[:3, :3] = R.from_rotvec(action[3:6]).as_matrix()
+        local_rotation = np.asarray([
+            [0.0, 1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+        action_pose = pose @ local_rotation
+        action[:3] = action_pose[:3, 3]
+        action[3:6] = R.from_matrix(action_pose[:3, :3]).as_rotvec()
+        return action
 
     @staticmethod
     def _current_camera_matrix(request: Mapping[str, Any], key: str, shape: tuple[int, int]) -> np.ndarray:
@@ -1328,6 +1366,7 @@ def main() -> None:
         ),
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
+            robot_cls=GeomRobot,
             action_mode=args.action_mode,
         ),
     )

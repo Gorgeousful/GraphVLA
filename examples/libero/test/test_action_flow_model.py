@@ -35,7 +35,7 @@ def _make_batch(batch_size: int = 2) -> dict:
     }
 
 
-def test_forward_uses_only_seven_dimensional_action_target() -> None:
+def test_forward_uses_ten_dimensional_actor_action_target() -> None:
     model = _make_model()
     batch = _make_batch()
 
@@ -63,10 +63,10 @@ def test_sample_returns_only_action_plan_and_unchanged_head_outputs() -> None:
     assert all(torch.isfinite(value).all() for value in outputs.values())
 
 
-def test_rejects_legacy_ten_dimensional_target() -> None:
+def test_rejects_seven_dimensional_robot_action_target() -> None:
     model = _make_model()
     batch = _make_batch()
-    batch["target"]["action"] = torch.randn(2, 3, 10)
+    batch["target"]["action"] = torch.randn(2, 3, 7)
 
-    with pytest.raises(ValueError, match=r"Expected target action .*7"):
+    with pytest.raises(ValueError, match=r"Expected target action .*10"):
         model(batch)
