@@ -64,7 +64,7 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7",
 )
 LIBERO_USE_SOFT = True
 
