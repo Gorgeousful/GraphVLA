@@ -156,7 +156,7 @@ class GraphFlowModel(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
         self.contact_head = nn.Sequential(
-            nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
+            nn.Linear(hidden_dim * cls_token_num, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
@@ -187,9 +187,8 @@ class GraphFlowModel(nn.Module):
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
 
     def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
-        actor_cls = memory[:, :self.cls_token_num].flatten(1)
         patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
-        return self.contact_head(torch.cat([actor_cls, patient_cls], dim=-1))
+        return self.contact_head(patient_cls)
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         memory, relation_local = self._encode(batch)
