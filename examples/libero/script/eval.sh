@@ -1,11 +1,10 @@
 # robobrain环境 0723
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0728/checkpoints/step_200000.pt \
+--ckpt-path examples/libero/result/0723/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
---locator-scale 4.0 \
---locator-mode box
+--locator-scale 2.0
 
 # libero_10 # 2 0 1 6 4
 python -m examples.libero.eval.client \
