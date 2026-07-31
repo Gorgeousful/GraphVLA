@@ -1,7 +1,7 @@
 # robobrain环境 0723
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0730-contact-fix/checkpoints/step_100000.pt \
+--ckpt-path examples/libero/result/0730-contact-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0
@@ -28,7 +28,7 @@ python -m examples.libero.eval.client \
 # libero_swap_test
 python -m examples.libero.eval.client \
 --task-suite-name libero_swap_test \
---tasks 1 \
+--tasks 3 \
 --num-trials-per-task 3 \
 --max-steps 750 \
 --control-freq 10

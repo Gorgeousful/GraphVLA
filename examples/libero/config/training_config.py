@@ -22,12 +22,12 @@ class TrainingConfig:
 
     # cos
     warmup_steps: int = 1_000
-    peak_lr: float = 2.5e-5 # 2.5e-5
+    peak_lr: float = 1e-5 # 2.5e-5
     decay_steps: int = 1_000_000
-    decay_lr: float = 2.5e-5 # 2.5e-5
+    decay_lr: float = 1e-5 # 2.5e-5
 
     # adamw
-    weight_decay: float = 1e-4 # 1e-4
+    weight_decay: float = 1e-2 # 1e-4
     betas: tuple = (0.9, 0.95)
     
     # ckpt
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0730-contact-fix"
+    wandb_name: str | None = "0731-contact-"
 
 
     def to_kwargs(self) -> dict[str, Any]:

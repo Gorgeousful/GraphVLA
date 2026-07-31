@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from copy import copy
 from pathlib import Path
@@ -11,12 +12,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-from examples.libero.config.data_config import LIBERO_DATA_CONFIG
-from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
-from examples.libero.config.training_config import LIBERO_TRAINING_CONFIG
-from src.training.training import train
-
 
 SUITE_TO_DATASET_TASK = {6: 0, 7: 1, 8: 2}
 
@@ -30,6 +25,8 @@ def main() -> None:
         choices=tuple(SUITE_TO_DATASET_TASK),
     )
     parser.add_argument("--max-steps", type=int, default=30_000)
+    parser.add_argument("--dataset-dir", type=Path)
+    parser.add_argument("--run-prefix", default="0730-contact")
     parser.add_argument(
         "--save-dir", type=Path, default=Path("examples/libero/result")
     )
@@ -37,15 +34,25 @@ def main() -> None:
     if args.max_steps <= 0:
         parser.error("--max-steps must be positive")
 
+    dataset_task = SUITE_TO_DATASET_TASK[args.suite_task]
+    if args.dataset_dir is not None:
+        os.environ["LIBERO_DATASET_DIR"] = str(args.dataset_dir)
+        dataset_task = 0
+
+    from examples.libero.config.data_config import LIBERO_DATA_CONFIG
+    from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
+    from examples.libero.config.training_config import LIBERO_TRAINING_CONFIG
+    from src.training.training import train
+
     data_config = copy(LIBERO_DATA_CONFIG)
-    data_config.tasks = [SUITE_TO_DATASET_TASK[args.suite_task]]
+    data_config.tasks = [dataset_task]
 
     training_config = copy(LIBERO_TRAINING_CONFIG)
     training_config.resume = False
     training_config.ckpt_path = None
     training_config.max_steps = args.max_steps
     training_config.save_dir = args.save_dir
-    training_config.wandb_name = f"0730-contact-{args.suite_task}"
+    training_config.wandb_name = f"{args.run_prefix}-{args.suite_task}"
 
     train(data_config, LIBERO_MODEL_CONFIG, training_config)
 

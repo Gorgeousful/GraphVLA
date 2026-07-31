@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,10 @@ class DataConfig:
             "out_transforms": self.out_transforms,
         }
 
-LIBERO_DATASET_DIR = "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8"
+LIBERO_DATASET_DIR = os.environ.get(
+    "LIBERO_DATASET_DIR",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8",
+)
 LIBERO_USE_SOFT = True
 
 LIBERO_REPACK = {
