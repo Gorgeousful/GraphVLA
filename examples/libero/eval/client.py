@@ -359,24 +359,42 @@ def _draw_response_points(
         _draw_response_scores(image, response)
         return image
 
-    if frame_id is not None and response.get("action_plan") is not None:
-        action_plan = _first_batch(response["action_plan"]).astype(np.float32)
+    point_plan_value = response.get("point_plan")
+    if frame_id is not None and intrinsic is not None and point_plan_value is not None:
+        point_plan = _first_batch(point_plan_value).astype(np.float32)
         future_index = int(frame_id) - 1
-        if action_plan.ndim == 2 and action_plan.shape[1] == 7 and 0 <= future_index < len(action_plan):
-            action = action_plan[future_index]
-            _draw_text_rgb(
-                image,
-                f"camera delta xyz={np.round(action[:3], 3).tolist()}",
-                (8, 38),
-            )
-            _draw_text_rgb(
-                image,
-                f"camera delta rot={np.round(action[3:6], 3).tolist()} grip={action[6]:.2f}",
-                (8, 58),
-            )
+        if point_plan.ndim == 3 and point_plan.shape[-1] == 3 and 0 <= future_index < len(point_plan):
+            points = point_plan[future_index]
+            mask_value = response.get("point_plan_mask")
+            if mask_value is None:
+                point_mask = np.ones(len(points), dtype=bool)
+            else:
+                point_masks = _first_batch(mask_value).astype(bool)
+                if point_masks.shape != point_plan.shape[:-1]:
+                    raise ValueError(
+                        f"point_plan_mask shape {point_masks.shape} does not match "
+                        f"point_plan {point_plan.shape[:-1]}"
+                    )
+                point_mask = point_masks[future_index]
+            camera_matrix = np.asarray(intrinsic, dtype=np.float32)
+            if camera_matrix.shape != (3, 3):
+                raise ValueError(f"intrinsic must have shape (3, 3), got {camera_matrix.shape}")
+            object_points_per_role = max(0, (len(points) - 3) // 2)
+            for point_index, (point, valid) in enumerate(zip(points, point_mask, strict=True)):
+                if not valid or not np.isfinite(point).all() or point[2] <= 1e-6:
+                    continue
+                pixel = camera_matrix @ point
+                x, y = np.rint(pixel[:2] / pixel[2]).astype(int)
+                if not (0 <= x < width and 0 <= y < height):
+                    continue
+                if point_index < 3:
+                    color = colors[point_index]
+                elif point_index < 3 + object_points_per_role:
+                    color = colors[3]
+                else:
+                    color = colors[4]
+                cv2.circle(image, (x, y), 4, color, -1, lineType=cv2.LINE_AA)
 
-    label_frame = "-" if frame_id is None else str(frame_id)
-    _draw_text_rgb(image, f"prediction action f={label_frame}", (8, 18))
     _draw_response_scores(image, response)
     return image
 

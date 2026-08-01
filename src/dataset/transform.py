@@ -430,6 +430,10 @@ class CustomTransform(TransformFn):
             outputs["action_plan"] = self._unnormalize_output_field(
                 outputs["action_plan"].clone(), field="camera_action", context=data,
             )
+        if "point_plan" in outputs:
+            outputs["point_plan"] = self._unnormalize_output_field(
+                outputs["point_plan"].clone(), field="camera_xyz", context=data,
+            )
         return data
 
     def _extra_value(self, key: str, default: Any) -> Any:
@@ -528,6 +532,8 @@ class CustomTransform(TransformFn):
         if action.shape != (num_frames, ACTION_DIM):
             raise ValueError(f"Expected action [T,{ACTION_DIM}], got {tuple(action.shape)}")
         future_action = action[input_horizon:input_horizon + future_horizon]
+        future_points = entity_points[input_horizon:input_horizon + future_horizon]
+        future_point_mask = entity_mask[input_horizon:input_horizon + future_horizon]
         target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
@@ -535,6 +541,8 @@ class CustomTransform(TransformFn):
             "scene_condition": scene_condition,
             "target": {
                 "action": future_action,
+                "points": future_points,
+                "point_mask": future_point_mask,
                 "is_complete": torch.as_tensor(
                     data[f"is_complete{target_suffix}"], device=entity_points.device,
                     dtype=entity_points.dtype,

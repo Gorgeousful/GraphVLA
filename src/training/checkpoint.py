@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import importlib.util
+import inspect
+import math
+import os
 import random
-import json
+import sys
+import tempfile
 from collections.abc import Mapping
-from dataclasses import asdict
-from dataclasses import is_dataclass
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +71,177 @@ class TrainingCheckpoint:
         checkpoints = self.list_checkpoints()
         return checkpoints[-1] if checkpoints else None
 
+    def save_config_snapshots(
+        self,
+        *,
+        data_config: Any,
+        model_config: Any,
+        training_config: Any,
+    ) -> None:
+        """Save the resolved configs once for this training invocation."""
+        if self.is_main_process:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            resolved_snapshots: list[tuple[Path, str]] = []
+            snapshots = (
+                ("data_config.py", "LIBERO_DATA_CONFIG", data_config),
+                ("model_config.py", "LIBERO_MODEL_CONFIG", model_config),
+                ("training_config.py", "LIBERO_TRAINING_CONFIG", training_config),
+            )
+            for filename, symbol, config in snapshots:
+                source_path = self.config_source_path(config)
+                source = source_path.read_text(encoding="utf-8")
+                replacements = {symbol: self.to_python_expression(config)}
+                if symbol == "LIBERO_DATA_CONFIG" and hasattr(config, "dataset_dir"):
+                    replacements["LIBERO_DATASET_DIR"] = self.to_python_expression(
+                        str(config.dataset_dir)
+                    )
+                snapshot = self.replace_module_assignments(source, replacements, source_path)
+                resolved_snapshots.append((self.config_dir / filename, snapshot))
+            for path, snapshot in resolved_snapshots:
+                self.atomic_write(path, snapshot)
+            cs.print(f"[green]saved config snapshots to {self.config_dir}[/green]")
+        if self.barrier is not None:
+            self.barrier()
+
+    @classmethod
+    def load_config_snapshots(cls, ckpt_path: str | Path) -> tuple[Any, Any, Any]:
+        checkpoint = Path(ckpt_path)
+        config_dir = checkpoint.parent.parent / "configs"
+        specs = (
+            ("data_config.py", "LIBERO_DATA_CONFIG"),
+            ("model_config.py", "LIBERO_MODEL_CONFIG"),
+            ("training_config.py", "LIBERO_TRAINING_CONFIG"),
+        )
+        configs = [
+            cls.load_config_symbol(config_dir / filename, symbol)
+            for filename, symbol in specs
+        ]
+        return configs[0], configs[1], configs[2]
+
+    @staticmethod
+    def config_source_path(config: Any) -> Path:
+        source = inspect.getsourcefile(type(config))
+        if source is None:
+            raise TypeError(f"Cannot locate config source for {type(config)!r}")
+        path = Path(source)
+        if not path.is_file():
+            raise FileNotFoundError(f"Config source not found: {path}")
+        return path
+
+    @classmethod
+    def to_python_expression(cls, value: Any, indent: int = 0) -> str:
+        if is_dataclass(value) and not isinstance(value, type):
+            items = [
+                f"{field.name}={cls.to_python_expression(getattr(value, field.name), indent + 1)}"
+                for field in fields(value)
+            ]
+            return cls.format_call(type(value).__name__, items, indent)
+        if isinstance(value, Path):
+            return f"Path({str(value)!r})"
+        if isinstance(value, np.generic):
+            return cls.to_python_expression(value.item(), indent)
+        if isinstance(value, Mapping):
+            if not value:
+                return "{}"
+            pad = "    " * (indent + 1)
+            items = [
+                f"{pad}{cls.to_python_expression(key, indent + 1)}: "
+                f"{cls.to_python_expression(item, indent + 1)},"
+                for key, item in value.items()
+            ]
+            return "{\n" + "\n".join(items) + f"\n{'    ' * indent}}}"
+        if isinstance(value, list | tuple):
+            if not value:
+                return "[]" if isinstance(value, list) else "()"
+            opening, closing = ("[", "]") if isinstance(value, list) else ("(", ")")
+            pad = "    " * (indent + 1)
+            items = [f"{pad}{cls.to_python_expression(item, indent + 1)}," for item in value]
+            return opening + "\n" + "\n".join(items) + f"\n{'    ' * indent}{closing}"
+        if isinstance(value, float) and not math.isfinite(value):
+            return f"float({str(value)!r})"
+        if value is None or isinstance(value, str | int | float | bool):
+            return repr(value)
+        raise TypeError(
+            f"Cannot save {type(value)!r} in a Python config snapshot; "
+            "config values must be dataclasses or Python literals"
+        )
+
+    @staticmethod
+    def format_call(name: str, items: list[str], indent: int) -> str:
+        if not items:
+            return f"{name}()"
+        pad = "    " * (indent + 1)
+        body = "\n".join(f"{pad}{item}," for item in items)
+        return f"{name}(\n{body}\n{'    ' * indent})"
+
+    @staticmethod
+    def replace_module_assignments(source: str, replacements: Mapping[str, str], path: Path) -> str:
+        tree = ast.parse(source, filename=str(path))
+        nodes: dict[str, ast.Assign | ast.AnnAssign] = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names = [node.target.id]
+            else:
+                continue
+            for name in names:
+                if name in replacements:
+                    nodes[name] = node
+
+        missing = set(replacements) - set(nodes)
+        if missing:
+            raise ValueError(f"Config source {path} is missing assignments for {sorted(missing)}")
+
+        lines = source.splitlines(keepends=True)
+        edits = sorted(
+            (
+                node.lineno - 1,
+                node.end_lineno or node.lineno,
+                f"{name} = {replacements[name]}\n",
+            )
+            for name, node in nodes.items()
+        )
+        for start, end, replacement in reversed(edits):
+            lines[start:end] = [replacement]
+        result = "".join(lines)
+        compile(result, str(path), "exec")
+        return result
+
+    @staticmethod
+    def atomic_write(path: Path, source: str) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(source)
+            temp_path = Path(handle.name)
+        os.replace(temp_path, path)
+
+    @staticmethod
+    def load_config_symbol(path: Path, symbol: str) -> Any:
+        if not path.is_file():
+            raise FileNotFoundError(f"Config snapshot not found: {path}")
+        digest = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+        module_name = f"graphvla_config_snapshot_{path.stem}_{digest}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load config snapshot: {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+        if not hasattr(module, symbol):
+            raise AttributeError(f"Config snapshot {path} does not define {symbol}")
+        return getattr(module, symbol)
+
     def load_pretrained(self, ckpt_path: str | Path | None, model: torch.nn.Module, device: torch.device) -> None:
         if ckpt_path is None:
             return
@@ -115,10 +292,6 @@ class TrainingCheckpoint:
         model: torch.nn.Module,
         optimizer: Any,
         step: int,
-        *,
-        data_config: Any,
-        model_config: Any,
-        training_config: Any,
     ) -> Path | None:
         local_rng = self.rng_state()
         rng_by_rank = self.gather_object(local_rng) if self.gather_object is not None else [local_rng]
@@ -128,12 +301,6 @@ class TrainingCheckpoint:
                 self.barrier()
             return None
 
-        configs = {
-            "data": self.config_to_state(data_config),
-            "model": self.config_to_state(model_config),
-            "training": self.config_to_state(training_config),
-        }
-        self.save_configs(configs)
         path = self.ckpt_dir / f"step_{step}.pt"
         state = {
             "step": step,
@@ -158,37 +325,6 @@ class TrainingCheckpoint:
             if self.keep_period > 0 and step % self.keep_period == 0:
                 continue
             path.unlink()
-
-    def save_configs(self, configs: Mapping[str, Any]) -> None:
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        for name, config in configs.items():
-            path = self.config_dir / f"{name}_config.json"
-            with path.open("w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-
-    @classmethod
-    def config_to_state(cls, config: Any) -> Any:
-        if hasattr(config, "to_kwargs") and callable(config.to_kwargs):
-            return cls.to_plain_value(config.to_kwargs())
-        if is_dataclass(config):
-            return cls.to_plain_value(asdict(config))
-        return cls.to_plain_value(config)
-
-    @classmethod
-    def to_plain_value(cls, value: Any) -> Any:
-        if isinstance(value, Path):
-            return str(value)
-        if is_dataclass(value):
-            return cls.to_plain_value(asdict(value))
-        if isinstance(value, Mapping):
-            return {str(key): cls.to_plain_value(item) for key, item in value.items()}
-        if isinstance(value, tuple):
-            return [cls.to_plain_value(item) for item in value]
-        if isinstance(value, list):
-            return [cls.to_plain_value(item) for item in value]
-        if value is None or isinstance(value, str | int | float | bool):
-            return value
-        return repr(value)
 
     @staticmethod
     def step_from_path(path: Path) -> int | None:

@@ -81,6 +81,24 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     if distributed.is_main_process: 
         cs.print("Distributed init!")
 
+    checkpoint = TrainingCheckpoint(
+        save_dir=training_config.save_dir,
+        resume=training_config.resume,
+        keep_period=training_config.keep_period,
+        is_main_process=distributed.is_main_process,
+        barrier=distributed.barrier,
+        rank=distributed.rank,
+        world_size=distributed.world_size,
+        gather_object=distributed.gather_object,
+    )
+    if distributed.is_main_process:
+        cs.print("Checkpoint Manager init!")
+    checkpoint.save_config_snapshots(
+        data_config=data_config,
+        model_config=model_config,
+        training_config=training_config,
+    )
+
     dataloader = GenericDataLoader(
         data_config,
         batch_size=training_config.batch_size,
@@ -95,19 +113,6 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     )
     if distributed.is_main_process: 
         cs.print("DataLoader init!")
-
-    checkpoint = TrainingCheckpoint(
-        save_dir=training_config.save_dir,
-        resume=training_config.resume,
-        keep_period=training_config.keep_period,
-        is_main_process=distributed.is_main_process,
-        barrier=distributed.barrier,
-        rank=distributed.rank,
-        world_size=distributed.world_size,
-        gather_object=distributed.gather_object,
-    )
-    if distributed.is_main_process: 
-        cs.print("Checkpoint Manager init!")
 
     logger = TrainingLogger(
         training_config,
@@ -177,9 +182,6 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
                     model,
                     train_optimizer,
                     step,
-                    data_config=data_config,
-                    model_config=model_config,
-                    training_config=training_config,
                 )
                 if distributed.is_main_process:
                     cs.print(f"[green]saved checkpoint {path}[/green]")

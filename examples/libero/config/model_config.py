@@ -13,17 +13,25 @@ class ModelConfig:
     history_horizon: int = 9
     future_horizon: int = 10
     condition_dim: int = 384
-    hidden_dim: int = 512
+    hidden_dim: int = 256 * 3
     encoder_layers: int = 8
     flow_layers: int = 6
     num_heads: int = 8
     mlp_ratio: float = 4.0
     dropout: float = 0.1
-    sample_steps: int = 10
+    flow_mode: str = "joint"
+    include_future_object_point: bool = False
+    point_num_train_timesteps: int = 1000
+    action_num_train_timesteps: int = 1000
+    point_sigma_shift: float = 5.0
+    action_sigma_shift: float = 1.0
+    point_sample_steps: int = 10
+    action_sample_steps: int = 10
     complete_pos_weight: float = 10.0
     contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
-        "loss_flow": 1.0,
+        "loss_point_flow": 1.0,
+        "loss_action_flow": 1.0,
         "loss_complete": 0.5,
         "loss_contact": 0.5,
     })

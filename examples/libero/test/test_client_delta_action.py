@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from examples.libero.eval.client import InferenceClient, _dummy_action
+from examples.libero.eval.client import InferenceClient, _draw_response_points, _dummy_action
 
 
 def test_wait_action_is_zero_delta_with_open_gripper() -> None:
@@ -21,3 +21,29 @@ def test_client_accepts_finite_seven_dimensional_action_chunk() -> None:
 
     with pytest.raises(ValueError, match="must be 7-D"):
         client._validated_action_chunk({"action": [[0.0] * 6]})
+
+
+def test_prediction_visualization_projects_only_valid_point_plan() -> None:
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    response = {
+        "point_plan": [[[
+            [0.0, 0.0, 1.0],
+            [0.2, 0.0, 1.0],
+            [0.0, 0.2, 1.0],
+        ]]],
+        "point_plan_mask": [[[True, False, True]]],
+        "action_plan": [[[1.0] * 7]],
+    }
+    intrinsic = np.asarray([
+        [50.0, 0.0, 50.0],
+        [0.0, 50.0, 50.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+    rendered = _draw_response_points(
+        image, response, 1, mode="prediction", intrinsic=intrinsic,
+    )
+
+    np.testing.assert_array_equal(rendered[50, 50], np.asarray([255, 80, 40]))
+    np.testing.assert_array_equal(rendered[50, 60], np.zeros(3, dtype=np.uint8))
+    assert rendered[60, 50].any()

@@ -1,0 +1,260 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1900" viewBox="0 0 1800 1900">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#52657a"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#296ca8"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7355b8"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#26384d" flood-opacity="0.14"/>
+    </filter>
+    <style>
+      text { font-family: Inter, Arial, sans-serif; fill: #1f2d3d; }
+      .title { font-size: 31px; font-weight: 700; }
+      .subtitle { font-size: 15px; fill: #607086; }
+      .section { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 13.5px; }
+      .small { font-size: 12px; fill: #5c6d80; }
+      .mono { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; }
+      .box { stroke-width: 1.4; rx: 13; ry: 13; }
+      .arrow { fill: none; stroke: #52657a; stroke-width: 2; marker-end: url(#arrow); }
+      .blueArrow { fill: none; stroke: #296ca8; stroke-width: 2.2; marker-end: url(#arrowBlue); }
+      .purpleArrow { fill: none; stroke: #7355b8; stroke-width: 2.2; marker-end: url(#arrowPurple); }
+      .dashArrow { fill: none; stroke: #718196; stroke-width: 1.8; stroke-dasharray: 7 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1900" fill="#f4f7fb"/>
+  <rect x="24" y="20" width="1752" height="82" rx="18" fill="#ffffff" stroke="#cad5e2" filter="url(#shadow)"/>
+  <text x="50" y="57" class="title">GraphVLA — Complete Model Architecture</text>
+  <text x="50" y="83" class="subtitle">Current LIBERO defaults · history 10 frames · future 10 steps · hidden 768 · 8 heads · joint point/action flow</text>
+  <rect x="1442" y="39" width="304" height="45" rx="11" fill="#24344a"/>
+  <text x="1594" y="59" text-anchor="middle" class="head" fill="#ffffff">GraphFlowModel</text>
+  <text x="1594" y="76" text-anchor="middle" class="small" fill="#cfdae8">actor + patient + target</text>
+
+  <!-- Inputs -->
+  <rect x="24" y="124" width="360" height="776" class="box" fill="#ffffff" stroke="#aab9ca" filter="url(#shadow)"/>
+  <text x="47" y="158" class="section">1. Training Inputs</text>
+  <text x="47" y="180" class="small">Camera-frame XYZ, quantile-normalized to [-1, 1]</text>
+
+  <rect x="47" y="203" width="314" height="160" class="box" fill="#eaf3ff" stroke="#7ca9dc"/>
+  <text x="64" y="230" class="head">Historical Entity Points</text>
+  <text x="64" y="253" class="mono">entity_points [B,10,3,32,3]</text>
+  <text x="64" y="275" class="mono">entity_point_mask [B,10,3,32]</text>
+  <text x="64" y="299" class="body">Entity 0: actor (first 3 slots valid)</text>
+  <text x="64" y="320" class="body">Entity 1: patient (up to 32 unordered points)</text>
+  <text x="64" y="341" class="body">Entity 2: target (up to 32 unordered points)</text>
+
+  <rect x="47" y="384" width="314" height="125" class="box" fill="#fff4df" stroke="#d7ad59"/>
+  <text x="64" y="411" class="head">Timeless Scene Condition</text>
+  <text x="64" y="434" class="mono">scene_condition [B,2,384]</text>
+  <text x="64" y="458" class="body">Token 0: action type (BGE embedding)</text>
+  <text x="64" y="479" class="body">Token 1: action degree or learned null token</text>
+  <text x="64" y="499" class="small">BGE-small-en-v1.5 · L2-normalized</text>
+
+  <rect x="47" y="530" width="314" height="151" class="box" fill="#f2ecff" stroke="#9b82cf"/>
+  <text x="64" y="557" class="head">Flow Targets</text>
+  <text x="64" y="580" class="mono">action [B,10,7]</text>
+  <text x="64" y="602" class="mono">points [B,10,3,32,3]</text>
+  <text x="64" y="625" class="body">Default compact point target: 3 actor points</text>
+  <text x="64" y="646" class="body">root + left fingertip + right fingertip</text>
+  <text x="64" y="667" class="small">Object targets added only when include_future_object_point=true</text>
+
+  <rect x="47" y="702" width="314" height="107" class="box" fill="#edf8ef" stroke="#73ad7a"/>
+  <text x="64" y="729" class="head">Auxiliary Labels</text>
+  <text x="64" y="753" class="mono">is_complete [B,1]</text>
+  <text x="64" y="776" class="mono">is_contact [B,1]</text>
+  <text x="64" y="798" class="small">Current-frame soft labels in the active subtask</text>
+
+  <rect x="47" y="832" width="314" height="46" rx="10" fill="#24344a"/>
+  <text x="204" y="852" text-anchor="middle" class="head" fill="#ffffff">Current configuration</text>
+  <text x="204" y="870" text-anchor="middle" class="small" fill="#cfdae8">joint · actor-only future points</text>
+
+  <!-- Encoder -->
+  <rect x="410" y="124" width="610" height="776" class="box" fill="#eaf3ff" stroke="#6e9dd2" filter="url(#shadow)"/>
+  <text x="434" y="158" class="section">2. EntityEncoder</text>
+  <text x="434" y="180" class="small">Pure historical geometry encoder — scene tokens never enter this module</text>
+
+  <rect x="434" y="203" width="562" height="82" class="box" fill="#ffffff" stroke="#9dbbdb"/>
+  <text x="453" y="230" class="head">Point Stem</text>
+  <text x="453" y="253" class="mono">XYZ(3) → Linear(768) → GELU → Linear(768)</text>
+  <text x="453" y="274" class="small">Shared stem for actor, patient, and target points</text>
+
+  <path d="M715 285 L715 310" class="blueArrow"/>
+  <rect x="434" y="315" width="562" height="202" class="box" fill="#ffffff" stroke="#82acd8"/>
+  <text x="453" y="343" class="head">Local Entity Block × 8</text>
+  <text x="453" y="368" class="mono">Per (time, entity): [CLS tokens | point tokens]</text>
+  <text x="453" y="391" class="body">Self-attention → FFN with padding mask</text>
+  <text x="453" y="415" class="head">Single-axis RoPE identity</text>
+  <text x="453" y="438" class="body">CLS slots: negative indices</text>
+  <text x="453" y="460" class="body">Actor: slots 0 / 1 / 2 preserve keypoint identity</text>
+  <text x="453" y="482" class="body">Patient and target: every point uses slot 0</text>
+  <text x="453" y="503" class="small">Object point order is intentionally permutation-invariant</text>
+
+  <path d="M715 517 L715 541" class="blueArrow"/>
+  <rect x="434" y="546" width="562" height="178" class="box" fill="#ffffff" stroke="#82acd8"/>
+  <text x="453" y="574" class="head">Global CLS Communication Block × 8</text>
+  <text x="453" y="599" class="mono">[B, T × E × CLS, 768]</text>
+  <text x="453" y="623" class="body">All historical entity CLS tokens communicate globally</text>
+  <text x="453" y="647" class="head">Two-axis RoPE: (history_time, entity_cls_slot)</text>
+  <text x="453" y="671" class="body">history_time = -9 ... 0</text>
+  <text x="453" y="693" class="body">entity_cls_slot merges entity identity and CLS index</text>
+  <text x="453" y="714" class="small">Per-head split: 48 dimensions + 48 dimensions</text>
+
+  <path d="M715 724 L715 748" class="blueArrow"/>
+  <rect x="434" y="753" width="562" height="121" class="box" fill="#dcecff" stroke="#5d91c7"/>
+  <text x="453" y="780" class="head">Encoder Outputs</text>
+  <text x="453" y="803" class="mono">history_memory [B,30 × CLS,768]</text>
+  <text x="453" y="825" class="mono">history_positions [30 × CLS,2]</text>
+  <text x="453" y="847" class="mono">relation_local [B,2 × CLS,768]</text>
+  <text x="453" y="866" class="small">relation_local = current patient CLS + current target CLS</text>
+
+  <path d="M384 283 L434 244" class="blueArrow"/>
+
+  <!-- Scene branch -->
+  <rect x="1046" y="124" width="730" height="256" class="box" fill="#fff4df" stroke="#d7ad59" filter="url(#shadow)"/>
+  <text x="1070" y="158" class="section">3. Separate Semantic Conditioning</text>
+  <text x="1070" y="180" class="small">Outside EntityEncoder · shared by both flow experts and the completion head</text>
+  <rect x="1070" y="205" width="310" height="98" class="box" fill="#ffffff" stroke="#d5b46e"/>
+  <text x="1089" y="232" class="head">Action Condition Token</text>
+  <text x="1089" y="256" class="mono">Linear(384 → 768)</text>
+  <text x="1089" y="280" class="body">Encodes action type semantics</text>
+  <rect x="1412" y="205" width="340" height="98" class="box" fill="#ffffff" stroke="#d5b46e"/>
+  <text x="1431" y="232" class="head">Degree Condition Token</text>
+  <text x="1431" y="256" class="mono">Linear(384 → 768) or learned null</text>
+  <text x="1431" y="280" class="body">Encodes direction / amount / relation</text>
+  <path d="M1380 254 L1412 254" class="arrow"/>
+  <rect x="1214" y="323" width="392" height="36" rx="9" fill="#f3dca9" stroke="#ca9d43"/>
+  <text x="1410" y="346" text-anchor="middle" class="mono">LayerNorm → scene_memory [B,2,768]</text>
+  <path d="M1225 303 L1325 323" class="arrow"/>
+  <path d="M1582 303 L1495 323" class="arrow"/>
+  <path d="M384 447 C700 447,830 252,1070 252" class="arrow"/>
+
+  <!-- Decoder -->
+  <rect x="1046" y="405" width="730" height="821" class="box" fill="#f1ecff" stroke="#8c72c4" filter="url(#shadow)"/>
+  <text x="1070" y="439" class="section">4. Paired Point–Action Flow Decoder × 6</text>
+  <text x="1070" y="461" class="small">Each modality owns parameters; projected K/V are concatenated for coupled self-attention</text>
+
+  <rect x="1070" y="485" width="320" height="161" class="box" fill="#e9f3ff" stroke="#6e9dd2"/>
+  <text x="1089" y="512" class="head">Point Expert Input</text>
+  <text x="1089" y="535" class="mono">noisy point_state [B,10,3,3]</text>
+  <text x="1089" y="558" class="body">Point projection + point flow-time MLP</text>
+  <text x="1089" y="581" class="head">3-axis self RoPE</text>
+  <text x="1089" y="604" class="mono">(future_time, role_id, point_slot)</text>
+  <text x="1089" y="627" class="small">Head split 32 / 32 / 32; object slots are zero</text>
+
+  <rect x="1432" y="485" width="320" height="161" class="box" fill="#fbeeff" stroke="#b17dbd"/>
+  <text x="1451" y="512" class="head">Action Expert Input</text>
+  <text x="1451" y="535" class="mono">noisy action_state [B,10,7]</text>
+  <text x="1451" y="558" class="body">Action projection + action flow-time MLP</text>
+  <text x="1451" y="581" class="head">3-axis self RoPE</text>
+  <text x="1451" y="604" class="mono">(future_time + 0.5, -1, -1)</text>
+  <text x="1451" y="627" class="small">The +0.5 offset separates action and point time positions</text>
+
+  <path d="M1230 646 L1230 681" class="purpleArrow"/>
+  <path d="M1592 646 L1592 681" class="purpleArrow"/>
+  <rect x="1070" y="686" width="682" height="129" class="box" fill="#ffffff" stroke="#9079bf"/>
+  <text x="1089" y="714" class="head">A. Coupled Joint Self-Attention</text>
+  <text x="1089" y="738" class="mono">K_joint = concat(K_point, K_action) · V_joint = concat(V_point, V_action)</text>
+  <text x="1089" y="762" class="body">Point Q and action Q attend the shared K/V bank with expert-specific projections</text>
+  <text x="1089" y="785" class="body">Current joint mask: all valid point/action tokens can communicate bidirectionally</text>
+  <text x="1089" y="805" class="small">AdaRMSNorm modulation and residual gates are conditioned by each flow timestep</text>
+
+  <path d="M1411 815 L1411 842" class="purpleArrow"/>
+  <rect x="1070" y="847" width="682" height="130" class="box" fill="#ffffff" stroke="#719ecb"/>
+  <text x="1089" y="875" class="head">B. Historical Cross-Attention</text>
+  <text x="1089" y="899" class="body">Each expert independently reads all historical entity CLS tokens</text>
+  <text x="1089" y="923" class="head">Two-axis RoPE on query and history keys</text>
+  <text x="1089" y="946" class="body">Point query: (future_time, role × CLS count)</text>
+  <text x="1421" y="946" class="body">Action query: (future_time + 0.5, -1)</text>
+  <text x="1089" y="967" class="small">History keys: (history_time, entity_cls_slot) · head split 48 / 48</text>
+
+  <path d="M1411 977 L1411 1004" class="purpleArrow"/>
+  <rect x="1070" y="1009" width="682" height="99" class="box" fill="#fff9ea" stroke="#d1a856"/>
+  <text x="1089" y="1037" class="head">C. Timeless Semantic Cross-Attention</text>
+  <text x="1089" y="1061" class="body">Each expert reads action-condition and degree-condition tokens</text>
+  <text x="1089" y="1085" class="body">No RoPE — semantic conditions remain globally available at every layer and future step</text>
+
+  <path d="M1411 1108 L1411 1135" class="purpleArrow"/>
+  <rect x="1070" y="1140" width="682" height="61" class="box" fill="#ffffff" stroke="#9079bf"/>
+  <text x="1089" y="1168" class="head">D. Expert FFN + AdaRMSNorm Residual Gate</text>
+  <text x="1089" y="1190" class="small">Separate point/action FFNs; no parameter sharing between experts</text>
+
+  <path d="M996 813 C1020 813,1025 908,1070 908" class="blueArrow"/>
+  <path d="M1410 359 L1410 1009" class="dashArrow"/>
+
+  <!-- Heads and losses -->
+  <rect x="24" y="930" width="996" height="296" class="box" fill="#ffffff" stroke="#aab9ca" filter="url(#shadow)"/>
+  <text x="47" y="964" class="section">5. Prediction Heads</text>
+
+  <rect x="47" y="988" width="291" height="111" class="box" fill="#eaf3ff" stroke="#6e9dd2"/>
+  <text x="65" y="1015" class="head">Point Velocity Head</text>
+  <text x="65" y="1039" class="mono">AdaRMSNorm → Linear(768 → 3)</text>
+  <text x="65" y="1062" class="body">Flow velocity for each future point</text>
+  <text x="65" y="1085" class="small">Role-balanced point MSE during training</text>
+
+  <rect x="358" y="988" width="291" height="111" class="box" fill="#fbeeff" stroke="#b17dbd"/>
+  <text x="376" y="1015" class="head">Action Velocity Head</text>
+  <text x="376" y="1039" class="mono">AdaRMSNorm → Linear(768 → 7)</text>
+  <text x="376" y="1062" class="body">Flow velocity for each future action</text>
+  <text x="376" y="1085" class="small">Weighted action velocity MSE</text>
+
+  <rect x="669" y="988" width="327" height="111" class="box" fill="#edf8ef" stroke="#73ad7a"/>
+  <text x="687" y="1015" class="head">Completion / Contact Heads</text>
+  <text x="687" y="1039" class="body">Complete: patient + target relation + scene</text>
+  <text x="687" y="1062" class="body">Contact: current patient CLS only</text>
+  <text x="687" y="1085" class="small">Independent MLPs → sigmoid probabilities</text>
+
+  <rect x="47" y="1122" width="949" height="79" class="box" fill="#f7f9fc" stroke="#bac5d2"/>
+  <text x="65" y="1149" class="head">Default weighted objective</text>
+  <text x="65" y="1174" class="mono">1.0 × point_flow + 1.0 × action_flow + 0.5 × complete_BCE + 0.5 × contact_BCE</text>
+  <text x="65" y="1193" class="small">Point loss: mean within each active role, then mean across roles</text>
+
+  <path d="M1070 1170 C1038 1170,1034 1044,996 1044" class="purpleArrow"/>
+  <path d="M715 874 C715 920,832 930,832 988" class="blueArrow"/>
+  <path d="M1410 359 C1410 905,1008 926,920 988" class="dashArrow"/>
+
+  <!-- Training and inference -->
+  <rect x="24" y="1254" width="1752" height="612" class="box" fill="#ffffff" stroke="#aab9ca" filter="url(#shadow)"/>
+  <text x="47" y="1288" class="section">6. Training and Inference Paths</text>
+
+  <rect x="47" y="1314" width="820" height="272" class="box" fill="#eef5ff" stroke="#719ecb"/>
+  <text x="70" y="1345" class="head">Training — Flow Matching</text>
+  <text x="70" y="1372" class="body">1. Sample independent point/action flow timesteps and Gaussian noise.</text>
+  <text x="70" y="1397" class="body">2. Interpolate clean targets with noise to obtain noisy states.</text>
+  <text x="70" y="1422" class="body">3. Predict point and action velocity fields with the same paired decoder.</text>
+  <text x="70" y="1447" class="body">4. Backpropagate point/action velocity losses and auxiliary BCE losses.</text>
+  <text x="70" y="1479" class="head">Schedules</text>
+  <text x="70" y="1503" class="mono">point: 1000 train timesteps · sigma shift 5.0</text>
+  <text x="70" y="1526" class="mono">action: 1000 train timesteps · sigma shift 1.0</text>
+  <text x="70" y="1554" class="small">Joint mode couples modalities through every decoder layer.</text>
+
+  <rect x="909" y="1314" width="843" height="272" class="box" fill="#f5efff" stroke="#9079bf"/>
+  <text x="932" y="1345" class="head">Inference — Joint ODE Sampling</text>
+  <text x="932" y="1372" class="body">1. Initialize actor point state and action state from Gaussian noise.</text>
+  <text x="932" y="1397" class="body">2. Run 10 matched point/action solver steps through the same decoder.</text>
+  <text x="932" y="1422" class="body">3. Produce normalized plans, then unnormalize with suite camera statistics.</text>
+  <text x="932" y="1453" class="mono">point_plan [B,10,3,3]  (current actor-only default)</text>
+  <text x="932" y="1477" class="mono">action_plan [B,10,7]</text>
+  <text x="932" y="1501" class="mono">is_complete [B,1] · is_contact [B,1]</text>
+  <text x="932" y="1532" class="body">Server executes action_plan only; point_plan is an auxiliary prediction.</text>
+  <text x="932" y="1555" class="small">Point tokens still influence action tokens through joint self-attention.</text>
+
+  <path d="M867 1450 L909 1450" class="purpleArrow"/>
+
+  <rect x="47" y="1613" width="1705" height="218" class="box" fill="#f7f9fc" stroke="#bac5d2"/>
+  <text x="70" y="1644" class="head">Online Server / Client Contract</text>
+  <text x="70" y="1671" class="body">Observation history → locator + segmentation + tracking → camera XYZ entity points → normalized model input</text>
+  <text x="70" y="1697" class="body">BGE action/degree text → timeless scene tokens → model.sample() → output unnormalization</text>
+  <text x="70" y="1723" class="body">Embodiment adapter rotates camera-frame action deltas into the LIBERO world frame and executes an action chunk.</text>
+  <text x="70" y="1754" class="head">Prediction visualization</text>
+  <text x="70" y="1779" class="body">Projects point_plan camera XYZ to image pixels; displays completion/contact scores only.</text>
+  <text x="70" y="1805" class="small">Actor points: root, left fingertip, right fingertip · Tracking visualization remains separate.</text>
+
+  <text x="900" y="1888" text-anchor="middle" class="small">Source of truth: src/model/model.py · src/model/encoder.py · src/model/temporal.py · examples/libero/config/model_config.py</text>
+</svg>

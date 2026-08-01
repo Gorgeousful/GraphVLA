@@ -1286,14 +1286,13 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
     if args.example == "libero":
-        from examples.libero.config.data_config import LIBERO_DATA_CONFIG
-        from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
         from examples.libero.embodiment.robot import GeomRobot
 
-        model_kwargs = LIBERO_MODEL_CONFIG.to_kwargs()
-        data_kwargs = LIBERO_DATA_CONFIG.to_kwargs()
-        history_horizon = int(LIBERO_MODEL_CONFIG.history_horizon)
-        future_horizon = int(LIBERO_MODEL_CONFIG.future_horizon)
+        data_config, model_config, _ = TrainingCheckpoint.load_config_snapshots(args.ckpt_path)
+        model_kwargs = model_config.to_kwargs()
+        data_kwargs = data_config.to_kwargs()
+        history_horizon = int(model_config.history_horizon)
+        future_horizon = int(model_config.future_horizon)
     else:
         raise ValueError(f"Unsupported example: {args.example}")
         
