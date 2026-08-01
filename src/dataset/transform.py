@@ -428,7 +428,9 @@ class CustomTransform(TransformFn):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
         if "action_plan" in outputs:
             outputs["action_plan"] = self._unnormalize_output_field(
-                outputs["action_plan"].clone(), field="camera_action", context=data,
+                outputs["action_plan"].clone(),
+                field=str(self._extra_value("action_field", "camera_action")),
+                context=data,
             )
         if "point_plan" in outputs:
             outputs["point_plan"] = self._unnormalize_output_field(

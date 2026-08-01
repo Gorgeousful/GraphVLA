@@ -58,6 +58,7 @@ class Args:
     max_steps: int | None = None
     seed: int = 42
     save_video: bool = True
+    action_delta: bool = True
 
 
 class ObservationDeltaBuffer:
@@ -187,7 +188,9 @@ def camera_matrices_from_env(env: Any, *, camera_name: str) -> tuple[np.ndarray,
     return np.asarray(intrinsic, dtype=np.float64), np.asarray(extrinsic, dtype=np.float64)
 
 
-def _get_libero_env(task: Any, resolution: int, seed: int, control_freq: int) -> tuple[Any, str]:
+def _get_libero_env(
+    task: Any, resolution: int, seed: int, control_freq: int, *, action_delta: bool = True,
+) -> tuple[Any, str]:
     from libero.libero import get_libero_path
     from libero.libero.envs import OffScreenRenderEnv
 
@@ -198,7 +201,7 @@ def _get_libero_env(task: Any, resolution: int, seed: int, control_freq: int) ->
         "camera_heights": resolution,
         "camera_widths": resolution,
         "camera_depths": True,
-        "control_delta": True,
+        "control_delta": action_delta,
         "control_freq": control_freq,
     }
     env = OffScreenRenderEnv(**env_args)
@@ -518,6 +521,10 @@ def parse_args() -> Args:
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument("--no-save-video", action="store_true")
+    parser.add_argument(
+        "--absolute-action", action="store_true",
+        help="Use LIBERO absolute OSC pose control; must match the checkpoint action mode.",
+    )
     ns = parser.parse_args()
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
@@ -533,6 +540,7 @@ def parse_args() -> Args:
         max_steps=ns.max_steps,
         seed=ns.seed,
         save_video=not ns.no_save_video,
+        action_delta=not ns.absolute_action,
     )
 
 
@@ -588,6 +596,7 @@ def main() -> None:
             LIBERO_ENV_RESOLUTION,
             seed=args.seed,
             control_freq=args.control_freq,
+            action_delta=args.action_delta,
         )
         try:
             total_goals = len(env.env.parsed_problem["goal_state"])

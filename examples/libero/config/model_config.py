@@ -20,6 +20,7 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     flow_mode: str = "joint"
+    action_delta: bool = True
     include_future_object_point: bool = False
     point_num_train_timesteps: int = 1000
     action_num_train_timesteps: int = 1000
@@ -40,4 +41,4 @@ class ModelConfig:
         return asdict(self)
 
 
-LIBERO_MODEL_CONFIG = ModelConfig()
+LIBERO_MODEL_CONFIG = ModelConfig(action_delta=False)

@@ -17,6 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 from rich.console import Console
+from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
@@ -70,6 +71,7 @@ class OfflinePipeline:
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
             "actions_camera": False,
+            "absolute_actions_camera": False,
         }
         unknown_overwrite = set(config.overwrite or {}) - set(overwrite_defaults)
         if unknown_overwrite:
@@ -203,6 +205,10 @@ class OfflinePipeline:
         )
         need_gripper_points_xyz = self.overwrite["gripper_points_xyz"] or "gripper_points_xyz" not in df.columns
         need_actions_camera = self.overwrite["actions_camera"] or "actions_camera" not in df.columns
+        need_absolute_actions_camera = (
+            self.overwrite["absolute_actions_camera"]
+            or "absolute_actions_camera" not in df.columns
+        )
         if "subtask_id" not in df.columns:
             raise KeyError(f"subtask_id is required in {parquet_path}")
         if (
@@ -211,6 +217,7 @@ class OfflinePipeline:
             and not need_subtask_node_mask
             and not need_gripper_points_xyz
             and not need_actions_camera
+            and not need_absolute_actions_camera
         ):
             return
 
@@ -240,6 +247,8 @@ class OfflinePipeline:
             df["gripper_points_xyz"] = self._build_gripper_points_xyz(df, task_index)
         if need_actions_camera:
             df["actions_camera"] = self._build_actions_camera(df, task_index)
+        if need_absolute_actions_camera:
+            df["absolute_actions_camera"] = self._build_absolute_actions_camera(df, task_index)
 
         if self.config.debug:
             cs.print(f"[yellow]debug dry-run: skip writing parquet {parquet_path}[/yellow]")
@@ -256,6 +265,7 @@ class OfflinePipeline:
             "subtask_node_mask": pa.list_(pa.bool_()),
             "gripper_points_xyz": pa.list_(pa.list_(pa.float32())),
             "actions_camera": pa.list_(pa.float32()),
+            "absolute_actions_camera": pa.list_(pa.float32()),
         }
         for name, target_type in target_types.items():
             if name not in table.column_names:
@@ -515,6 +525,29 @@ class OfflinePipeline:
             camera_action = action.copy()
             camera_action[:3] = world_to_camera_rotation @ action[:3]
             camera_action[3:6] = world_to_camera_rotation @ action[3:6]
+            results.append(camera_action.astype(np.float32).tolist())
+        return results
+
+
+    def _build_absolute_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
+        extrinsic = np.asarray(
+            self._load_libero_cameras()[int(task_index)]["agentview"]["extrinsic"],
+            dtype=np.float64,
+        )
+        camera_to_world_rotation = extrinsic[:3, :3]
+        camera_position_world = extrinsic[:3, 3]
+        world_to_camera_rotation = camera_to_world_rotation.T
+        results = []
+        for raw_state, raw_action in zip(df["state"], df["actions"], strict=True):
+            state = np.asarray(raw_state, dtype=np.float64)
+            action = np.asarray(raw_action, dtype=np.float64)
+            if state.size < 6 or action.shape != (7,):
+                raise ValueError(f"Expected state >=6 and action (7,), got {state.shape} and {action.shape}")
+            camera_action = np.empty(7, dtype=np.float64)
+            camera_action[:3] = world_to_camera_rotation @ (state[:3] - camera_position_world)
+            camera_rotation = world_to_camera_rotation @ R.from_rotvec(state[3:6]).as_matrix()
+            camera_action[3:6] = R.from_matrix(camera_rotation).as_rotvec()
+            camera_action[6] = action[6]
             results.append(camera_action.astype(np.float32).tolist())
         return results
 
@@ -818,6 +851,11 @@ class OfflinePipeline:
                 "shape": [7],
                 "names": ["actions"],
             },
+            "absolute_actions_camera": {
+                "dtype": "float32",
+                "shape": [7],
+                "names": ["actions"],
+            },
         }
 
         changed = False
@@ -911,6 +949,7 @@ if __name__ == "__main__":
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
             "actions_camera": False,
+            "absolute_actions_camera": False,
         },
         task_analyzer_api_key=api_key,
         debug=args.debug,

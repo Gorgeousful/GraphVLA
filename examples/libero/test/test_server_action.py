@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from scipy.spatial.transform import Rotation as R
 
 from script.server import EmbodimentAdapter, InputPreprocessor, ObservationFrame
 
@@ -127,3 +128,36 @@ def test_release_actions_are_zero_delta_and_open_gripper() -> None:
     expected[6] = -1.0
     np.testing.assert_allclose(actions, np.repeat(expected[None], 3, axis=0))
     assert session.gripper_command == pytest.approx(-1.0)
+
+
+def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None:
+    camera_to_world = R.from_euler("z", 90, degrees=True).as_matrix()
+    extrinsic = np.eye(4, dtype=np.float64)
+    extrinsic[:3, :3] = camera_to_world
+    extrinsic[:3, 3] = [1.0, 2.0, 3.0]
+    camera_rotation = R.from_euler("x", 30, degrees=True)
+    camera_action = [2.0, 0.0, 0.0, *camera_rotation.as_rotvec(), 0.25]
+    adapter = EmbodimentAdapter(future_horizon=1, action_delta=False)
+    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
+
+    action = np.asarray(adapter.to_action(
+        {"action_plan": [[camera_action]]},
+        {"camera.extrinsics": extrinsic.tolist()},
+        session,
+    )[0])
+
+    np.testing.assert_allclose(action[:3], [1.0, 4.0, 3.0], atol=1e-6)
+    expected_rotation = R.from_matrix(camera_to_world @ camera_rotation.as_matrix()).as_rotvec()
+    np.testing.assert_allclose(action[3:6], expected_rotation, atol=1e-6)
+    assert action[6] == pytest.approx(0.25)
+
+
+def test_absolute_release_holds_current_tcp_pose() -> None:
+    adapter = EmbodimentAdapter(future_horizon=3, action_delta=False)
+    session = SimpleNamespace(gripper_command=1.0)
+    state = [0.4, -0.2, 1.3, 0.1, 0.2, 1.4, 0.02, -0.02]
+
+    actions = adapter.release_actions(session, 2, {"observation.state": [state]})
+
+    expected = np.asarray(state[:6] + [-1.0], dtype=np.float32)
+    np.testing.assert_allclose(actions, np.repeat(expected[None], 2, axis=0))

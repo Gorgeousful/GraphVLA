@@ -54,6 +54,7 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
             },
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
+            "action_field": "camera_action",
         },
     )
     data = {"outputs": {
@@ -66,3 +67,24 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
     torch.testing.assert_close(
         result["outputs"]["point_plan"][0, 0, 0], torch.tensor([1.0, 3.0, 5.0]),
     )
+
+
+def test_build_model_output_uses_configured_absolute_action_stats() -> None:
+    transform = CustomTransform(
+        mode="build_model_output",
+        extra={
+            "norm_stats": {
+                "level": "suite",
+                "norm_stats": {
+                    "absolute_camera_action": {
+                        "q01": [0.0] * ACTION_DIM,
+                        "q99": [2.0] * ACTION_DIM,
+                    },
+                },
+            },
+            "action_field": "absolute_camera_action",
+        },
+    )
+    data = {"outputs": {"action_plan": torch.zeros(1, 1, ACTION_DIM)}}
+    result = transform.build_model_output(data)
+    torch.testing.assert_close(result["outputs"]["action_plan"], torch.ones(1, 1, ACTION_DIM))

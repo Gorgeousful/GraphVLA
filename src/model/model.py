@@ -378,6 +378,7 @@ class GraphFlowModel(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         flow_mode: str = "joint",
+        action_delta: bool = True,
         include_future_object_point: bool = True,
         point_num_train_timesteps: int = 1000,
         action_num_train_timesteps: int = 1000,
@@ -406,6 +407,7 @@ class GraphFlowModel(nn.Module):
         self.history_steps = history_horizon + 1
         self.future_horizon = future_horizon
         self.flow_mode = flow_mode
+        self.action_delta = bool(action_delta)
         self.include_future_object_point = include_future_object_point
         self.point_num_train_timesteps = point_num_train_timesteps
         self.action_num_train_timesteps = action_num_train_timesteps

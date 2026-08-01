@@ -63,6 +63,8 @@ def amp_context(device: torch.device, enabled: bool):
 
 def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn.Module:
     training_config = copy(training_config)
+    if bool(getattr(data_config, "action_delta", True)) != bool(getattr(model_config, "action_delta", True)):
+        raise ValueError("data_config.action_delta must match model_config.action_delta")
     if training_config.save_dir is not None:
         if not training_config.wandb_name:
             raise ValueError("wandb_name is required when save_dir is set")

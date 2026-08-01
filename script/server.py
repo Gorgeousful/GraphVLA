@@ -23,6 +23,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from rich.console import Console
+from scipy.spatial.transform import Rotation as R
 
 from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
@@ -771,18 +772,20 @@ class InputPreprocessor:
 
 
 class EmbodimentAdapter:
-    """Convert camera-frame delta actions into LIBERO world-frame actions."""
+    """Convert camera-frame action plans into LIBERO world-frame actions."""
 
     def __init__(
         self,
         *,
         future_horizon: int,
         action_mode: str = "continuous",
+        action_delta: bool = True,
     ) -> None:
         if action_mode not in {"continuous", "discrete"}:
             raise ValueError(f"Unsupported action mode: {action_mode!r}")
         self.future_horizon = future_horizon
         self.action_mode = action_mode
+        self.action_delta = bool(action_delta)
 
     def to_action(
         self,
@@ -808,9 +811,18 @@ class EmbodimentAdapter:
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
         camera_to_world_rotation = extrinsic[:3, :3]
         world_actions = camera_actions.copy()
-        world_actions[:, :3] = camera_actions[:, :3] @ camera_to_world_rotation.T
-        world_actions[:, 3:6] = camera_actions[:, 3:6] @ camera_to_world_rotation.T
-        world_actions = np.clip(world_actions, -1.0, 1.0)
+        if self.action_delta:
+            world_actions[:, :3] = camera_actions[:, :3] @ camera_to_world_rotation.T
+            world_actions[:, 3:6] = camera_actions[:, 3:6] @ camera_to_world_rotation.T
+            world_actions = np.clip(world_actions, -1.0, 1.0)
+        else:
+            world_actions[:, :3] = (
+                camera_actions[:, :3] @ camera_to_world_rotation.T + extrinsic[:3, 3]
+            )
+            for index, camera_rotvec in enumerate(camera_actions[:, 3:6]):
+                world_rotation = camera_to_world_rotation @ R.from_rotvec(camera_rotvec).as_matrix()
+                world_actions[index, 3:6] = R.from_matrix(world_rotation).as_rotvec()
+            world_actions[:, 6] = np.clip(world_actions[:, 6], -1.0, 1.0)
 
         for action in world_actions:
             predicted_command = float(action[6])
@@ -824,12 +836,22 @@ class EmbodimentAdapter:
             action[6] = session.gripper_command
         return world_actions.astype(np.float32).tolist()
 
-    @staticmethod
     def release_actions(
+        self,
         session: InferenceSession,
         chunk_len: int,
+        request: Mapping[str, Any] | None = None,
     ) -> list[list[float]]:
         action = np.zeros(ACTION_DIM, dtype=np.float32)
+        if not self.action_delta:
+            if request is None:
+                raise ValueError("absolute release action requires the current observation request")
+            state = np.asarray(request["observation.state"], dtype=np.float32)
+            if state.ndim == 2:
+                state = state[-1]
+            if state.size < 6:
+                raise ValueError(f"observation.state must contain a 6-D TCP pose, got {state.shape}")
+            action[:6] = state[:6]
         action[6] = -1.0
         session.gripper_command = -1.0
         return [action.tolist() for _ in range(chunk_len)]
@@ -1043,6 +1065,7 @@ class InferenceServer:
             executed_actions = self.embodiment.release_actions(
                 session,
                 self.execute_chunk_len,
+                request,
             )
         else:
             actions = self.embodiment.to_action(outputs, request, session)
@@ -1339,6 +1362,7 @@ def main() -> None:
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
             action_mode=args.action_mode,
+            action_delta=bool(getattr(model_config, "action_delta", True)),
         ),
     )
     server.serve_forever()

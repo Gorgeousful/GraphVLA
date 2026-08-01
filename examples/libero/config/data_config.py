@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
+
 from src.dataset.transform import (
     PromptFromTask,
     AddHorizon,
@@ -49,6 +51,7 @@ class DataConfig:
     load_videos: bool = True
     transforms: tuple[Any, ...] = ()
     out_transforms: tuple[Any, ...] = ()
+    action_delta: bool = True
 
     def to_kwargs(self) -> dict[str, Any]:
         return {
@@ -67,6 +70,9 @@ LIBERO_DATASET_DIR = os.environ.get(
     "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action",
 )
 LIBERO_USE_SOFT = True
+LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
+LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
+LIBERO_ACTION_STATS_FIELD = "camera_action" if LIBERO_ACTION_DELTA else "absolute_camera_action"
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -87,7 +93,7 @@ LIBERO_REPACK = {
     "valid_node_mask": "valid_node_mask",
     "subtask_node_mask": "subtask_node_mask",
     "gripper_points_xyz": "gripper_points_xyz",
-    "action": "actions_camera",
+    "action": LIBERO_ACTION_FIELD,
 }
 
 LIBERO_HISTORY_HORIZON = 9
@@ -105,7 +111,7 @@ LIBERO_HORIZON = {
     "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "gripper_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "actions_camera": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    LIBERO_ACTION_FIELD: list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
 }
 
 if LIBERO_USE_SOFT:
@@ -126,7 +132,11 @@ LIBERO_TRANSFORM = (
 
     Normalize(
         norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
-        field_map={"node_points_xyz": "camera_xyz", "gripper_points_xyz": "camera_xyz", "action": "camera_action"},
+        field_map={
+            "node_points_xyz": "camera_xyz",
+            "gripper_points_xyz": "camera_xyz",
+            "action": LIBERO_ACTION_STATS_FIELD,
+        },
         use_quantiles=True,
         quantile_to_neg_one_one=True,
     ),
@@ -146,6 +156,7 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
+            "action_field": LIBERO_ACTION_STATS_FIELD,
         },
     ),
 )
@@ -158,5 +169,6 @@ LIBERO_DATA_CONFIG = DataConfig(
     load_videos=False,
     transforms=LIBERO_TRANSFORM,
     out_transforms=LIBERO_OUT_TRANSFORM,
+    action_delta=LIBERO_ACTION_DELTA,
     tasks=TASKS
 )
