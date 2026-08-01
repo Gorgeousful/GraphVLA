@@ -270,12 +270,27 @@ def _current_score(response: dict[str, Any], name: str) -> float | None:
     return None if finite_scores.size == 0 else float(np.max(finite_scores))
 
 
-def _draw_response_scores(image: np.ndarray, response: dict[str, Any]) -> None:
-    for name, y in (("is_complete", 18), ("contact_profile", 38)):
-        score = _current_score(response, name)
-        text = "-" if score is None else f"{score:.2f}"
-        color = (80, 255, 80) if score is not None and score >= 0.5 else (255, 255, 255)
-        _draw_text_rgb_right(image, text, y, color=color)
+def _draw_response_scores(
+    image: np.ndarray,
+    response: dict[str, Any],
+    *,
+    frame_id: int | None = None,
+) -> None:
+    complete = _current_score(response, "is_complete")
+    complete_text = "-" if complete is None else f"{complete:.2f}"
+    complete_color = (80, 255, 80) if complete is not None and complete >= 0.5 else (255, 255, 255)
+    _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
+
+    contact_text, contact_color = "-", (255, 255, 255)
+    profile_value = response.get("contact_profile")
+    if profile_value is not None and frame_id is not None:
+        profile = _first_batch(profile_value).astype(np.float32).reshape(-1)
+        future_index = int(frame_id) - 1
+        if 0 <= future_index < len(profile):
+            contact_score = float(profile[future_index])
+            contact_text = f"{contact_score:.2f}"
+            contact_color = (80, 255, 80) if contact_score >= 0.5 else (255, 255, 255)
+    _draw_text_rgb_right(image, contact_text, 38, color=contact_color)
 
 
 def _draw_response_points(
@@ -356,7 +371,7 @@ def _draw_response_points(
                     )
                     initial_count += 1
         _draw_text_rgb(image, f"tracking in={count} initial={initial_count}", (8, 18))
-        _draw_response_scores(image, response)
+        _draw_response_scores(image, response, frame_id=frame_id)
         return image
 
     point_plan_value = response.get("point_plan")
@@ -397,7 +412,7 @@ def _draw_response_points(
 
     if frame_id is not None:
         _draw_text_rgb(image, f"f={frame_id}", (8, 18))
-    _draw_response_scores(image, response)
+    _draw_response_scores(image, response, frame_id=frame_id)
     return image
 
 
@@ -592,8 +607,7 @@ def main() -> None:
                 env.reset()
                 obs = env.set_init_state(initial_states[init_state_id])
                 client.reset_episode(env=env)
-                prediction_images = []
-                tracking_images = []
+                combined_frames = []
                 done = False
                 server_done = False
                 interrupted = False
@@ -623,23 +637,20 @@ def main() -> None:
                                 break
 
                         frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
-                        prediction_images.append(
-                            _draw_response_points(
-                                frame,
-                                client.last_response,
-                                client.last_action_frame_id,
-                                mode="prediction",
-                                intrinsic=client.intrinsic,
-                            )
+                        prediction_frame = _draw_response_points(
+                            frame,
+                            client.last_response,
+                            client.last_action_frame_id,
+                            mode="prediction",
+                            intrinsic=client.intrinsic,
                         )
-                        tracking_images.append(
-                            _draw_response_points(
-                                frame,
-                                client.last_response,
-                                client.last_action_frame_id,
-                                mode="tracking",
-                            )
+                        tracking_frame = _draw_response_points(
+                            frame,
+                            client.last_response,
+                            client.last_action_frame_id,
+                            mode="tracking",
                         )
+                        combined_frames.append(np.hstack([prediction_frame, tracking_frame]))
                         obs, _, done, _ = env.step(np.asarray(action, dtype=np.float32).tolist())
                         if done:
                             break
@@ -671,8 +682,7 @@ def main() -> None:
                 if args.save_video:
                     suffix = "interrupted" if interrupted else ("success" if env_success else "failure")
                     video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_{suffix}"
-                    _save_video_ffmpeg(prediction_images, video_dir / f"{video_stem}_prediction.mp4", fps=float(args.control_freq))
-                    _save_video_ffmpeg(tracking_images, video_dir / f"{video_stem}_tracking.mp4", fps=float(args.control_freq))
+                    _save_video_ffmpeg(combined_frames, video_dir / f"{video_stem}_combined.mp4", fps=float(args.control_freq))
 
                 episode_results.append({
                     "episode_id": episode_idx,

@@ -171,11 +171,10 @@ class TopLevelTaskPlanner:
             return False
 
         frame_scores = self._completion_frame_scores(outputs)
-        contact_score = self._output_score(outputs, "contact_profile")
-        contact_text = "-" if contact_score is None else f"{contact_score:.4f}"
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for frame_id, score in frame_scores:
+            contact_text = self._contact_score_at(outputs, frame_id)
             score_text = (
                 f"step={session.frame_index} {subtask_label} f={frame_id} "
                 f"complete_score={score:.4f} contact_score={contact_text}"
@@ -241,6 +240,18 @@ class TopLevelTaskPlanner:
     ) -> list[tuple[int, float]]:
         score = self._output_score(outputs, "is_complete")
         return [] if score is None else [(0, score)]
+
+    @staticmethod
+    def _contact_score_at(outputs: Mapping[str, Any], frame_id: int) -> str:
+        value = outputs.get("contact_profile")
+        if value is None:
+            return "-"
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().numpy()
+        profile = np.asarray(value, dtype=float).reshape(-1)
+        if not 0 <= int(frame_id) < len(profile):
+            return "-"
+        return f"{float(profile[int(frame_id)]):.4f}"
 
     @staticmethod
     def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
