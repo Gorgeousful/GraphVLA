@@ -12,7 +12,7 @@ from torch.utils.checkpoint import checkpoint
 from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS, NUM_ENTITIES, POINT_FEATURE_DIM
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import FlowMatchScheduler, make_scheduler
-from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
+from src.model.temporal import AdaRMSNorm, RotaryAttention, RotaryFlowBlock
 
 
 FLOW_MODES = {"joint", "point_then_action"}
@@ -437,9 +437,10 @@ class GraphFlowModel(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
-        self.contact_head = nn.Sequential(
-            nn.Linear(hidden_dim * cls_token_num, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 1),
-        )
+        self.contact_query = nn.Parameter(torch.zeros(1, future_horizon, hidden_dim))
+        self.contact_pool_attn = RotaryAttention(hidden_dim, num_heads=num_heads, dropout=0.0)
+        self.contact_head = nn.Linear(hidden_dim, 1)
+        nn.init.normal_(self.contact_query, std=0.02)
 
     def set_gradient_checkpointing(self, enabled: bool = True) -> None:
         self.encoder.gradient_checkpointing = enabled
@@ -489,9 +490,36 @@ class GraphFlowModel(nn.Module):
             actor = torch.cat([actor, current[:, 1:].flatten(1)], dim=1)
         return actor[:, None].expand(-1, self.future_horizon, -1).bool()
 
-    def _contact_logits(self, relation_local: torch.Tensor) -> torch.Tensor:
-        patient_cls = relation_local[:, :self.cls_token_num].flatten(1)
-        return self.contact_head(patient_cls)
+    def _contact_logits(self, history_memory: torch.Tensor) -> torch.Tensor:
+        """Predict the future contact profile from the patient CLS history.
+
+        One learnable contact query per future step cross-attends over the
+        patient CLS trajectory (history frames at positions -history_steps+1
+        ... 0) from its own future-time position (1 ... future_horizon),
+        producing per-step tokens that the contact head reads out into
+        [B, future_horizon] logits.
+        """
+        batch = history_memory.shape[0]
+        hidden_dim = history_memory.shape[-1]
+        patient_history = history_memory.view(
+            batch, self.history_steps, NUM_ENTITIES, self.cls_token_num, hidden_dim,
+        )[:, :, 1]                                        # [B, T, cls, D]
+        patient_history = patient_history.reshape(
+            batch, self.history_steps * self.cls_token_num, hidden_dim,
+        )
+        positions = torch.arange(
+            1 - self.history_steps, 1, device=history_memory.device, dtype=torch.float32,
+        )
+        if self.cls_token_num > 1:
+            positions = positions.repeat_interleave(self.cls_token_num)
+        query = self.contact_query.expand(batch, -1, -1)
+        query_positions = torch.arange(
+            1, self.future_horizon + 1, device=history_memory.device, dtype=torch.float32,
+        )
+        contact_token = self.contact_pool_attn(
+            query, patient_history, query_positions, positions,
+        )
+        return self.contact_head(contact_token).squeeze(-1)
 
     def _point_flow_loss(
         self,
@@ -561,10 +589,16 @@ class GraphFlowModel(nn.Module):
             target["is_complete"].to(dtype=complete_logits.dtype),
             pos_weight=complete_logits.new_tensor([self.complete_pos_weight]),
         )
-        contact_logits = self._contact_logits(relation_local)
+        contact_logits = self._contact_logits(history_memory)
+        target_contact = target["is_contact_future"].to(dtype=contact_logits.dtype)
+        if tuple(contact_logits.shape) != tuple(target_contact.shape):
+            raise ValueError(
+                f"Expected contact logits {tuple(contact_logits.shape)} to match "
+                f"target is_contact_future {tuple(target_contact.shape)}"
+            )
         loss_contact = F.binary_cross_entropy_with_logits(
             contact_logits,
-            target["is_contact"].to(dtype=contact_logits.dtype),
+            target_contact,
             pos_weight=contact_logits.new_tensor([self.contact_pos_weight]),
         )
         losses = {
@@ -666,5 +700,5 @@ class GraphFlowModel(nn.Module):
             "is_complete": torch.sigmoid(self.complete_head(torch.cat([
                 relation_local.flatten(1), scene_memory.flatten(1),
             ], dim=-1))),
-            "is_contact": torch.sigmoid(self._contact_logits(relation_local)),
+            "contact_profile": torch.sigmoid(self._contact_logits(history_memory)),
         }

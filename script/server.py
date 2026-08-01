@@ -171,7 +171,7 @@ class TopLevelTaskPlanner:
             return False
 
         frame_scores = self._completion_frame_scores(outputs)
-        contact_score = self._output_score(outputs, "is_contact")
+        contact_score = self._output_score(outputs, "contact_profile")
         contact_text = "-" if contact_score is None else f"{contact_score:.4f}"
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"

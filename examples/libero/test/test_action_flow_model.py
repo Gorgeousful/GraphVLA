@@ -43,7 +43,7 @@ def _make_batch(batch_size: int = 2, num_points: int = 4) -> dict:
             "points": torch.randn(batch_size, 3, 3, num_points, 3),
             "point_mask": target_mask,
             "is_complete": torch.zeros(batch_size, 1),
-            "is_contact": torch.ones(batch_size, 1),
+            "is_contact_future": torch.ones(batch_size, 3),
         },
     }
 
@@ -71,9 +71,10 @@ def test_sample_returns_point_and_action_plans(include_objects: bool, points_per
         action_noise=torch.zeros(2, 3, ACTION_DIM),
     )
     assert set(outputs) == {
-        "action_plan", "point_plan", "point_plan_mask", "is_complete", "is_contact",
+        "action_plan", "point_plan", "point_plan_mask", "is_complete", "contact_profile",
     }
     assert outputs["action_plan"].shape == (2, 3, ACTION_DIM)
+    assert outputs["contact_profile"].shape == (2, 3)
     assert outputs["point_plan"].shape == (2, 3, points_per_step, 3)
     assert outputs["point_plan_mask"].shape == (2, 3, points_per_step)
     assert all(torch.isfinite(value).all() for value in outputs.values())
@@ -136,7 +137,7 @@ def test_encoder_uses_layer_specific_rope_and_keeps_object_points_unordered() ->
     assert relation.shape == (points.shape[0], 2, 48)
     assert model.flow.encode_scene(batch["scene_condition"]).shape == (points.shape[0], 2, 48)
     assert model.complete_head[0].in_features == 4 * 48
-    assert model.contact_head[0].in_features == 48
+    assert model.contact_head.in_features == 48
 
     object_permutation = torch.tensor([2, 0, 3, 1])
     permuted_objects = points.clone()

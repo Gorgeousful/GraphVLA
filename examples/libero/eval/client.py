@@ -271,7 +271,7 @@ def _current_score(response: dict[str, Any], name: str) -> float | None:
 
 
 def _draw_response_scores(image: np.ndarray, response: dict[str, Any]) -> None:
-    for name, y in (("is_complete", 18), ("is_contact", 38)):
+    for name, y in (("is_complete", 18), ("contact_profile", 38)):
         score = _current_score(response, name)
         text = "-" if score is None else f"{score:.2f}"
         color = (80, 255, 80) if score is not None and score >= 0.5 else (255, 255, 255)
