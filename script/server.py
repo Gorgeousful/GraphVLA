@@ -175,10 +175,9 @@ class TopLevelTaskPlanner:
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for frame_id, score in frame_scores:
-            contact_text = self._contact_score_at(outputs, frame_id)
             score_text = (
                 f"step={session.frame_index} {subtask_label} f={frame_id} "
-                f"complete_score={score:.4f} contact_score={contact_text}"
+                f"complete_score={score:.4f}"
             )
             if score >= self.complete_threshold:
                 cs.print(f"[green]{score_text}[/green]")
@@ -186,6 +185,7 @@ class TopLevelTaskPlanner:
             else:
                 cs.print(score_text)
                 session.complete_streak = 0
+            cs.print(f"step={session.frame_index} {self._contact_profile_text(outputs)}")
 
             if session.complete_streak >= self.complete_window:
                 session.complete_streak = 0
@@ -243,16 +243,15 @@ class TopLevelTaskPlanner:
         return [] if score is None else [(0, score)]
 
     @staticmethod
-    def _contact_score_at(outputs: Mapping[str, Any], frame_id: int) -> str:
+    def _contact_profile_text(outputs: Mapping[str, Any]) -> str:
         value = outputs.get("contact_profile")
         if value is None:
-            return "-"
+            return "contact_score=-"
         if isinstance(value, torch.Tensor):
             value = value.detach().cpu().numpy()
         profile = np.asarray(value, dtype=float).reshape(-1)
-        if not 0 <= int(frame_id) < len(profile):
-            return "-"
-        return f"{float(profile[int(frame_id)]):.4f}"
+        values = ", ".join(f"{float(v):.3f}" for v in profile)
+        return f"contact_score[{len(profile)}]=[{values}]"
 
     @staticmethod
     def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
@@ -1074,8 +1073,9 @@ class InferenceServer:
             # along the way. Only commit the last command that will actually run.
             session.gripper_command = float(executed_actions[-1][-1])
         gripper_actions = [float(action[-1]) for action in executed_actions]
+        gripper_text = ", ".join(f"{g:.3f}" for g in gripper_actions)
         cs.print(
-            f"step={session.frame_index} gripper_action[{len(gripper_actions)}]={gripper_actions}",
+            f"step={session.frame_index} gripper_action[{len(gripper_actions)}]=[{gripper_text}]",
             markup=False,
         )
         response_initial_points, response_initial_point_object_ids, response_initial_point_active = (

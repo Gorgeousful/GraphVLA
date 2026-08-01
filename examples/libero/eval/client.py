@@ -373,8 +373,6 @@ def _draw_response_points(
                         line_type=cv2.LINE_AA,
                     )
                     initial_count += 1
-        _draw_text_rgb(image, f"tracking in={count} initial={initial_count}", (8, 18))
-        _draw_response_scores(image, response, frame_id=frame_id)
         return image
 
     point_plan_value = response.get("point_plan")
