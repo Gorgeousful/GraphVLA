@@ -395,6 +395,8 @@ def _draw_response_points(
                     color = colors[4]
                 cv2.circle(image, (x, y), 4, color, -1, lineType=cv2.LINE_AA)
 
+    if frame_id is not None:
+        _draw_text_rgb(image, f"f={frame_id}", (8, 18))
     _draw_response_scores(image, response)
     return image
 
