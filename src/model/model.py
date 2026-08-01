@@ -215,13 +215,11 @@ class PointActionFlow(nn.Module):
         elif mode == "point_then_action":
             p, a = point_single_length, action_single_length
             pn, pc = slice(0, p), slice(p, 2 * p)
-            an, ac = slice(2 * p, 2 * p + a), slice(2 * p + a, 2 * p + 2 * a)
+            an = slice(2 * p, 2 * p + a)
             allow[pn, pn] = True
             allow[pc, pc] = True
             allow[an, pc] = True
             allow[an, an] = True
-            allow[ac, pc] = True
-            allow[ac, ac] = True
         else:
             raise ValueError(f"Unsupported flow mode: {mode}")
         key_valid = torch.cat([point_valid, action_valid], dim=1)
@@ -241,7 +239,6 @@ class PointActionFlow(nn.Module):
         *,
         mode: str,
         point_clean: torch.Tensor | None = None,
-        action_clean: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         batch = point_state.shape[0]
         point_single_length = self.horizon * self.points_per_step
@@ -258,28 +255,18 @@ class PointActionFlow(nn.Module):
         action_valid = torch.ones(batch, action_single_length, dtype=torch.bool, device=action_state.device)
 
         if mode == "point_then_action":
-            if point_clean is None or action_clean is None:
-                raise ValueError("point_then_action requires clean point and action streams")
+            if point_clean is None:
+                raise ValueError("point_then_action requires a clean point stream")
             point_flat = torch.cat([
                 point_flat,
                 point_clean.reshape(batch, point_single_length, POINT_FEATURE_DIM),
             ], dim=1)
-            action_flat = torch.cat([
-                action_flat,
-                action_clean.reshape(batch, action_single_length, ACTION_DIM),
-            ], dim=1)
             point_condition = torch.cat([point_condition, torch.zeros_like(point_condition)], dim=1)
-            action_condition = torch.cat([action_condition, torch.zeros_like(action_condition)], dim=1)
             point_positions = torch.cat([point_positions, point_positions], dim=0)
-            action_positions = torch.cat([action_positions, action_positions], dim=0)
             point_history_positions = torch.cat([
                 point_history_positions, point_history_positions,
             ], dim=0)
-            action_history_positions = torch.cat([
-                action_history_positions, action_history_positions,
-            ], dim=0)
             point_valid_flat = torch.cat([point_valid_flat, point_valid_flat], dim=1)
-            action_valid = torch.cat([action_valid, action_valid], dim=1)
 
         point_token = self.point_projection(point_flat)
         action_token = self.action_projection(action_flat)
@@ -356,7 +343,6 @@ class PointActionFlow(nn.Module):
         point_clean: torch.Tensor,
         action_state: torch.Tensor,
         action_sigma: torch.Tensor,
-        action_clean: torch.Tensor,
         history_memory: torch.Tensor,
         history_positions: torch.Tensor,
         scene_memory: torch.Tensor,
@@ -372,7 +358,6 @@ class PointActionFlow(nn.Module):
             scene_memory,
             mode="point_then_action",
             point_clean=point_clean,
-            action_clean=action_clean,
         )
 
 
@@ -557,7 +542,6 @@ class GraphFlowModel(nn.Module):
                 points * point_mask[..., None],
                 action_state,
                 action_sigma,
-                action,
                 history_memory,
                 history_positions,
                 scene_memory,
@@ -654,7 +638,6 @@ class GraphFlowModel(nn.Module):
                     zero_point,
                     zero_action,
                     zero_action_sigma,
-                    zero_action,
                     history_memory,
                     history_positions,
                     scene_memory,
@@ -670,7 +653,6 @@ class GraphFlowModel(nn.Module):
                     point_state,
                     action_state,
                     action_sigma,
-                    zero_action,
                     history_memory,
                     history_positions,
                     scene_memory,

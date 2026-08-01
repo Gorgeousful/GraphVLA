@@ -79,24 +79,23 @@ def test_sample_returns_point_and_action_plans(include_objects: bool, points_per
     assert all(torch.isfinite(value).all() for value in outputs.values())
 
 
-def test_point_then_action_mask_reads_clean_points_but_not_clean_actions() -> None:
+def test_point_then_action_mask_reads_clean_points_without_clean_actions() -> None:
     model = _make_model(flow_mode="point_then_action")
     point_length = model.future_horizon * model.flow.points_per_step
     action_length = model.future_horizon
     point_valid = torch.ones(1, 2 * point_length, dtype=torch.bool)
-    action_valid = torch.ones(1, 2 * action_length, dtype=torch.bool)
+    action_valid = torch.ones(1, action_length, dtype=torch.bool)
     point_mask, action_mask = model.flow._attention_masks(
         "point_then_action", point_valid, action_valid, point_length, action_length,
     )
     full = torch.cat([point_mask, action_mask], dim=1)[0]
     action_noisy_query = 2 * point_length
     point_clean_key = point_length
-    action_clean_key = 2 * point_length + action_length
     point_noisy_query = 0
     action_noisy_key = 2 * point_length
     assert full[action_noisy_query, point_clean_key]
-    assert not full[action_noisy_query, action_clean_key]
     assert not full[point_noisy_query, action_noisy_key]
+    assert full.shape == (2 * point_length + action_length,) * 2
 
 
 def test_point_loss_averages_roles_before_averaging_points() -> None:
