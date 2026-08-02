@@ -185,8 +185,6 @@ class TopLevelTaskPlanner:
             else:
                 cs.print(score_text)
                 session.complete_streak = 0
-            cs.print(f"step={session.frame_index} {self._contact_profile_text(outputs)}")
-
             if session.complete_streak >= self.complete_window:
                 session.complete_streak = 0
                 session.release_pending = True
@@ -243,13 +241,15 @@ class TopLevelTaskPlanner:
         return [] if score is None else [(0, score)]
 
     @staticmethod
-    def _contact_profile_text(outputs: Mapping[str, Any]) -> str:
+    def _contact_profile_text(outputs: Mapping[str, Any], *, limit: int | None = None) -> str:
         value = outputs.get("contact_profile")
         if value is None:
             return "contact_score=-"
         if isinstance(value, torch.Tensor):
             value = value.detach().cpu().numpy()
         profile = np.asarray(value, dtype=float).reshape(-1)
+        if limit is not None:
+            profile = profile[:max(0, limit)]
         values = ", ".join(f"{float(v):.3f}" for v in profile)
         return f"contact_score[{len(profile)}]=[{values}]"
 
@@ -1072,6 +1072,11 @@ class InferenceServer:
             # to_action decodes the full horizon and updates the hysteresis state
             # along the way. Only commit the last command that will actually run.
             session.gripper_command = float(executed_actions[-1][-1])
+            cs.print(
+                f"step={session.frame_index} "
+                f"{self.planner._contact_profile_text(outputs, limit=len(executed_actions))}",
+                markup=False,
+            )
         gripper_actions = [float(action[-1]) for action in executed_actions]
         gripper_text = ", ".join(f"{g:.3f}" for g in gripper_actions)
         cs.print(

@@ -28,6 +28,7 @@ if str(LIBERO_ROOT) not in sys.path:
 
 import numpy as np
 from rich.console import Console
+from scipy.spatial.transform import Rotation as R
 from robosuite.utils.camera_utils import (
     get_camera_extrinsic_matrix,
     get_camera_intrinsic_matrix,
@@ -229,10 +230,42 @@ def _prepare_observation(obs: dict[str, Any], env: Any) -> dict[str, Any]:
     }
 
 
-def _dummy_action() -> np.ndarray:
+def _dummy_action(
+    observation: dict[str, Any] | None = None,
+    *,
+    action_delta: bool = True,
+) -> np.ndarray:
     action = np.zeros(7, dtype=np.float32)
+    if not action_delta:
+        if observation is None:
+            raise ValueError("absolute wait action requires the current observation")
+        position = np.asarray(observation["robot0_eef_pos"], dtype=np.float32)
+        quaternion = np.asarray(observation["robot0_eef_quat"], dtype=np.float64)
+        if position.shape != (3,) or quaternion.shape != (4,):
+            raise ValueError(
+                "absolute wait action requires robot0_eef_pos [3] and robot0_eef_quat [4]"
+            )
+        action[:3] = position
+        action[3:6] = _quat2axisangle(quaternion)
     action[6] = -1.0
     return action
+
+
+def _to_libero_action(action: np.ndarray, *, action_delta: bool) -> np.ndarray:
+    """Adapt a canonical world hand action to LIBERO's controller frame."""
+    action = np.asarray(action, dtype=np.float64).copy()
+    if action.shape != (7,):
+        raise ValueError(f"LIBERO action must be 7-D, got {action.shape}")
+    if action_delta:
+        return action.astype(np.float32)
+    hand_to_site = np.asarray([
+        [0.0, 1.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    hand_rotation = R.from_rotvec(action[3:6]).as_matrix()
+    action[3:6] = R.from_matrix(hand_rotation @ hand_to_site).as_rotvec()
+    return action.astype(np.float32)
 
 
 def _first_batch(value: Any) -> np.ndarray:
@@ -615,6 +648,9 @@ def main() -> None:
                 obs = env.set_init_state(initial_states[init_state_id])
                 client.reset_episode(env=env)
                 combined_frames = []
+                step_records: list[dict[str, Any]] = []
+                inference_records: list[dict[str, Any]] = []
+                current_inference_id: int | None = None
                 done = False
                 server_done = False
                 interrupted = False
@@ -627,7 +663,13 @@ def main() -> None:
                                 f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                             )
-                            action = _dummy_action()
+                            action = _dummy_action(obs, action_delta=args.action_delta)
+                            current_state = np.concatenate((
+                                obs["robot0_eef_pos"],
+                                _quat2axisangle(obs["robot0_eef_quat"]),
+                                obs["robot0_gripper_qpos"],
+                            ))
+                            policy_step = None
                         else:
                             policy_step = step - args.num_steps_wait + 1
                             cs.print(
@@ -635,7 +677,22 @@ def main() -> None:
                                 f"episode {episode_idx + 1}/{len(init_state_ids)} "
                                 f"step {policy_step}/{max_steps}[/dim]"
                             )
-                            action = client.infer(_prepare_observation(obs, env), task_description)
+                            prepared_observation = _prepare_observation(obs, env)
+                            previous_response = client.last_response
+                            action = client.infer(prepared_observation, task_description)
+                            current_state = prepared_observation["state"]
+                            if client.last_response is not previous_response and not client.episode_done:
+                                current_inference_id = len(inference_records)
+                                response = client.last_response or {}
+                                inference_records.append({
+                                    "inference_id": current_inference_id,
+                                    "video_frame": len(combined_frames),
+                                    "subtask": response.get("subtask"),
+                                    "subtask_index": response.get("subtask_index"),
+                                    "tracking_point": response.get("tracking_point"),
+                                    "tracking_object_id": response.get("tracking_object_id"),
+                                    "tracking_point_active": response.get("tracking_point_active"),
+                                })
                             if client.episode_done:
                                 server_done = True
                                 cs.print(
@@ -658,7 +715,19 @@ def main() -> None:
                             mode="tracking",
                         )
                         combined_frames.append(np.hstack([prediction_frame, tracking_frame]))
-                        obs, _, done, _ = env.step(np.asarray(action, dtype=np.float32).tolist())
+                        controller_action = _to_libero_action(
+                            action, action_delta=args.action_delta,
+                        )
+                        step_records.append({
+                            "video_frame": len(combined_frames) - 1,
+                            "policy_step": policy_step,
+                            "state": np.asarray(current_state, dtype=np.float64).tolist(),
+                            "action": np.asarray(action, dtype=np.float64).tolist(),
+                            "controller_action": np.asarray(controller_action, dtype=np.float64).tolist(),
+                            "inference_id": current_inference_id,
+                            "action_frame_id": client.last_action_frame_id if policy_step is not None else None,
+                        })
+                        obs, _, done, _ = env.step(controller_action.tolist())
                         if done:
                             break
 
@@ -689,7 +758,22 @@ def main() -> None:
                 if args.save_video:
                     suffix = "interrupted" if interrupted else ("success" if env_success else "failure")
                     video_stem = f"task_{task_id:03d}_ep_{episode_idx:03d}_{suffix}"
-                    _save_video_ffmpeg(combined_frames, video_dir / f"{video_stem}_combined.mp4", fps=float(args.control_freq))
+                    artifact_stem = f"{video_stem}_combined"
+                    _save_video_ffmpeg(combined_frames, video_dir / f"{artifact_stem}.mp4", fps=float(args.control_freq))
+                    record = {
+                        "metadata": {
+                            "task_id": task_id,
+                            "episode_id": episode_idx,
+                            "init_state_id": init_state_id,
+                            "task_description": task_description,
+                            "fps": args.control_freq,
+                        },
+                        "steps": step_records,
+                        "inferences": inference_records,
+                    }
+                    json_path = video_dir / f"{artifact_stem}.json"
+                    json_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+                    cs.print(f"saved execution record to: {json_path} ({len(step_records)} frames)")
 
                 episode_results.append({
                     "episode_id": episode_idx,

@@ -41,4 +41,4 @@ class ModelConfig:
         return asdict(self)
 
 
-LIBERO_MODEL_CONFIG = ModelConfig(action_delta=False)
+LIBERO_MODEL_CONFIG = ModelConfig()

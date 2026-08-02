@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from examples.libero.eval.client import InferenceClient, _draw_response_points, _dummy_action
+from examples.libero.eval.client import (
+    InferenceClient,
+    _draw_response_points,
+    _dummy_action,
+    _to_libero_action,
+)
 
 
 def test_wait_action_is_zero_delta_with_open_gripper() -> None:
@@ -11,6 +16,35 @@ def test_wait_action_is_zero_delta_with_open_gripper() -> None:
         _dummy_action(),
         np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], dtype=np.float32),
     )
+
+
+def test_wait_action_holds_current_absolute_pose() -> None:
+    observation = {
+        "robot0_eef_pos": np.asarray([0.4, -0.1, 0.2]),
+        "robot0_eef_quat": np.asarray([0.0, 0.0, np.sqrt(0.5), np.sqrt(0.5)]),
+    }
+
+    np.testing.assert_allclose(
+        _dummy_action(observation, action_delta=False),
+        np.asarray([0.4, -0.1, 0.2, 0.0, 0.0, np.pi / 2.0, -1.0], dtype=np.float32),
+        atol=1e-6,
+    )
+
+
+def test_absolute_hand_action_is_adapted_to_libero_site_frame() -> None:
+    action = np.asarray([0.4, -0.1, 0.2, 0.0, 0.0, np.pi / 2.0, -1.0])
+
+    np.testing.assert_allclose(
+        _to_libero_action(action, action_delta=False),
+        np.asarray([0.4, -0.1, 0.2, 0.0, 0.0, 0.0, -1.0]),
+        atol=1e-6,
+    )
+
+
+def test_delta_action_passes_through_libero_adapter() -> None:
+    action = np.asarray([0.1, -0.2, 0.3, 0.4, -0.5, 0.6, -1.0])
+
+    np.testing.assert_allclose(_to_libero_action(action, action_delta=True), action)
 
 
 def test_client_accepts_finite_seven_dimensional_action_chunk() -> None:

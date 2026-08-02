@@ -2,7 +2,7 @@
 CUDA_VISIBLE_DEVICES=1 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0801-contact-action-finger-new-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0801-contact-action-base-abs-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0 \
@@ -18,7 +18,8 @@ python -m examples.libero.eval.client \
 --num-trials-per-task 10 \
 --max-steps 900 \
 --control-freq 10 \
---port 8002
+--port 8002 \
+--absolute-action
 
 # libero_custom
 python -m examples.libero.eval.client \
@@ -33,9 +34,10 @@ python -m examples.libero.eval.client \
 --task-suite-name libero_swap_test \
 --tasks 3 \
 --num-trials-per-task 10 \
---max-steps 750 \
+--max-steps 500 \
 --control-freq 10 \
---port 8002
+--port 8002 \
+--absolute-action
 
 
 python -m examples.libero.eval.client_offline \

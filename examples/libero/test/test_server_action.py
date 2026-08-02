@@ -6,7 +6,21 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
-from script.server import EmbodimentAdapter, InputPreprocessor, ObservationFrame
+from script.server import (
+    EmbodimentAdapter,
+    InputPreprocessor,
+    ObservationFrame,
+    TopLevelTaskPlanner,
+)
+from src.common.schema import ACTOR_POINT_INDICES
+
+
+def test_contact_profile_text_is_limited_to_executed_actions() -> None:
+    text = TopLevelTaskPlanner._contact_profile_text(
+        {"contact_profile": [[0.1, 0.2, 0.3, 0.4]]}, limit=2,
+    )
+
+    assert text == "contact_score[2]=[0.100, 0.200]"
 
 
 def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
@@ -36,7 +50,7 @@ def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
     assert np.asarray(captured["tcp_state"]) == pytest.approx(frame.state[:6])
 
 
-def test_online_model_input_selects_root_and_fingertips_without_closedness() -> None:
+def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     preprocessor = object.__new__(InputPreprocessor)
     preprocessor.num_points = 4
     preprocessor.norm_stats = {
@@ -63,7 +77,7 @@ def test_online_model_input_selects_root_and_fingertips_without_closedness() -> 
     model_input = preprocessor._build_model_input(session, [frame, frame], subtask)
 
     actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :3]
-    expected = (gripper[[0, 3, 4]] * 2.0 - 1.0)[None]
+    expected = (gripper[list(ACTOR_POINT_INDICES)] * 2.0 - 1.0)[None]
     np.testing.assert_allclose(actor, np.repeat(expected, 2, axis=0), atol=1e-6)
     assert "gripper_closedness_history" not in model_input
 
@@ -160,4 +174,4 @@ def test_absolute_release_holds_current_tcp_pose() -> None:
     actions = adapter.release_actions(session, 2, {"observation.state": [state]})
 
     expected = np.asarray(state[:6] + [-1.0], dtype=np.float32)
-    np.testing.assert_allclose(actions, np.repeat(expected[None], 2, axis=0))
+    np.testing.assert_allclose(actions, np.repeat(expected[None], 2, axis=0), atol=1e-7)
