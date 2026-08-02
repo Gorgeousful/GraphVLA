@@ -31,11 +31,17 @@ class FlowMatchScheduler:
         *,
         horizon_dim: int = 1,
         noise: torch.Tensor | None = None,
+        timestep_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, horizon = target.shape[0], target.shape[horizon_dim]
-        timestep_ids = torch.randint(
-            self.num_train_timesteps, (batch, horizon), device=target.device,
-        )
+        if timestep_ids is None:
+            timestep_ids = torch.randint(
+                self.num_train_timesteps, (batch, horizon), device=target.device,
+            )
+        else:
+            timestep_ids = torch.as_tensor(
+                timestep_ids, device=target.device, dtype=torch.long,
+            )
         sigma = self.training_sigmas.to(target.device)[timestep_ids].to(target.dtype)
         if noise is None:
             noise = torch.randn_like(target)

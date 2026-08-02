@@ -26,6 +26,7 @@ class ModelConfig:
     action_num_train_timesteps: int = 1000
     point_sigma_shift: float = 5.0
     action_sigma_shift: float = 1.0
+    correlated_sigma_sampling: bool = False
     point_sample_steps: int = 10
     action_sample_steps: int = 10
     complete_pos_weight: float = 10.0

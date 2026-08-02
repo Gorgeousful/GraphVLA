@@ -384,6 +384,7 @@ class GraphFlowModel(nn.Module):
         action_num_train_timesteps: int = 1000,
         point_sigma_shift: float = 5.0,
         action_sigma_shift: float = 1.0,
+        correlated_sigma_sampling: bool = False,
         point_sample_steps: int = 10,
         action_sample_steps: int = 10,
         complete_pos_weight: float = 1.0,
@@ -413,6 +414,7 @@ class GraphFlowModel(nn.Module):
         self.action_num_train_timesteps = action_num_train_timesteps
         self.point_sigma_shift = point_sigma_shift
         self.action_sigma_shift = action_sigma_shift
+        self.correlated_sigma_sampling = bool(correlated_sigma_sampling)
         self.point_sample_steps = point_sample_steps
         self.action_sample_steps = action_sample_steps
         self.complete_pos_weight = float(complete_pos_weight)
@@ -553,8 +555,21 @@ class GraphFlowModel(nn.Module):
         points, point_mask = self._compact_points(target["points"], target["point_mask"])
         point_scheduler = FlowMatchScheduler(self.point_num_train_timesteps, self.point_sigma_shift)
         action_scheduler = FlowMatchScheduler(self.action_num_train_timesteps, self.action_sigma_shift)
-        point_state, point_target, point_sigma, point_weight = point_scheduler.sample_training(points)
-        action_state, action_target, action_sigma, action_weight = action_scheduler.sample_training(action)
+        if self.correlated_sigma_sampling:
+            shared_timestep_ids = torch.randint(
+                min(self.point_num_train_timesteps, self.action_num_train_timesteps),
+                (points.shape[0], self.future_horizon),
+                device=points.device,
+            )
+            point_state, point_target, point_sigma, point_weight = point_scheduler.sample_training(
+                points, timestep_ids=shared_timestep_ids,
+            )
+            action_state, action_target, action_sigma, action_weight = action_scheduler.sample_training(
+                action, timestep_ids=shared_timestep_ids,
+            )
+        else:
+            point_state, point_target, point_sigma, point_weight = point_scheduler.sample_training(points)
+            action_state, action_target, action_sigma, action_weight = action_scheduler.sample_training(action)
         point_state = point_state * point_mask[..., None]
         point_target = point_target * point_mask[..., None]
 
