@@ -20,15 +20,17 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     flow_mode: str = "joint"
-    action_delta: bool = True
+    action_delta: bool = False
     include_future_object_point: bool = False
+    
     point_num_train_timesteps: int = 1000
     action_num_train_timesteps: int = 1000
-    point_sigma_shift: float = 5.0
+    point_sigma_shift: float = 1.0
     action_sigma_shift: float = 1.0
-    correlated_sigma_sampling: bool = False
+    correlated_sigma_sampling: bool = True
     point_sample_steps: int = 10
     action_sample_steps: int = 10
+
     complete_pos_weight: float = 10.0
     contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {

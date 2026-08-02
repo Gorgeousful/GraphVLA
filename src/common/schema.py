@@ -8,7 +8,7 @@ import os
 
 POINT_FEATURE_DIM = 3  # camera XYZ in meters, normalized per axis
 GRIPPER_NUM_POINTS = 6
-ACTOR_POINT_INDICES = (0, 1, 2)  # root, left_base, right_base
+ACTOR_POINT_INDICES = (0, 3, 4)
 ACTOR_NUM_POINTS = len(ACTOR_POINT_INDICES)
 ACTION_DIM = 7
 ENTITY_ROLES = ("actor", "patient", "target")
