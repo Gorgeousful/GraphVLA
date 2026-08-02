@@ -14,6 +14,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import pandas as pd
 import websockets
 from rich.console import Console
 
@@ -257,10 +258,33 @@ async def _evaluate_samples(
     sample_indices: list[int],
     horizontal_flip: bool,
 ) -> list[dict[str, Any]]:
-    dataset = make_lerobot_dataset(
-        dataset_dir, load_videos=True, video_backend="pyav",
-        episodes=[dataset_episode_id],
-    )
+    matches = list((dataset_dir / "data").glob(f"chunk-*/episode_{dataset_episode_id:06d}.parquet"))
+    if len(matches) != 1:
+        raise FileNotFoundError(
+            f"expected one parquet for episode {dataset_episode_id}, found {matches}"
+        )
+    dataset = pd.read_parquet(matches[0])
+    with (dataset_dir / "meta/tasks.jsonl").open("r", encoding="utf-8") as file:
+        task_texts = {
+            int(row["task_index"]): str(row["task"])
+            for row in (json.loads(line) for line in file if line.strip())
+        }
+    with (dataset_dir / "meta/taskstructures.jsonl").open("r", encoding="utf-8") as file:
+        taskstructures = {
+            str(row["task"]): list(row.get("subtasks", []))
+            for row in (json.loads(line) for line in file if line.strip())
+        }
+
+    def frame_image(row: pd.Series) -> np.ndarray:
+        encoded = row["image"]
+        if not isinstance(encoded, dict) or not isinstance(encoded.get("bytes"), bytes):
+            raise TypeError(f"expected embedded PNG bytes, got {type(encoded).__name__}")
+        image_bgr = cv2.imdecode(np.frombuffer(encoded["bytes"], dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image_bgr is None:
+            raise ValueError("failed to decode embedded episode image")
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        return np.ascontiguousarray(image_rgb[:, ::-1] if horizontal_flip else image_rgb)
+
     sample_indices = sorted(set(sample_indices))
     for sample_index in sample_indices:
         if sample_index < 0 or sample_index >= len(dataset):
@@ -281,23 +305,22 @@ async def _evaluate_samples(
     records = []
     async with websockets.connect(uri, max_size=None, proxy=None) as websocket:
         for frame_index in range(max_sample + 1):
-            frame_sample = dataset[frame_index]
+            frame_sample = dataset.iloc[frame_index]
             task_index = _scalar(frame_sample["task_index"])
             if task_index not in cameras:
                 raise KeyError(f"cameras.json has no entry for task_index={task_index}")
             intrinsic, extrinsic = cameras[task_index]
-            image = _to_rgb_uint8(
-                frame_sample["image"],
-                horizontal_flip=horizontal_flip,
-            )
+            image = frame_image(frame_sample)
             state = _to_numpy(frame_sample["state"]).astype(np.float64)
             metric_depth = _to_numpy(
                 frame_sample["agentview_real_depth_images"]
             ).astype(np.float32).reshape(256, 256)
+            if horizontal_flip:
+                metric_depth = np.ascontiguousarray(metric_depth[:, ::-1])
             request = {
                 "benchmark": "libero",
                 "session_id": session_id,
-                "language": str(frame_sample["task"]),
+                "language": task_texts[task_index],
                 "observation.images.image": [image.tolist()],
                 "observation.depth.metric": [metric_depth.tolist()],
                 "observation.state": [state.tolist()],
@@ -331,13 +354,10 @@ async def _evaluate_samples(
             )
             future_frames = []
             for future_id in range(1, future_horizon + 1):
-                future_sample = dataset[min(frame_index + future_id, len(dataset) - 1)]
+                future_sample = dataset.iloc[min(frame_index + future_id, len(dataset) - 1)]
                 future_frames.append(
                     _draw_response_points(
-                        _to_rgb_uint8(
-                            future_sample["image"],
-                            horizontal_flip=horizontal_flip,
-                        ),
+                        frame_image(future_sample),
                         response,
                         future_id,
                         mode="prediction",
@@ -369,13 +389,15 @@ async def _evaluate_samples(
                 "dataset_episode_index": dataset_episode_id,
                 "sample": frame_index,
                 "dataset_index": _scalar(frame_sample["index"]),
-                "task": str(frame_sample["task"]),
-                "gt_subtask": str(frame_sample["subtask"]),
+                "task": task_texts[task_index],
+                "gt_subtask": str(
+                    taskstructures[task_texts[task_index]][_scalar(frame_sample["subtask_id"]) - 1]["subtask"]
+                ),
                 "gt_subtask_id": _scalar(frame_sample["subtask_id"]),
                 "gt_is_complete": bool(
                     _to_numpy(frame_sample["is_complete"]).item()
                 ),
-                "gt_action": _to_numpy(frame_sample["action"]).tolist(),
+                "gt_action": _to_numpy(frame_sample["actions"]).tolist(),
                 "history_grids": history_paths,
                 "future_grid": str(future_path),
                 "response": response,
@@ -440,7 +462,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Comma-separated episode-local frame indices.",
     )
-    parser.set_defaults(horizontal_flip=False)
+    parser.add_argument(
+        "--horizontal-flip",
+        action="store_true",
+        help="Flip embedded dataset RGB frames to match pipeline tracking/depth orientation.",
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     if any(sample < 0 for sample in args.samples):

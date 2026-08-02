@@ -441,9 +441,13 @@ class GraphFlowModel(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
-        self.contact_query = nn.Parameter(torch.zeros(1, future_horizon, hidden_dim))
+        self.contact_query = nn.Parameter(torch.zeros(1, 1, hidden_dim))
         self.contact_pool_attn = RotaryAttention(hidden_dim, num_heads=num_heads, dropout=0.0)
-        self.contact_head = nn.Linear(hidden_dim, 1)
+        self.contact_head = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, future_horizon),
+        )
         nn.init.normal_(self.contact_query, std=0.02)
 
     def set_gradient_checkpointing(self, enabled: bool = True) -> None:
@@ -497,11 +501,8 @@ class GraphFlowModel(nn.Module):
     def _contact_logits(self, history_memory: torch.Tensor) -> torch.Tensor:
         """Predict the future contact profile from the patient CLS history.
 
-        One learnable contact query per future step cross-attends over the
-        patient CLS trajectory (history frames at positions -history_steps+1
-        ... 0) from its own future-time position (1 ... future_horizon),
-        producing per-step tokens that the contact head reads out into
-        [B, future_horizon] logits.
+        One learnable query pools the patient CLS trajectory across any history
+        length. An MLP decodes the pooled token into all future contact logits.
         """
         batch = history_memory.shape[0]
         hidden_dim = history_memory.shape[-1]
@@ -517,13 +518,10 @@ class GraphFlowModel(nn.Module):
         if self.cls_token_num > 1:
             positions = positions.repeat_interleave(self.cls_token_num)
         query = self.contact_query.expand(batch, -1, -1)
-        query_positions = torch.arange(
-            1, self.future_horizon + 1, device=history_memory.device, dtype=torch.float32,
-        )
         contact_token = self.contact_pool_attn(
-            query, patient_history, query_positions, positions,
+            query, patient_history, query_positions=None, key_positions=positions,
         )
-        return self.contact_head(contact_token).squeeze(-1)
+        return self.contact_head(contact_token[:, 0])
 
     def _point_flow_loss(
         self,

@@ -7,10 +7,12 @@ from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS
 from src.model.model import GraphFlowModel
 
 
-def _make_model(*, flow_mode: str = "joint", include_objects: bool = True) -> GraphFlowModel:
+def _make_model(
+    *, flow_mode: str = "joint", include_objects: bool = True, history_horizon: int = 1,
+) -> GraphFlowModel:
     return GraphFlowModel(
         num_points=4,
-        history_horizon=1,
+        history_horizon=history_horizon,
         future_horizon=3,
         condition_dim=8,
         hidden_dim=48,
@@ -28,14 +30,14 @@ def _make_model(*, flow_mode: str = "joint", include_objects: bool = True) -> Gr
     )
 
 
-def _make_batch(batch_size: int = 2, num_points: int = 4) -> dict:
-    history_mask = torch.ones(batch_size, 2, 3, num_points, dtype=torch.bool)
+def _make_batch(batch_size: int = 2, num_points: int = 4, history_steps: int = 2) -> dict:
+    history_mask = torch.ones(batch_size, history_steps, 3, num_points, dtype=torch.bool)
     history_mask[:, :, 0, ACTOR_NUM_POINTS:] = False
     target_mask = torch.ones(batch_size, 3, 3, num_points, dtype=torch.bool)
     target_mask[:, :, 0, ACTOR_NUM_POINTS:] = False
     target_mask[0, :, 2] = False
     return {
-        "entity_points": torch.randn(batch_size, 2, 3, num_points, 3),
+        "entity_points": torch.randn(batch_size, history_steps, 3, num_points, 3),
         "entity_point_mask": history_mask,
         "scene_condition": torch.randn(batch_size, 2, 8),
         "target": {
@@ -78,6 +80,17 @@ def test_sample_returns_point_and_action_plans(include_objects: bool, points_per
     assert outputs["point_plan"].shape == (2, 3, points_per_step, 3)
     assert outputs["point_plan_mask"].shape == (2, 3, points_per_step)
     assert all(torch.isfinite(value).all() for value in outputs.values())
+
+
+@pytest.mark.parametrize("history_horizon", [0, 1, 9])
+def test_contact_head_pools_any_history_length(history_horizon: int) -> None:
+    model = _make_model(history_horizon=history_horizon)
+    batch = _make_batch(history_steps=history_horizon + 1)
+    history_memory, _, _, _ = model._encode(batch)
+    logits = model._contact_logits(history_memory)
+    assert model.contact_query.shape == (1, 1, 48)
+    assert logits.shape == (2, 3)
+    assert torch.isfinite(logits).all()
 
 
 def test_point_then_action_mask_reads_clean_points_without_clean_actions() -> None:
@@ -137,7 +150,8 @@ def test_encoder_uses_layer_specific_rope_and_keeps_object_points_unordered() ->
     assert relation.shape == (points.shape[0], 2, 48)
     assert model.flow.encode_scene(batch["scene_condition"]).shape == (points.shape[0], 2, 48)
     assert model.complete_head[0].in_features == 4 * 48
-    assert model.contact_head.in_features == 48
+    assert model.contact_head[0].in_features == 48
+    assert model.contact_head[-1].out_features == model.future_horizon
 
     object_permutation = torch.tensor([2, 0, 3, 1])
     permuted_objects = points.clone()

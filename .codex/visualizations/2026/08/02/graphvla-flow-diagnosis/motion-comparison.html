@@ -1,0 +1,41 @@
+<div id="graphvla-motion-comparison">
+  <style>
+    #graphvla-motion-comparison { color: var(--foreground); font-family: inherit; }
+    #graphvla-motion-comparison .plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    #graphvla-motion-comparison section { min-width: 0; }
+    #graphvla-motion-comparison h3 { margin: 0 0 12px; font-weight: 500; }
+    #graphvla-motion-comparison .phase { display: grid; grid-template-columns: 106px 1fr; gap: 10px; align-items: center; margin: 11px 0; }
+    #graphvla-motion-comparison .phase-name { color: var(--muted-foreground); }
+    #graphvla-motion-comparison .track { position: relative; height: 38px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    #graphvla-motion-comparison .ideal { position: absolute; left: 76.92%; top: 0; bottom: 0; border-left: 1px dashed var(--foreground); opacity: .55; }
+    #graphvla-motion-comparison .bar { position: absolute; left: 0; height: 13px; min-width: 2px; border-radius: 0 3px 3px 0; }
+    #graphvla-motion-comparison .action { top: 4px; background: var(--viz-series-1); }
+    #graphvla-motion-comparison .points { top: 21px; background: var(--viz-series-2); }
+    #graphvla-motion-comparison .value { position: absolute; transform: translateX(5px); font-size: 12px; color: var(--foreground); white-space: nowrap; }
+    #graphvla-motion-comparison .action-value { top: 2px; }
+    #graphvla-motion-comparison .point-value { top: 19px; }
+    #graphvla-motion-comparison .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; color: var(--muted-foreground); }
+    #graphvla-motion-comparison .key { display: inline-flex; align-items: center; gap: 6px; }
+    #graphvla-motion-comparison .swatch { width: 18px; height: 8px; border-radius: 2px; }
+    #graphvla-motion-comparison .note { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--muted-foreground); }
+    @media (max-width: 620px) { #graphvla-motion-comparison .plots { grid-template-columns: 1fr; } }
+  </style>
+  <div class="plots" role="img" aria-label="Predicted to ground-truth motion ratios by execution phase for direct ground-truth model input and corrected server replay">
+    <section>
+      <h3>Direct GT Input · Step 30000</h3>
+      <div class="phase"><span class="phase-name">Approach</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:82.6%"></i><span class="value action-value" style="left:82.6%">1.07</span><i class="bar points" style="width:81.3%"></i><span class="value point-value" style="left:81.3%">1.06</span></div></div>
+      <div class="phase"><span class="phase-name">Contact</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:68.9%"></i><span class="value action-value" style="left:68.9%">0.90</span><i class="bar points" style="width:72.6%"></i><span class="value point-value" style="left:72.6%">0.94</span></div></div>
+      <div class="phase"><span class="phase-name">Transport</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:75.7%"></i><span class="value action-value" style="left:75.7%">0.98</span><i class="bar points" style="width:77.4%"></i><span class="value point-value" style="left:77.4%">1.01</span></div></div>
+      <div class="phase"><span class="phase-name">Pre-completion</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:63.8%"></i><span class="value action-value" style="left:63.8%">0.83</span><i class="bar points" style="width:65.9%"></i><span class="value point-value" style="left:65.9%">0.86</span></div></div>
+    </section>
+    <section>
+      <h3>Corrected Server Replay · Episode 0</h3>
+      <div class="phase"><span class="phase-name">Approach</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:93.5%"></i><span class="value action-value" style="left:93.5%">1.21</span><i class="bar points" style="width:70.5%"></i><span class="value point-value" style="left:70.5%">0.92</span></div></div>
+      <div class="phase"><span class="phase-name">Contact</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:82.2%"></i><span class="value action-value" style="left:82.2%">1.07</span><i class="bar points" style="width:95.1%"></i><span class="value point-value" style="left:95.1%">1.24</span></div></div>
+      <div class="phase"><span class="phase-name">Transport</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:74.0%"></i><span class="value action-value" style="left:74.0%">0.96</span><i class="bar points" style="width:76.7%"></i><span class="value point-value" style="left:76.7%">1.00</span></div></div>
+      <div class="phase"><span class="phase-name">Pre-completion</span><div class="track"><i class="ideal"></i><i class="bar action" style="width:38.9%"></i><span class="value action-value" style="left:38.9%">0.51</span><i class="bar points" style="width:36.6%"></i><span class="value point-value" style="left:36.6%">0.48</span></div></div>
+    </section>
+  </div>
+  <div class="legend"><span class="key"><i class="swatch" style="background:var(--viz-series-1)"></i>Action</span><span class="key"><i class="swatch" style="background:var(--viz-series-2)"></i>Actor points</span><span class="key">Dashed line = GT motion (1.0)</span></div>
+  <div class="note">Transport remains accurate under both tests. Motion weakens near completion, but complete online stopping requires closed-loop rollout drift beyond the replay distribution.</div>
+</div>

@@ -1,0 +1,106 @@
+[
+  {
+    "sample": 44,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "action": {
+      "ade_mm": 15.577983072104862,
+      "fde_mm": 15.367796544898974,
+      "pred_motion_mm": 27.92525687203154,
+      "gt_motion_mm": 22.984087467193604,
+      "motion_ratio": 1.2149821876500744,
+      "direction_cosine": 0.9873887909410767
+    },
+    "actor_points": {
+      "ade_mm": 13.351808810470612,
+      "fde_mm": 13.45424631550713,
+      "pred_motion_mm": 22.619097939869036,
+      "gt_motion_mm": 24.68985877931118,
+      "motion_ratio": 0.916129093408289,
+      "direction_cosine": 0.9780454544770131
+    },
+    "entity_input": {
+      "actor_centroid_error_mm": 0.0,
+      "patient_centroid_error_mm": 36.68641671538353,
+      "target_centroid_error_mm": 8.220111019909382
+    }
+  },
+  {
+    "sample": 54,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "action": {
+      "ade_mm": 15.16100696000282,
+      "fde_mm": 17.894432656230798,
+      "pred_motion_mm": 20.36125651398014,
+      "gt_motion_mm": 19.06576193869114,
+      "motion_ratio": 1.0679487439030688,
+      "direction_cosine": 0.967169705920659
+    },
+    "actor_points": {
+      "ade_mm": 11.696608424397608,
+      "fde_mm": 13.167067228829382,
+      "pred_motion_mm": 23.45498438293959,
+      "gt_motion_mm": 18.975703045725822,
+      "motion_ratio": 1.2360535115046871,
+      "direction_cosine": 0.9885271941837289
+    },
+    "entity_input": {
+      "actor_centroid_error_mm": 0.0,
+      "patient_centroid_error_mm": 16.983788460493088,
+      "target_centroid_error_mm": 8.214753121137619
+    }
+  },
+  {
+    "sample": 69,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "action": {
+      "ade_mm": 10.27938030319805,
+      "fde_mm": 13.774990542935134,
+      "pred_motion_mm": 98.8361690474383,
+      "gt_motion_mm": 102.74181514978409,
+      "motion_ratio": 0.9619858175889547,
+      "direction_cosine": 0.9993468351224527
+    },
+    "actor_points": {
+      "ade_mm": 10.386690527609359,
+      "fde_mm": 13.265748594570875,
+      "pred_motion_mm": 102.59066725836098,
+      "gt_motion_mm": 102.86685079336166,
+      "motion_ratio": 0.9973151357033815,
+      "direction_cosine": 0.9978750174240253
+    },
+    "entity_input": {
+      "actor_centroid_error_mm": 0.0,
+      "patient_centroid_error_mm": 22.529423236846924,
+      "target_centroid_error_mm": 8.21573380380869
+    }
+  },
+  {
+    "sample": 144,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "action": {
+      "ade_mm": 10.852433297382351,
+      "fde_mm": 26.40596861222801,
+      "pred_motion_mm": 28.889095037322726,
+      "gt_motion_mm": 57.15101212263107,
+      "motion_ratio": 0.5054870240151532,
+      "direction_cosine": 0.9766541035735934
+    },
+    "actor_points": {
+      "ade_mm": 10.562735008143328,
+      "fde_mm": 22.680801343583806,
+      "pred_motion_mm": 27.20547680839643,
+      "gt_motion_mm": 57.10827559232712,
+      "motion_ratio": 0.4763841409361635,
+      "direction_cosine": 0.9891200429495963
+    },
+    "entity_input": {
+      "actor_centroid_error_mm": 0.0,
+      "patient_centroid_error_mm": 7.9568373039364815,
+      "target_centroid_error_mm": 15.3822535648942
+    }
+  }
+]

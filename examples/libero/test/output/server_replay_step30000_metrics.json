@@ -1,0 +1,90 @@
+[
+  {
+    "sample": 44,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "server_subtask": "put the white mug on the plate",
+    "action": {
+      "ade_mm": 137.49819477239348,
+      "fde_mm": 145.98220024436387,
+      "pred_motion_mm": 15.621235611676834,
+      "gt_motion_mm": 22.984087467193604,
+      "motion_ratio": 0.6796543754009745,
+      "direction_cosine": 0.05196940126299454
+    },
+    "actor_points": {
+      "ade_mm": 118.6202714436556,
+      "fde_mm": 132.61137280062283,
+      "pred_motion_mm": 27.805835373686822,
+      "gt_motion_mm": 24.68985877931118,
+      "motion_ratio": 1.1262047151515775,
+      "direction_cosine": 0.29283659789961475
+    }
+  },
+  {
+    "sample": 54,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "server_subtask": "put the white mug on the plate",
+    "action": {
+      "ade_mm": 120.94056262555242,
+      "fde_mm": 122.82317533771952,
+      "pred_motion_mm": 37.89942421475722,
+      "gt_motion_mm": 19.06576193869114,
+      "motion_ratio": 1.9878263631229944,
+      "direction_cosine": 0.8916150924181443
+    },
+    "actor_points": {
+      "ade_mm": 105.95544312434083,
+      "fde_mm": 113.53965876028116,
+      "pred_motion_mm": 36.974121052056354,
+      "gt_motion_mm": 18.975703045725822,
+      "motion_ratio": 1.9484980853125533,
+      "direction_cosine": 0.8900855793536703
+    }
+  },
+  {
+    "sample": 69,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "server_subtask": "put the white mug on the plate",
+    "action": {
+      "ade_mm": 100.01202691507753,
+      "fde_mm": 96.16760926740886,
+      "pred_motion_mm": 84.16583200165267,
+      "gt_motion_mm": 102.74181514978409,
+      "motion_ratio": 0.819197440486621,
+      "direction_cosine": 0.9753775414135125
+    },
+    "actor_points": {
+      "ade_mm": 87.61544279938641,
+      "fde_mm": 87.99068331096201,
+      "pred_motion_mm": 93.23427337521363,
+      "gt_motion_mm": 102.86685079336166,
+      "motion_ratio": 0.9063587798804311,
+      "direction_cosine": 0.9738227832786287
+    }
+  },
+  {
+    "sample": 144,
+    "gt_subtask_id": 1,
+    "server_subtask_index": 0,
+    "server_subtask": "put the white mug on the plate",
+    "action": {
+      "ade_mm": 25.541051706679788,
+      "fde_mm": 48.43611434728732,
+      "pred_motion_mm": 14.450526586065456,
+      "gt_motion_mm": 57.15101212263107,
+      "motion_ratio": 0.252848130756782,
+      "direction_cosine": 0.9791662858047537
+    },
+    "actor_points": {
+      "ade_mm": 25.055988713315234,
+      "fde_mm": 49.83975675417428,
+      "pred_motion_mm": 8.52500593519154,
+      "gt_motion_mm": 57.10827559232712,
+      "motion_ratio": 0.14927794346388798,
+      "direction_cosine": 0.2550060731087481
+    }
+  }
+]

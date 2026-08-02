@@ -10,7 +10,7 @@ from typing import Any
 class ModelConfig:
     num_points: int = 32
     cls_token_num: int = 1
-    history_horizon: int = 9
+    history_horizon: int = 0
     future_horizon: int = 10
     condition_dim: int = 384
     hidden_dim: int = 256 * 3
