@@ -172,6 +172,18 @@ class InferenceClient:
         return json.loads(message)
 
 
+def _save_evaluation_info(*, host: str, port: int, output_dir: Path) -> None:
+    uri = f"ws://{host}:{port}"
+    response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
+    if "error" in response:
+        raise RuntimeError(response["error"])
+    ckpt_path = response.get("ckpt_path")
+    if not isinstance(ckpt_path, str) or not ckpt_path:
+        raise ValueError(f"server returned invalid ckpt_path: {ckpt_path!r}")
+    info_path = output_dir / "evaluation_info.txt"
+    info_path.write_text(f"ckpt_path: {ckpt_path}\n", encoding="utf-8")
+    cs.print(f"saved evaluation info to: {info_path}")
+
 
 def camera_matrices_from_env(env: Any, *, camera_name: str) -> tuple[np.ndarray, np.ndarray]:
     sim = env.env.sim if hasattr(env, "env") and hasattr(env.env, "sim") else env.sim
@@ -598,6 +610,7 @@ def main() -> None:
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
     result_path.parent.mkdir(parents=True, exist_ok=True)
+    _save_evaluation_info(host=args.host, port=args.port, output_dir=suite_output_dir)
 
     client = InferenceClient(host=args.host, port=args.port)
     total_episodes = 0

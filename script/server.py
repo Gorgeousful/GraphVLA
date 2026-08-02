@@ -980,6 +980,7 @@ class InferenceServer:
         preprocessor: InputPreprocessor,
         inference: InferenceModel,
         embodiment: EmbodimentAdapter,
+        ckpt_path: str | Path,
     ) -> None:
         self.host = host
         self.port = port
@@ -993,6 +994,7 @@ class InferenceServer:
         self.preprocessor = preprocessor
         self.inference = inference
         self.embodiment = embodiment
+        self.ckpt_path = str(Path(ckpt_path).resolve())
         self.sessions: dict[str, InferenceSession] = {}
         self.idle_timeout = 180.0
         self.last_message_time = 0.0
@@ -1024,7 +1026,10 @@ class InferenceServer:
                 request = json.loads(message)
                 if not isinstance(request, Mapping):
                     raise TypeError("request message must be a JSON object")
-                response = self.infer_from_observation(request)
+                if request.get("type") == "server_info":
+                    response = {"ckpt_path": self.ckpt_path}
+                else:
+                    response = self.infer_from_observation(request)
             except Exception as exc:
                 response = {"error": str(exc)}
             await websocket.send(json.dumps(response))
@@ -1369,6 +1374,7 @@ def main() -> None:
             action_mode=args.action_mode,
             action_delta=bool(getattr(model_config, "action_delta", True)),
         ),
+        ckpt_path=args.ckpt_path,
     )
     server.serve_forever()
 
