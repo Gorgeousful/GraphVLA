@@ -6,8 +6,20 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import ACTOR_POINT_INDICES, NUM_ENTITIES, POINT_FEATURE_DIM
+from src.common.schema import ACTOR_NUM_POINTS, NUM_ENTITIES, POINT_FEATURE_DIM
 from src.model.temporal import RotaryEncoderBlock
+
+
+def _encoder_block(hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> nn.Module:
+    return nn.TransformerEncoderLayer(
+        hidden_dim,
+        num_heads,
+        int(hidden_dim * mlp_ratio),
+        dropout,
+        activation="gelu",
+        batch_first=True,
+        norm_first=True,
+    )
 
 
 class EntityEncoder(nn.Module):
@@ -19,6 +31,7 @@ class EntityEncoder(nn.Module):
         num_layers: int,
         num_heads: int,
         mlp_ratio: float,
+        condition_dim: int,
         max_history: int,
         cls_token_num: int = 1,
         dropout: float = 0.0,
@@ -33,15 +46,18 @@ class EntityEncoder(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
         self.max_history = max_history
+        self.actor_keypoint_embedding = nn.Embedding(ACTOR_NUM_POINTS, hidden_dim)
+        self.role_type_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
+        self.action_projection = nn.Linear(condition_dim, hidden_dim)
+        self.degree_projection = nn.Linear(condition_dim, hidden_dim)
+        self.scene_type_embedding = nn.Embedding(2, hidden_dim)
+        self.null_degree_token = nn.Parameter(torch.zeros(1, hidden_dim))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, cls_token_num, hidden_dim))
         self.local_blocks = nn.ModuleList([
-            RotaryEncoderBlock(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
+            _encoder_block(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
         ])
-        head_dim = hidden_dim // num_heads
-        global_axis_dims = (head_dim // 2, head_dim - head_dim // 2)
         self.global_blocks = nn.ModuleList([
-            RotaryEncoderBlock(hidden_dim, num_heads, mlp_ratio, dropout, global_axis_dims)
-            for _ in range(num_layers)
+            RotaryEncoderBlock(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
         ])
         self.norm = nn.LayerNorm(hidden_dim)
         self.gradient_checkpointing = False
@@ -51,7 +67,8 @@ class EntityEncoder(nn.Module):
         self,
         points: torch.Tensor,
         point_mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        scene_condition: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
             raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
         batch, steps, entities, num_points, _ = points.shape
@@ -59,31 +76,37 @@ class EntityEncoder(nn.Module):
             raise ValueError(f"Expected at most {self.max_history} history steps, got {steps}")
         if point_mask.shape != points.shape[:-1]:
             raise ValueError(f"point mask {point_mask.shape} does not match points {points.shape}")
+        if scene_condition.shape[:2] != (batch, 2):
+            raise ValueError(f"Expected scene_condition [B,2,C], got {scene_condition.shape}")
+
         tokens = self.point_stem(points)
+        actor_ids = torch.arange(ACTOR_NUM_POINTS, device=points.device)
+        tokens[:, :, 0, :ACTOR_NUM_POINTS] += self.actor_keypoint_embedding(actor_ids)[None, None]
+
         cls = self.cls_token.expand(batch, steps, entities, -1, -1)
-
-        cls_positions = torch.arange(-self.cls_token_num, 0, device=points.device)
-        point_positions = torch.zeros(
-            entities, num_points, device=points.device, dtype=cls_positions.dtype,
+        role_types = self.role_type_embedding(
+            torch.arange(entities, device=points.device)
+        )[None, None, :, None]
+        scene_types = self.scene_type_embedding(torch.arange(2, device=points.device))[None]
+        action_token = self.action_projection(scene_condition[:, 0])
+        projected_degree = self.degree_projection(scene_condition[:, 1])
+        has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
+        degree_token = torch.where(
+            has_degree,
+            projected_degree,
+            self.null_degree_token.expand(batch, -1),
         )
-        point_positions[0, :len(ACTOR_POINT_INDICES)] = torch.arange(
-            len(ACTOR_POINT_INDICES), device=points.device,
-        )
-        local_positions = torch.cat([
-            cls_positions.expand(entities, -1), point_positions,
-        ], dim=1)[None, None].expand(batch, steps, -1, -1).reshape(
-            batch * steps * entities, self.cls_token_num + num_points,
-        )
-
+        scene_tokens = torch.stack([action_token, degree_token], dim=1) + scene_types
         history_positions = torch.arange(1 - steps, 1, device=points.device)
-        global_entity_tokens = steps * entities * self.cls_token_num
-        entity_slots = torch.arange(entities * self.cls_token_num, device=points.device)
-        global_positions = torch.stack([
+        global_positions = torch.cat([
             history_positions.repeat_interleave(entities * self.cls_token_num),
-            entity_slots.repeat(steps),
-        ], dim=-1)
+            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
+        ])
+        global_entity_tokens = steps * entities * self.cls_token_num
 
-        for local_block, global_block in zip(self.local_blocks, self.global_blocks, strict=True):
+        for layer_index, (local_block, global_block) in enumerate(
+            zip(self.local_blocks, self.global_blocks, strict=True)
+        ):
             local = torch.cat([cls, tokens], dim=3)
             local = local.reshape(
                 batch * steps * entities, num_points + self.cls_token_num, -1
@@ -97,22 +120,23 @@ class EntityEncoder(nn.Module):
             ], dim=3).reshape(
                 batch * steps * entities, num_points + self.cls_token_num
             )
-            local_attention_mask = (~padding)[:, None, :].expand(
-                -1, num_points + self.cls_token_num, -1,
-            )
             if self.gradient_checkpointing and self.training:
                 local = checkpoint(
-                    local_block, local, local_positions, local_attention_mask,
+                    local_block, local, src_key_padding_mask=padding,
                     use_reentrant=False, preserve_rng_state=False,
                 )
             else:
-                local = local_block(local, local_positions, local_attention_mask)
+                local = local_block(local, src_key_padding_mask=padding)
             local = local.view(
                 batch, steps, entities, num_points + self.cls_token_num, -1
             )
             cls = local[:, :, :, :self.cls_token_num]
             tokens = local[:, :, :, self.cls_token_num:]
-            global_cls = cls.reshape(batch, global_entity_tokens, -1)
+            if layer_index == 0:
+                cls = cls + role_types
+            global_cls = torch.cat(
+                [cls.reshape(batch, global_entity_tokens, -1), scene_tokens], dim=1
+            )
             if self.gradient_checkpointing and self.training:
                 global_cls = checkpoint(
                     global_block, global_cls, global_positions,
@@ -120,15 +144,12 @@ class EntityEncoder(nn.Module):
                 )
             else:
                 global_cls = global_block(global_cls, global_positions)
-            cls = global_cls.view(
+            cls = global_cls[:, :global_entity_tokens].view(
                 batch, steps, entities, self.cls_token_num, -1
             )
+            scene_tokens = global_cls[:, global_entity_tokens:]
 
         current_cls = cls[:, -1]
         relation_local = current_cls[:, 1:3].flatten(1, 2)
-        history_memory = cls.flatten(1, 3)
-        return (
-            self.norm(history_memory),
-            global_positions,
-            self.norm(relation_local),
-        )
+        memory = torch.cat([current_cls.flatten(1, 2), scene_tokens], dim=1)
+        return self.norm(memory), self.norm(relation_local)

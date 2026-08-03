@@ -79,7 +79,11 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :len(ACTOR_POINT_INDICES)]
     expected = (gripper[list(ACTOR_POINT_INDICES)] * 2.0 - 1.0)[None]
     np.testing.assert_allclose(actor, np.repeat(expected, 2, axis=0), atol=1e-6)
-    assert "gripper_closedness_history" not in model_input
+    closedness = np.asarray(model_input["gripper_closedness_history"], dtype=np.float32)
+    assert closedness.shape == (1, 2, 1)
+    expected_openness = np.clip(np.linalg.norm(gripper[3] - gripper[4]) / 0.08, 0.0, 1.0)
+    expected_closedness = 1.0 - 2.0 * expected_openness
+    np.testing.assert_allclose(closedness, expected_closedness, atol=1e-6)
 
 
 def test_camera_action_is_rotated_to_world_frame() -> None:

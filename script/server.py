@@ -34,8 +34,10 @@ from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
     ACTION_DIM,
+    ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
+    LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
 )
@@ -435,15 +437,20 @@ class InputPreprocessor:
             axis=0,
         )
         actor_xyz = np.stack([
-            self._normalize_field(item["gripper_points_xyz"], "camera_xyz")[list(ACTOR_POINT_INDICES)]
+            self._normalize_field(item["gripper_points_xyz"], "camera_xyz")[
+                list(ACTOR_POINT_INDICES)
+            ]
             for item in frames
         ], axis=0)
+        full_gripper_xyz = np.stack(
+            [item["gripper_points_xyz"] for item in frames], axis=0,
+        )
         entity_points = np.zeros(
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
         entity_mask = np.zeros((len(frames), 3, self.num_points), dtype=bool)
-        entity_points[:, 0, :len(ACTOR_POINT_INDICES)] = actor_xyz
-        entity_mask[:, 0, :len(ACTOR_POINT_INDICES)] = True
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_xyz
+        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
         object_valid = np.any(object_points != 0, axis=(-1, -2))
         for object_index in range(2):
@@ -451,9 +458,15 @@ class InputPreprocessor:
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
         scene_condition_texts = [action_type, action_degree]
+        gripper_width = np.linalg.norm(
+            full_gripper_xyz[:, 3] - full_gripper_xyz[:, 4], axis=-1,
+        )
+        openness = np.clip(gripper_width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0)
+        closedness = (1.0 - 2.0 * openness)[:, None].astype(np.float32)
         return {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
+            "gripper_closedness_history": closedness[None].tolist(),
             "scene_condition_texts": scene_condition_texts,
         }
 
@@ -1033,6 +1046,10 @@ class InferenceModel:
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
             "scene_condition": scene_condition,
         }
+        if "gripper_closedness_history" in input_data:
+            infer_inputs["gripper_closedness_history"] = tensor(
+                "gripper_closedness_history", torch.float32,
+            )
         outputs = self.model.sample(infer_inputs)
         output_data = {"outputs": outputs, "batch": infer_inputs}
         for transform in self.out_transforms:

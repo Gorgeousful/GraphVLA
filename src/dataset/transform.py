@@ -10,8 +10,10 @@ from rich.console import Console
 from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTION_DIM,
+    ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
+    LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
 )
 cs = Console()
@@ -512,8 +514,8 @@ class CustomTransform(TransformFn):
         points_per_entity = object_points.shape[2]
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
         entity_mask = torch.zeros((num_frames, 3, points_per_entity), dtype=torch.bool, device=object_points.device)
-        entity_points[:, 0, :len(ACTOR_POINT_INDICES)] = actor_points
-        entity_mask[:, 0, :len(ACTOR_POINT_INDICES)] = True
+        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_points
+        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
         entity_points[:, 1:3] = object_points
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
             slot_index = {"patient": 0, "target": 1}.get(role, role_index)
@@ -537,29 +539,36 @@ class CustomTransform(TransformFn):
         scene_condition = self._build_scene_condition(
             data["subtaskstructure"], device=entity_points.device,
         )
+        metric_gripper_points = self._unnormalize_output_field(
+            gripper_points_xyz.clone(), field="camera_xyz", context=data,
+        )
+        gripper_width = torch.linalg.vector_norm(
+            metric_gripper_points[:, 3] - metric_gripper_points[:, 4], dim=-1,
+        )
+        openness = (gripper_width / LIBERO_GRIPPER_MAX_WIDTH).clamp(0.0, 1.0)
+        closedness = (1.0 - 2.0 * openness).unsqueeze(-1)
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
         if action.shape != (num_frames, ACTION_DIM):
             raise ValueError(f"Expected action [T,{ACTION_DIM}], got {tuple(action.shape)}")
-        future_action = action[input_horizon:input_horizon + future_horizon]
-        future_points = entity_points[input_horizon:input_horizon + future_horizon]
-        future_point_mask = entity_mask[input_horizon:input_horizon + future_horizon]
+        future_points = actor_points[input_horizon:input_horizon + future_horizon]
+        future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
+        trajectory = torch.cat([future_points.flatten(1), future_gripper], dim=-1)
         target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
             "scene_condition": scene_condition,
+            "gripper_closedness_history": closedness[:input_horizon],
             "target": {
-                "action": future_action,
-                "points": future_points,
-                "point_mask": future_point_mask,
+                "trajectory": trajectory,
                 "is_complete": torch.as_tensor(
                     data[f"is_complete{target_suffix}"], device=entity_points.device,
                     dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
-                "is_contact_future": torch.as_tensor(
+                "is_contact": torch.as_tensor(
                     data[f"is_contact{target_suffix}"], device=entity_points.device,
                     dtype=entity_points.dtype,
-                )[input_horizon:input_horizon + future_horizon],
+                )[history_horizon].reshape(1),
             },
         }
         for key in ("images", "state", "metadata"):

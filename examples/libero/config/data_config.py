@@ -145,7 +145,10 @@ LIBERO_TRANSFORM = (
     CustomTransform(
         mode="build_model_input",
         dataset_dir=LIBERO_DATASET_DIR,
-        extra={"use_soft": LIBERO_USE_SOFT},
+        extra={
+            "use_soft": LIBERO_USE_SOFT,
+            "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+        },
     ),
 )
 
