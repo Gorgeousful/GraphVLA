@@ -12,7 +12,7 @@ from pathlib import Path
 class TrainingConfig:
     # common
     resume: bool = True
-    max_steps: int = 50_000
+    max_steps: int = 30_000
     batch_size: int = 64
 
     # gradient
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0803-action-finger-abs-7"
+    wandb_name: str | None = "0803-contact-action-finger-share-abs-7"
 
 
     def to_kwargs(self) -> dict[str, Any]:

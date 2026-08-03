@@ -38,7 +38,7 @@ class ModelConfig:
         "loss_point_flow": 1.0,
         "loss_action_flow": 1.0,
         "loss_complete": 0.5,
-        "loss_contact": 0.0,
+        "loss_contact": 0.5,
     })
 
     def to_kwargs(self) -> dict[str, Any]:
