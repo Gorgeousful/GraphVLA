@@ -10,7 +10,7 @@ from typing import Any
 class ModelConfig:
     num_points: int = 32
     cls_token_num: int = 1
-    history_horizon: int = 0
+    history_horizon: int = 9
     future_horizon: int = 10
     condition_dim: int = 384
     hidden_dim: int = 256 * 3
@@ -28,6 +28,7 @@ class ModelConfig:
     point_sigma_shift: float = 1.0
     action_sigma_shift: float = 1.0
     correlated_sigma_sampling: bool = True
+    shared_horizon_sigma_sampling: bool = True
     point_sample_steps: int = 10
     action_sample_steps: int = 10
 
@@ -37,7 +38,7 @@ class ModelConfig:
         "loss_point_flow": 1.0,
         "loss_action_flow": 1.0,
         "loss_complete": 0.5,
-        "loss_contact": 0.5,
+        "loss_contact": 0.0,
     })
 
     def to_kwargs(self) -> dict[str, Any]:

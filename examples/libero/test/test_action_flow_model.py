@@ -4,11 +4,17 @@ import pytest
 import torch
 
 from src.common.schema import ACTION_DIM, ACTOR_NUM_POINTS
+from src.model.flow_matching import FlowMatchScheduler
 from src.model.model import GraphFlowModel
 
 
 def _make_model(
-    *, flow_mode: str = "joint", include_objects: bool = True, history_horizon: int = 1,
+    *,
+    flow_mode: str = "joint",
+    include_objects: bool = True,
+    history_horizon: int = 1,
+    correlated_sigma_sampling: bool = False,
+    shared_horizon_sigma_sampling: bool = False,
 ) -> GraphFlowModel:
     return GraphFlowModel(
         num_points=4,
@@ -25,6 +31,8 @@ def _make_model(
         include_future_object_point=include_objects,
         point_num_train_timesteps=32,
         action_num_train_timesteps=32,
+        correlated_sigma_sampling=correlated_sigma_sampling,
+        shared_horizon_sigma_sampling=shared_horizon_sigma_sampling,
         point_sample_steps=2,
         action_sample_steps=2,
     )
@@ -62,6 +70,40 @@ def test_joint_point_action_forward_backward(flow_mode: str) -> None:
     }
     assert model.flow.point_projection.in_features == 3
     assert model.flow.action_projection.in_features == ACTION_DIM
+
+
+@pytest.mark.parametrize(
+    ("shared_horizon", "correlated"),
+    [(False, False), (False, True), (True, False), (True, True)],
+)
+def test_training_sigma_sampling_modes(
+    monkeypatch: pytest.MonkeyPatch, shared_horizon: bool, correlated: bool,
+) -> None:
+    timestep_ids = []
+    original = FlowMatchScheduler.sample_training
+
+    def capture_timestep_ids(self, target, **kwargs):
+        ids = kwargs.get("timestep_ids")
+        timestep_ids.append(None if ids is None else ids.clone())
+        return original(self, target, **kwargs)
+
+    monkeypatch.setattr(FlowMatchScheduler, "sample_training", capture_timestep_ids)
+    model = _make_model(
+        correlated_sigma_sampling=correlated,
+        shared_horizon_sigma_sampling=shared_horizon,
+    )
+    model(_make_batch())
+
+    point_ids, action_ids = timestep_ids
+    if not shared_horizon and not correlated:
+        assert point_ids is None and action_ids is None
+        return
+    assert point_ids is not None and action_ids is not None
+    if shared_horizon:
+        assert torch.all(point_ids == point_ids[:, :1])
+        assert torch.all(action_ids == action_ids[:, :1])
+    if correlated:
+        torch.testing.assert_close(point_ids, action_ids)
 
 
 @pytest.mark.parametrize(("include_objects", "points_per_step"), [(False, 3), (True, 11)])
