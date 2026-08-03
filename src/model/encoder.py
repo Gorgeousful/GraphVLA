@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import ACTOR_NUM_POINTS, NUM_ENTITIES, POINT_FEATURE_DIM
+from src.common.schema import ACTOR_POINT_INDICES, NUM_ENTITIES, POINT_FEATURE_DIM
 from src.model.temporal import RotaryEncoderBlock
 
 
@@ -66,8 +66,8 @@ class EntityEncoder(nn.Module):
         point_positions = torch.zeros(
             entities, num_points, device=points.device, dtype=cls_positions.dtype,
         )
-        point_positions[0, :ACTOR_NUM_POINTS] = torch.arange(
-            ACTOR_NUM_POINTS, device=points.device,
+        point_positions[0, :len(ACTOR_POINT_INDICES)] = torch.arange(
+            len(ACTOR_POINT_INDICES), device=points.device,
         )
         local_positions = torch.cat([
             cls_positions.expand(entities, -1), point_positions,

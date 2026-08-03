@@ -25,7 +25,7 @@ from PIL import Image
 from rich.console import Console
 from scipy.spatial.transform import Rotation as R
 
-from src.model.model import GraphFlowModel
+from src.model.model import FLOW_MODES, GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
 from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
@@ -34,7 +34,6 @@ from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
     ACTION_DIM,
-    ACTOR_NUM_POINTS,
     ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
     POINT_FEATURE_DIM,
@@ -443,8 +442,8 @@ class InputPreprocessor:
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
         entity_mask = np.zeros((len(frames), 3, self.num_points), dtype=bool)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_xyz
-        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
+        entity_points[:, 0, :len(ACTOR_POINT_INDICES)] = actor_xyz
+        entity_mask[:, 0, :len(ACTOR_POINT_INDICES)] = True
         entity_points[:, 1:3] = object_points
         object_valid = np.any(object_points != 0, axis=(-1, -2))
         for object_index in range(2):
@@ -771,7 +770,7 @@ class InputPreprocessor:
 
 
 class EmbodimentAdapter:
-    """Convert camera-frame action plans into LIBERO world-frame actions."""
+    """Convert routed model plans into executable LIBERO world-frame actions."""
 
     def __init__(
         self,
@@ -779,12 +778,23 @@ class EmbodimentAdapter:
         future_horizon: int,
         action_mode: str = "continuous",
         action_delta: bool = True,
+        flow_mode: str = "joint",
+        robot_cls: type[Any] | None = None,
     ) -> None:
         if action_mode not in {"continuous", "discrete"}:
             raise ValueError(f"Unsupported action mode: {action_mode!r}")
+        if flow_mode not in FLOW_MODES:
+            raise ValueError(f"Unsupported flow mode: {flow_mode!r}")
+        if flow_mode == "point_only" and action_delta:
+            raise ValueError("point_only server execution requires action_delta=False")
+        if flow_mode == "point_only" and robot_cls is None:
+            raise ValueError("point_only server execution requires robot_cls")
         self.future_horizon = future_horizon
         self.action_mode = action_mode
         self.action_delta = bool(action_delta)
+        self.flow_mode = flow_mode
+        self.robot_cls = robot_cls
+        self.robot: Any = None
 
     def to_action(
         self,
@@ -794,6 +804,8 @@ class EmbodimentAdapter:
     ) -> list[list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
+        if self.flow_mode == "point_only":
+            return self._point_plan_to_action(outputs, request, session)
         if "action_plan" not in outputs:
             raise KeyError("Model outputs are missing required head: action_plan")
 
@@ -821,19 +833,112 @@ class EmbodimentAdapter:
             for index, camera_rotvec in enumerate(camera_actions[:, 3:6]):
                 world_rotation = camera_to_world_rotation @ R.from_rotvec(camera_rotvec).as_matrix()
                 world_actions[index, 3:6] = R.from_matrix(world_rotation).as_rotvec()
-            world_actions[:, 6] = np.clip(world_actions[:, 6], -1.0, 1.0)
 
         for action in world_actions:
-            predicted_command = float(action[6])
-            if self.action_mode == "continuous":
-                session.gripper_command = predicted_command
-            else:
-                if predicted_command > 0.2:
-                    session.gripper_command = 1.0
-                elif predicted_command < -0.2:
-                    session.gripper_command = -1.0
-            action[6] = session.gripper_command
+            action[6] = self._gripper_command(float(action[6]), session)
         return world_actions.astype(np.float32).tolist()
+
+    def _point_plan_to_action(
+        self,
+        outputs: Mapping[str, Any],
+        request: Mapping[str, Any],
+        session: InferenceSession,
+    ) -> list[list[float]]:
+        required = {"point_plan", "point_plan_mask", "gripper_plan"}
+        missing = required.difference(outputs)
+        if missing:
+            raise KeyError(f"Model outputs are missing required heads: {sorted(missing)}")
+
+        point_plan = np.asarray(outputs["point_plan"], dtype=np.float64)
+        if (
+            point_plan.ndim != 4
+            or point_plan.shape[0] != 1
+            or point_plan.shape[1] != self.future_horizon
+            or point_plan.shape[2] != len(ACTOR_POINT_INDICES)
+            or point_plan.shape[3] != POINT_FEATURE_DIM
+        ):
+            raise ValueError(
+                "point_plan must have shape "
+                f"[1,{self.future_horizon},{len(ACTOR_POINT_INDICES)},{POINT_FEATURE_DIM}], "
+                f"got {point_plan.shape}"
+            )
+        actor_plan = point_plan[0]
+        if not np.isfinite(actor_plan).all():
+            raise ValueError("point_plan actor keypoints contain non-finite values")
+
+        point_mask = np.asarray(outputs["point_plan_mask"], dtype=bool)
+        if point_mask.shape != point_plan.shape[:-1]:
+            raise ValueError(
+                f"point_plan_mask shape {point_mask.shape} does not match {point_plan.shape[:-1]}"
+            )
+        if not point_mask.all():
+            raise ValueError("point_plan contains invalid actor keypoints")
+
+        gripper_plan = np.asarray(outputs["gripper_plan"], dtype=np.float64)
+        expected_gripper_shape = (1, self.future_horizon)
+        if gripper_plan.shape != expected_gripper_shape:
+            raise ValueError(
+                f"gripper_plan must have shape {expected_gripper_shape}, got {gripper_plan.shape}"
+            )
+        if not np.isfinite(gripper_plan).all():
+            raise ValueError("gripper_plan contains non-finite values")
+
+        state = np.asarray(request["observation.state"], dtype=np.float64)
+        if state.ndim == 2:
+            state = state[-1]
+        if state.size < 8:
+            raise ValueError(
+                f"point_only execution requires observation.state with gripper fingers, got {state.shape}"
+            )
+        current_width = abs(float(state[6])) + abs(float(state[7]))
+        extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
+        robot = self._robot()
+
+        actions = []
+        residuals = []
+        for future_index, points in enumerate(actor_plan):
+            pose, residual = robot.project_actor_xyz_to_gripper(
+                points,
+                gripper_width=current_width,
+                extrinsic=extrinsic,
+                return_residual=True,
+            )
+            action = np.asarray(pose, dtype=np.float64)
+            if action.shape != (ACTION_DIM,) or not np.isfinite(action).all():
+                raise ValueError(
+                    f"Invalid point-only recovered action at index {future_index}: {action}"
+                )
+            predicted_command = float(gripper_plan[0, future_index])
+            action[6] = self._gripper_command(predicted_command, session)
+            actions.append(action.astype(np.float32).tolist())
+            residuals.append(float(residual))
+
+        cs.print(
+            f"step={session.frame_index} actor SVD residual "
+            f"mean={np.mean(residuals):.6f} max={np.max(residuals):.6f}",
+            markup=False,
+        )
+        return actions
+
+    def _robot(self) -> Any:
+        if self.robot is None:
+            assert self.robot_cls is not None
+            self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
+        return self.robot
+
+    def _gripper_command(
+        self,
+        predicted_command: float,
+        session: InferenceSession,
+    ) -> float:
+        predicted_command = float(np.clip(predicted_command, -1.0, 1.0))
+        if self.action_mode == "continuous":
+            session.gripper_command = predicted_command
+        elif predicted_command > 0.2:
+            session.gripper_command = 1.0
+        elif predicted_command < -0.2:
+            session.gripper_command = -1.0
+        return float(session.gripper_command)
 
     def release_actions(
         self,
@@ -856,7 +961,11 @@ class EmbodimentAdapter:
         return [action.tolist() for _ in range(chunk_len)]
 
     @staticmethod
-    def _current_camera_matrix(request: Mapping[str, Any], key: str, shape: tuple[int, int]) -> np.ndarray:
+    def _current_camera_matrix(
+        request: Mapping[str, Any],
+        key: str,
+        shape: tuple[int, int],
+    ) -> np.ndarray:
         value = np.asarray(request[key], dtype=np.float64)
         if value.shape == shape:
             return value
@@ -886,7 +995,9 @@ class InferenceModel:
         self.bge_model = None
         self.embedding_cache: dict[str, torch.Tensor] = {}
 
-        self.model = GraphFlowModel(**dict(model_kwargs)).to(device)
+        model_kwargs = dict(model_kwargs)
+        model_kwargs.pop("include_future_object_point", None)
+        self.model = GraphFlowModel(**model_kwargs).to(device)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
         self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
         cs.print(f"[green]loaded checkpoint from {ckpt_path}[/green]")
@@ -1171,16 +1282,16 @@ class InferenceServer:
         if actor_xyz.shape == (GRIPPER_NUM_POINTS, 3):
             actor_xyz = actor_xyz[list(ACTOR_POINT_INDICES)]
         intrinsic = np.asarray(current_features.get("intrinsic", []), dtype=np.float32)
-        if actor_xyz.shape == (ACTOR_NUM_POINTS, 3) and intrinsic.shape == (3, 3):
+        if actor_xyz.shape == (len(ACTOR_POINT_INDICES), 3) and intrinsic.shape == (3, 3):
             valid = np.isfinite(actor_xyz).all(axis=1) & (actor_xyz[:, 2] > 1e-6)
-            actor_points = np.full((ACTOR_NUM_POINTS, 3), np.nan, dtype=np.float32)
+            actor_points = np.full((len(ACTOR_POINT_INDICES), 3), np.nan, dtype=np.float32)
             actor_points[:, 2] = 0.0
             actor_points[valid, 0] = actor_xyz[valid, 0] / actor_xyz[valid, 2] * intrinsic[0, 0] + intrinsic[0, 2]
             actor_points[valid, 1] = actor_xyz[valid, 1] / actor_xyz[valid, 2] * intrinsic[1, 1] + intrinsic[1, 2]
             actor_points[valid, 2] = 1.0
             point_chunks.append(actor_points)
-            id_chunks.append(np.zeros(ACTOR_NUM_POINTS, dtype=np.int64))
-            active_chunks.append(np.ones(ACTOR_NUM_POINTS, dtype=bool))
+            id_chunks.append(np.zeros(len(ACTOR_POINT_INDICES), dtype=np.int64))
+            active_chunks.append(np.ones(len(ACTOR_POINT_INDICES), dtype=bool))
 
         if session.tracked_points is not None:
             points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
@@ -1373,6 +1484,8 @@ def main() -> None:
             future_horizon=future_horizon,
             action_mode=args.action_mode,
             action_delta=bool(getattr(model_config, "action_delta", True)),
+            flow_mode=str(getattr(model_config, "flow_mode", "joint")),
+            robot_cls=GeomRobot,
         ),
         ckpt_path=args.ckpt_path,
     )

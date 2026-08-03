@@ -26,8 +26,13 @@ def test_build_model_input_selects_future_points_and_actions() -> None:
         "is_contact": torch.ones(num_frames),
     }
     result = transform.build_model_input(data)
-    torch.testing.assert_close(result["entity_points"][:, 0, :3], gripper[:2, ACTOR_POINT_INDICES])
-    torch.testing.assert_close(result["target"]["points"][:, 0, :3], gripper[2:4, ACTOR_POINT_INDICES])
+    torch.testing.assert_close(
+        result["entity_points"][:, 0, :len(ACTOR_POINT_INDICES)],
+        gripper[:2, ACTOR_POINT_INDICES],
+    )
+    torch.testing.assert_close(
+        result["target"]["points"][:, 0, :len(ACTOR_POINT_INDICES)], gripper[2:4, ACTOR_POINT_INDICES],
+    )
     torch.testing.assert_close(result["target"]["action"], action[2:4])
     assert result["target"]["points"].shape == (2, 3, 4, 3)
     assert result["target"]["point_mask"].shape == (2, 3, 4)
@@ -60,6 +65,7 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
     data = {"outputs": {
         "action_plan": torch.zeros(1, 2, ACTION_DIM),
         "point_plan": torch.zeros(1, 2, 3, 3),
+        "gripper_plan": torch.zeros(1, 2),
     }}
     result = transform.build_model_output(data)
     expected_action = torch.tensor([index + 1.0 for index in range(ACTION_DIM)])
@@ -67,6 +73,7 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
     torch.testing.assert_close(
         result["outputs"]["point_plan"][0, 0, 0], torch.tensor([1.0, 3.0, 5.0]),
     )
+    torch.testing.assert_close(result["outputs"]["gripper_plan"], torch.full((1, 2), 7.0))
 
 
 def test_build_model_output_uses_configured_absolute_action_stats() -> None:

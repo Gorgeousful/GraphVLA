@@ -19,9 +19,8 @@ class ModelConfig:
     num_heads: int = 8
     mlp_ratio: float = 4.0
     dropout: float = 0.1
-    flow_mode: str = "joint"
+    flow_mode: str = "point_only"
     action_delta: bool = False
-    include_future_object_point: bool = False
     
     point_num_train_timesteps: int = 1000
     action_num_train_timesteps: int = 1000

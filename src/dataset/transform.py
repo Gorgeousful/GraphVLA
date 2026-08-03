@@ -11,7 +11,6 @@ from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTION_DIM,
     ACTOR_POINT_INDICES,
-    ACTOR_NUM_POINTS,
     GRIPPER_NUM_POINTS,
     POINT_FEATURE_DIM,
 )
@@ -426,10 +425,18 @@ class CustomTransform(TransformFn):
         outputs = data.get("outputs", data)
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
+        action_field = str(self._extra_value("action_field", "camera_action"))
+        if "gripper_plan" in outputs:
+            gripper_plan = outputs["gripper_plan"].clone()
+            action_plan = gripper_plan.new_zeros((*gripper_plan.shape, ACTION_DIM))
+            action_plan[..., -1] = gripper_plan
+            outputs["gripper_plan"] = self._unnormalize_output_field(
+                action_plan, field=action_field, context=data,
+            )[..., -1]
         if "action_plan" in outputs:
             outputs["action_plan"] = self._unnormalize_output_field(
                 outputs["action_plan"].clone(),
-                field=str(self._extra_value("action_field", "camera_action")),
+                field=action_field,
                 context=data,
             )
         if "point_plan" in outputs:
@@ -505,8 +512,8 @@ class CustomTransform(TransformFn):
         points_per_entity = object_points.shape[2]
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
         entity_mask = torch.zeros((num_frames, 3, points_per_entity), dtype=torch.bool, device=object_points.device)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_points
-        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
+        entity_points[:, 0, :len(ACTOR_POINT_INDICES)] = actor_points
+        entity_mask[:, 0, :len(ACTOR_POINT_INDICES)] = True
         entity_points[:, 1:3] = object_points
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
             slot_index = {"patient": 0, "target": 1}.get(role, role_index)

@@ -76,7 +76,7 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
 
     model_input = preprocessor._build_model_input(session, [frame, frame], subtask)
 
-    actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :3]
+    actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0, :len(ACTOR_POINT_INDICES)]
     expected = (gripper[list(ACTOR_POINT_INDICES)] * 2.0 - 1.0)[None]
     np.testing.assert_allclose(actor, np.repeat(expected, 2, axis=0), atol=1e-6)
     assert "gripper_closedness_history" not in model_input
@@ -164,6 +164,76 @@ def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None
     expected_rotation = R.from_matrix(camera_to_world @ camera_rotation.as_matrix()).as_rotvec()
     np.testing.assert_allclose(action[3:6], expected_rotation, atol=1e-6)
     assert action[6] == pytest.approx(0.25)
+
+
+def test_point_only_plan_recovers_absolute_actions_and_joint_gripper() -> None:
+    captured = {"points": [], "widths": []}
+
+    class Robot:
+        def __init__(self, *, embodiment, with_fingers):
+            captured["init"] = (embodiment, with_fingers)
+
+        def project_actor_xyz_to_gripper(
+            self, points, *, gripper_width, extrinsic, return_residual,
+        ):
+            points = np.asarray(points, dtype=np.float64)
+            captured["points"].append(points)
+            captured["widths"].append(gripper_width)
+            pose = np.asarray([
+                *points.mean(axis=0),
+                0.1,
+                0.2,
+                0.3,
+                gripper_width,
+            ])
+            return pose, 1e-4
+
+    point_plan = np.zeros((1, 2, len(ACTOR_POINT_INDICES), 3), dtype=np.float32)
+    point_plan[0, 0, :len(ACTOR_POINT_INDICES)] = [0.1, 0.2, 1.0]
+    point_plan[0, 1, :len(ACTOR_POINT_INDICES)] = [0.4, 0.5, 1.2]
+    outputs = {
+        "point_plan": point_plan,
+        "point_plan_mask": np.ones(point_plan.shape[:-1], dtype=bool),
+        "gripper_plan": [[-0.8, 0.8]],
+    }
+    request = {
+        "camera.extrinsics": np.eye(4).tolist(),
+        "observation.state": [[0.0] * 6 + [0.02, -0.03]],
+    }
+    session = SimpleNamespace(benchmark="libero", gripper_command=0.0, frame_index=4)
+    adapter = EmbodimentAdapter(
+        future_horizon=2,
+        action_delta=False,
+        flow_mode="point_only",
+        robot_cls=Robot,
+    )
+
+    actions = np.asarray(adapter.to_action(outputs, request, session))
+
+    np.testing.assert_allclose(actions[:, :3], [[0.1, 0.2, 1.0], [0.4, 0.5, 1.2]])
+    np.testing.assert_allclose(actions[:, 3:6], [[0.1, 0.2, 0.3]] * 2)
+    np.testing.assert_allclose(actions[:, 6], [-0.8, 0.8])
+    assert captured["init"] == ("franka_panda", True)
+    assert all(points.shape == (len(ACTOR_POINT_INDICES), 3) for points in captured["points"])
+    assert captured["widths"] == pytest.approx([0.05, 0.05])
+
+
+def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
+    class Robot:
+        pass
+
+    with pytest.raises(ValueError, match="requires action_delta=False"):
+        EmbodimentAdapter(
+            future_horizon=2,
+            flow_mode="point_only",
+            robot_cls=Robot,
+        )
+    with pytest.raises(ValueError, match="requires robot_cls"):
+        EmbodimentAdapter(
+            future_horizon=2,
+            action_delta=False,
+            flow_mode="point_only",
+        )
 
 
 def test_absolute_release_holds_current_tcp_pose() -> None:
