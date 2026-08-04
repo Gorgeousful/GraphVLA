@@ -59,7 +59,7 @@ class Args:
     max_steps: int | None = None
     seed: int = 42
     save_video: bool = True
-    action_delta: bool = True
+    action_delta: bool = False
 
 
 class ObservationDeltaBuffer:
@@ -321,23 +321,15 @@ def _current_score(response: dict[str, Any], name: str) -> float | None:
 def _draw_response_scores(
     image: np.ndarray,
     response: dict[str, Any],
-    *,
-    frame_id: int | None = None,
 ) -> None:
     complete = _current_score(response, "is_complete")
     complete_text = "-" if complete is None else f"{complete:.2f}"
     complete_color = (80, 255, 80) if complete is not None and complete >= 0.5 else (255, 255, 255)
     _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
 
-    contact_text, contact_color = "-", (255, 255, 255)
-    profile_value = response.get("contact_profile")
-    if profile_value is not None and frame_id is not None:
-        profile = _first_batch(profile_value).astype(np.float32).reshape(-1)
-        future_index = int(frame_id) - 1
-        if 0 <= future_index < len(profile):
-            contact_score = float(profile[future_index])
-            contact_text = f"{contact_score:.2f}"
-            contact_color = (80, 255, 80) if contact_score >= 0.5 else (255, 255, 255)
+    contact = _current_score(response, "is_contact")
+    contact_text = "-" if contact is None else f"{contact:.2f}"
+    contact_color = (80, 255, 80) if contact is not None and contact >= 0.5 else (255, 255, 255)
     _draw_text_rgb_right(image, contact_text, 38, color=contact_color)
 
 
@@ -458,7 +450,7 @@ def _draw_response_points(
 
     if frame_id is not None:
         _draw_text_rgb(image, f"f={frame_id}", (8, 18))
-    _draw_response_scores(image, response, frame_id=frame_id)
+    _draw_response_scores(image, response)
     return image
 
 
@@ -564,10 +556,20 @@ def parse_args() -> Args:
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument("--no-save-video", action="store_true")
-    parser.add_argument(
-        "--absolute-action", action="store_true",
-        help="Use LIBERO absolute OSC pose control; must match the checkpoint action mode.",
+    action_group = parser.add_mutually_exclusive_group()
+    action_group.add_argument(
+        "--absolute-action",
+        dest="action_delta",
+        action="store_false",
+        help="Use LIBERO absolute OSC pose control (default).",
     )
+    action_group.add_argument(
+        "--delta-action",
+        dest="action_delta",
+        action="store_true",
+        help="Use LIBERO delta OSC control; must match the checkpoint action mode.",
+    )
+    parser.set_defaults(action_delta=Args.action_delta)
     ns = parser.parse_args()
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
@@ -583,7 +585,7 @@ def parse_args() -> Args:
         max_steps=ns.max_steps,
         seed=ns.seed,
         save_video=not ns.no_save_video,
-        action_delta=not ns.absolute_action,
+        action_delta=ns.action_delta,
     )
 
 

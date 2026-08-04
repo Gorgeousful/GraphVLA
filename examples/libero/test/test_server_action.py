@@ -15,12 +15,10 @@ from script.server import (
 from src.common.schema import ACTOR_POINT_INDICES
 
 
-def test_contact_profile_text_is_limited_to_executed_actions() -> None:
-    text = TopLevelTaskPlanner._contact_profile_text(
-        {"contact_profile": [[0.1, 0.2, 0.3, 0.4]]}, limit=2,
-    )
+def test_contact_score_text_uses_current_contact_score() -> None:
+    text = TopLevelTaskPlanner._contact_score_text({"is_contact": [[0.4]]})
 
-    assert text == "contact_score[2]=[0.100, 0.200]"
+    assert text == "contact_score=0.400"
 
 
 def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
@@ -95,7 +93,7 @@ def test_camera_action_is_rotated_to_world_frame() -> None:
     extrinsic[:3, :3] = rotation
     camera_action = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.25]
     adapter = EmbodimentAdapter(future_horizon=1)
-    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
+    session = SimpleNamespace(benchmark="libero")
 
     actions = adapter.to_action(
         {"action_plan": [[camera_action]]},
@@ -108,23 +106,9 @@ def test_camera_action_is_rotated_to_world_frame() -> None:
     assert actions[0][6] == pytest.approx(0.25)
 
 
-def test_gripper_command_uses_session_deadband_hysteresis() -> None:
-    adapter = EmbodimentAdapter(future_horizon=1, action_mode="discrete")
-    session = SimpleNamespace(benchmark="libero", gripper_command=-1.0)
-    request = {"camera.extrinsics": np.eye(4).tolist()}
-
-    def command_for(predicted_action: float) -> float:
-        action = [0.0] * 6 + [predicted_action]
-        return adapter.to_action({"action_plan": [[action]]}, request, session)[0][6]
-
-    assert command_for(0.1) == pytest.approx(-1.0)
-    assert command_for(0.8) == pytest.approx(1.0)
-    assert command_for(0.0) == pytest.approx(1.0)
-
-
 def test_continuous_delta_action_is_clipped() -> None:
     adapter = EmbodimentAdapter(future_horizon=1)
-    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
+    session = SimpleNamespace(benchmark="libero")
     predicted = [2.0, -2.0, 0.5, 1.5, -1.5, 0.0, 1.5]
 
     action = adapter.to_action(
@@ -138,14 +122,13 @@ def test_continuous_delta_action_is_clipped() -> None:
 
 def test_release_actions_are_zero_delta_and_open_gripper() -> None:
     adapter = EmbodimentAdapter(future_horizon=10)
-    session = SimpleNamespace(gripper_command=1.0)
+    session = SimpleNamespace()
 
     actions = adapter.release_actions(session, chunk_len=3)
 
     expected = np.zeros(7, dtype=np.float32)
     expected[6] = -1.0
     np.testing.assert_allclose(actions, np.repeat(expected[None], 3, axis=0))
-    assert session.gripper_command == pytest.approx(-1.0)
 
 
 def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None:
@@ -156,7 +139,7 @@ def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None
     camera_rotation = R.from_euler("x", 30, degrees=True)
     camera_action = [2.0, 0.0, 0.0, *camera_rotation.as_rotvec(), 0.25]
     adapter = EmbodimentAdapter(future_horizon=1, action_delta=False)
-    session = SimpleNamespace(benchmark="libero", gripper_command=0.0)
+    session = SimpleNamespace(benchmark="libero")
 
     action = np.asarray(adapter.to_action(
         {"action_plan": [[camera_action]]},
@@ -170,7 +153,7 @@ def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None
     assert action[6] == pytest.approx(0.25)
 
 
-def test_point_only_plan_recovers_absolute_actions_and_joint_gripper() -> None:
+def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> None:
     captured = {"points": [], "widths": []}
 
     class Robot:
@@ -204,7 +187,7 @@ def test_point_only_plan_recovers_absolute_actions_and_joint_gripper() -> None:
         "camera.extrinsics": np.eye(4).tolist(),
         "observation.state": [[0.0] * 6 + [0.02, -0.03]],
     }
-    session = SimpleNamespace(benchmark="libero", gripper_command=0.0, frame_index=4)
+    session = SimpleNamespace(benchmark="libero", frame_index=4)
     adapter = EmbodimentAdapter(
         future_horizon=2,
         action_delta=False,
@@ -242,7 +225,7 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
 
 def test_absolute_release_holds_current_tcp_pose() -> None:
     adapter = EmbodimentAdapter(future_horizon=3, action_delta=False)
-    session = SimpleNamespace(gripper_command=1.0)
+    session = SimpleNamespace()
     state = [0.4, -0.2, 1.3, 0.1, 0.2, 1.4, 0.02, -0.02]
 
     actions = adapter.release_actions(session, 2, {"observation.state": [state]})

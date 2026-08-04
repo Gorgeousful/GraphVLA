@@ -70,7 +70,6 @@ class Args:
     locator_mode: str = "point"
     locator_scale: float = 1.0
     segmenter: str = "sam2"
-    action_mode: str = "continuous"
     execute_chunk_len: int = 5
     seed: int = 42
     complete_threshold: float = 0.5
@@ -98,7 +97,6 @@ class InferenceSession:
     task_complete: bool = False
     release_pending: bool = False
     complete_streak: int = 0
-    gripper_command: float = 0.0
     feature_history: list[dict[str, np.ndarray]] = field(default_factory=list)
     frame_index: int = 0
     object_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -117,7 +115,6 @@ class InferenceSession:
         self.task_complete = False
         self.release_pending = False
         self.complete_streak = 0
-        self.gripper_command = 0.0
         self.reset_preprocessor()
 
     def reset_preprocessor(self) -> None:
@@ -242,17 +239,9 @@ class TopLevelTaskPlanner:
         return [] if score is None else [(0, score)]
 
     @staticmethod
-    def _contact_profile_text(outputs: Mapping[str, Any], *, limit: int | None = None) -> str:
-        value = outputs.get("contact_profile")
-        if value is None:
-            return "contact_score=-"
-        if isinstance(value, torch.Tensor):
-            value = value.detach().cpu().numpy()
-        profile = np.asarray(value, dtype=float).reshape(-1)
-        if limit is not None:
-            profile = profile[:max(0, limit)]
-        values = ", ".join(f"{float(v):.3f}" for v in profile)
-        return f"contact_score[{len(profile)}]=[{values}]"
+    def _contact_score_text(outputs: Mapping[str, Any]) -> str:
+        score = TopLevelTaskPlanner._output_score(outputs, "is_contact")
+        return "contact_score=-" if score is None else f"contact_score={score:.3f}"
 
     @staticmethod
     def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
@@ -789,13 +778,10 @@ class EmbodimentAdapter:
         self,
         *,
         future_horizon: int,
-        action_mode: str = "continuous",
         action_delta: bool = True,
         flow_mode: str = "joint",
         robot_cls: type[Any] | None = None,
     ) -> None:
-        if action_mode not in {"continuous", "discrete"}:
-            raise ValueError(f"Unsupported action mode: {action_mode!r}")
         if flow_mode not in FLOW_MODES:
             raise ValueError(f"Unsupported flow mode: {flow_mode!r}")
         if flow_mode == "point_only" and action_delta:
@@ -803,7 +789,6 @@ class EmbodimentAdapter:
         if flow_mode == "point_only" and robot_cls is None:
             raise ValueError("point_only server execution requires robot_cls")
         self.future_horizon = future_horizon
-        self.action_mode = action_mode
         self.action_delta = bool(action_delta)
         self.flow_mode = flow_mode
         self.robot_cls = robot_cls
@@ -848,7 +833,7 @@ class EmbodimentAdapter:
                 world_actions[index, 3:6] = R.from_matrix(world_rotation).as_rotvec()
 
         for action in world_actions:
-            action[6] = self._gripper_command(float(action[6]), session)
+            action[6] = self._gripper_command(float(action[6]))
         return world_actions.astype(np.float32).tolist()
 
     def _point_plan_to_action(
@@ -922,7 +907,7 @@ class EmbodimentAdapter:
                     f"Invalid point-only recovered action at index {future_index}: {action}"
                 )
             predicted_command = float(gripper_plan[0, future_index])
-            action[6] = self._gripper_command(predicted_command, session)
+            action[6] = self._gripper_command(predicted_command)
             actions.append(action.astype(np.float32).tolist())
             residuals.append(float(residual))
 
@@ -939,19 +924,9 @@ class EmbodimentAdapter:
             self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
         return self.robot
 
-    def _gripper_command(
-        self,
-        predicted_command: float,
-        session: InferenceSession,
-    ) -> float:
-        predicted_command = float(np.clip(predicted_command, -1.0, 1.0))
-        if self.action_mode == "continuous":
-            session.gripper_command = predicted_command
-        elif predicted_command > 0.2:
-            session.gripper_command = 1.0
-        elif predicted_command < -0.2:
-            session.gripper_command = -1.0
-        return float(session.gripper_command)
+    @staticmethod
+    def _gripper_command(predicted_command: float) -> float:
+        return float(np.clip(predicted_command, -1.0, 1.0))
 
     def release_actions(
         self,
@@ -970,7 +945,6 @@ class EmbodimentAdapter:
                 raise ValueError(f"observation.state must contain a 6-D TCP pose, got {state.shape}")
             action[:6] = state[:6]
         action[6] = -1.0
-        session.gripper_command = -1.0
         return [action.tolist() for _ in range(chunk_len)]
 
     @staticmethod
@@ -1202,12 +1176,9 @@ class InferenceServer:
         else:
             actions = self.embodiment.to_action(outputs, request, session)
             executed_actions = actions[:self.execute_chunk_len]
-            # to_action decodes the full horizon and updates the hysteresis state
-            # along the way. Only commit the last command that will actually run.
-            session.gripper_command = float(executed_actions[-1][-1])
             cs.print(
                 f"step={session.frame_index} "
-                f"{self.planner._contact_profile_text(outputs, limit=len(executed_actions))}",
+                f"{self.planner._contact_score_text(outputs)}",
                 markup=False,
             )
         gripper_actions = [float(action[-1]) for action in executed_actions]
@@ -1398,12 +1369,6 @@ def parse_args() -> Args:
         default=Args.segmenter,
         help="Node segmenter used to initialize object masks.",
     )
-    parser.add_argument(
-        "--action-mode",
-        choices=("continuous", "discrete"),
-        default=Args.action_mode,
-        help="Gripper action postprocessing mode.",
-    )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
@@ -1499,7 +1464,6 @@ def main() -> None:
         ),
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
-            action_mode=args.action_mode,
             action_delta=bool(getattr(model_config, "action_delta", True)),
             flow_mode=str(getattr(model_config, "flow_mode", "joint")),
             robot_cls=GeomRobot,
