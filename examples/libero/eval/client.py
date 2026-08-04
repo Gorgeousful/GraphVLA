@@ -216,6 +216,7 @@ def _get_libero_env(
         "camera_depths": True,
         "control_delta": action_delta,
         "control_freq": control_freq,
+        "ignore_done": True,
     }
     env = OffScreenRenderEnv(**env_args)
     env.seed(seed)

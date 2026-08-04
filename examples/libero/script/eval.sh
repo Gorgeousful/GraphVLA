@@ -1,8 +1,10 @@
 # robobrain环境 0723
+# 0804-contact-basetcpfinger-cls4-7
+# 0804-contact-basetcpfinger-cls4-omega-7
 CUDA_VISIBLE_DEVICES=1 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0804-contact-basetcpfinger-cls4-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0804-contact-basetcpfinger-cls4-omega-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0
@@ -15,7 +17,7 @@ python -m examples.libero.eval.client \
 --task-suite-name libero_10 \
 --tasks 6 \
 --num-trials-per-task 10 \
---max-steps 900 \
+--max-steps 1000 \
 --control-freq 10
 
 # libero_swap_test

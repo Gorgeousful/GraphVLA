@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0804-contact-basetcpfinger-cls4-7"
+    wandb_name: str | None = "0804-contact-basetcpfinger-cls4-omega-7"
 
 
     def to_kwargs(self) -> dict[str, Any]:
