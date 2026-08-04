@@ -147,6 +147,7 @@ LIBERO_TRANSFORM = (
         dataset_dir=LIBERO_DATASET_DIR,
         extra={
             "use_soft": LIBERO_USE_SOFT,
+            "actor_point_indices": LIBERO_MODEL_CONFIG.actor_point_indices,
             "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
         },
     ),

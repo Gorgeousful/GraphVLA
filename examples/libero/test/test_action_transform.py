@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
-from src.common.schema import ACTION_DIM, ACTOR_POINT_INDICES
+from examples.libero.config.model_config import ModelConfig
+from src.common.schema import ACTION_DIM
+from src.model.model import GraphFlowModel
 from src.dataset.transform import CustomTransform
 
 
-def test_build_model_input_builds_dynamic_point_trajectory() -> None:
+@pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
+def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: tuple[int, ...]) -> None:
     num_frames = 4
     gripper = torch.zeros(num_frames, 6, 3)
     gripper[:, :, 0] = torch.arange(6)
@@ -15,6 +19,7 @@ def test_build_model_input_builds_dynamic_point_trajectory() -> None:
         mode="build_model_input",
         extra={
             "use_soft": False,
+            "actor_point_indices": actor_point_indices,
             "norm_stats": {
                 "level": "suite",
                 "norm_stats": {
@@ -28,7 +33,7 @@ def test_build_model_input_builds_dynamic_point_trajectory() -> None:
     )
     transform._build_scene_condition = lambda _structure, *, device: torch.zeros(2, 8, device=device)
     data = {
-        "node_points_xyz": torch.randn(num_frames, 2, 4, 3),
+        "node_points_xyz": torch.randn(num_frames, 2, 6, 3),
         "gripper_points_xyz": gripper,
         "valid_node_mask": torch.ones(num_frames, 2, dtype=torch.bool),
         "subtask_node_mask": torch.ones(num_frames, 2, dtype=torch.bool),
@@ -41,17 +46,37 @@ def test_build_model_input_builds_dynamic_point_trajectory() -> None:
     }
     result = transform.build_model_input(data)
     torch.testing.assert_close(
-        result["entity_points"][:, 0, :len(ACTOR_POINT_INDICES)],
-        gripper[:2, ACTOR_POINT_INDICES],
+        result["entity_points"][:, 0, :len(actor_point_indices)],
+        gripper[:2, actor_point_indices],
     )
-    expected_points = gripper[2:4, ACTOR_POINT_INDICES]
+    expected_points = gripper[2:4, actor_point_indices]
     expected_trajectory = torch.cat(
         [expected_points.flatten(1), action[2:4, -1:]], dim=-1,
     )
     torch.testing.assert_close(result["target"]["trajectory"], expected_trajectory)
-    assert result["target"]["trajectory"].shape == (2, len(ACTOR_POINT_INDICES) * 3 + 1)
+    assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
     assert result["gripper_closedness_history"].shape == (2, 1)
     assert result["target"]["is_contact"].shape == (1,)
+
+
+@pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
+def test_model_config_controls_actor_dimensions(actor_point_indices: tuple[int, ...]) -> None:
+    config = ModelConfig(
+        actor_point_indices=actor_point_indices,
+        num_points=6,
+        hidden_dim=48,
+        encoder_layers=1,
+        flow_layers=1,
+        num_heads=4,
+        condition_dim=8,
+    )
+    model = GraphFlowModel(**config.to_kwargs())
+
+    trajectory_dim = len(actor_point_indices) * 3 + 1
+    assert model.actor_point_indices == actor_point_indices
+    assert model.encoder.actor_keypoint_embedding.num_embeddings == len(actor_point_indices)
+    assert model.flow.input_projection.in_features == trajectory_dim
+    assert model.flow.output_projection.out_features == trajectory_dim
 
 
 def test_build_model_output_unnormalizes_action_and_points() -> None:

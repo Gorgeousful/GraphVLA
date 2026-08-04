@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import ACTOR_NUM_POINTS, NUM_ENTITIES, POINT_FEATURE_DIM
+from src.common.schema import NUM_ENTITIES, POINT_FEATURE_DIM
 from src.model.temporal import RotaryEncoderBlock
 
 
@@ -28,6 +28,7 @@ class EntityEncoder(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
+        actor_num_points: int,
         num_layers: int,
         num_heads: int,
         mlp_ratio: float,
@@ -37,8 +38,11 @@ class EntityEncoder(nn.Module):
         dropout: float = 0.0,
     ) -> None:
         super().__init__()
+        if actor_num_points < 1:
+            raise ValueError(f"actor_num_points must be at least 1, got {actor_num_points}")
         if cls_token_num < 1:
             raise ValueError(f"cls_token_num must be at least 1, got {cls_token_num}")
+        self.actor_num_points = actor_num_points
         self.cls_token_num = cls_token_num
         self.point_stem = nn.Sequential(
             nn.Linear(POINT_FEATURE_DIM, hidden_dim),
@@ -46,7 +50,7 @@ class EntityEncoder(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
         self.max_history = max_history
-        self.actor_keypoint_embedding = nn.Embedding(ACTOR_NUM_POINTS, hidden_dim)
+        self.actor_keypoint_embedding = nn.Embedding(actor_num_points, hidden_dim)
         self.role_type_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
         self.action_projection = nn.Linear(condition_dim, hidden_dim)
         self.degree_projection = nn.Linear(condition_dim, hidden_dim)
@@ -80,8 +84,8 @@ class EntityEncoder(nn.Module):
             raise ValueError(f"Expected scene_condition [B,2,C], got {scene_condition.shape}")
 
         tokens = self.point_stem(points)
-        actor_ids = torch.arange(ACTOR_NUM_POINTS, device=points.device)
-        tokens[:, :, 0, :ACTOR_NUM_POINTS] += self.actor_keypoint_embedding(actor_ids)[None, None]
+        actor_ids = torch.arange(self.actor_num_points, device=points.device)
+        tokens[:, :, 0, :self.actor_num_points] += self.actor_keypoint_embedding(actor_ids)[None, None]
 
         cls = self.cls_token.expand(batch, steps, entities, -1, -1)
         role_types = self.role_type_embedding(

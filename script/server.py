@@ -34,12 +34,11 @@ from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import (
     ACTION_DIM,
-    ACTOR_NUM_POINTS,
-    ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
+    validate_actor_point_indices,
 )
 
 
@@ -269,6 +268,7 @@ class InputPreprocessor:
         history_horizon: int,
         future_horizon: int,
         num_points: int,
+        actor_point_indices: tuple[int, ...],
         robot_cls: type[Any],
         dataset_dir: str | Path,
         locator: str = "locateanything",
@@ -280,6 +280,12 @@ class InputPreprocessor:
         self.history_horizon = history_horizon
         self.future_horizon = future_horizon
         self.num_points = num_points
+        self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
+        self.actor_num_points = len(self.actor_point_indices)
+        if self.num_points < self.actor_num_points:
+            raise ValueError(
+                f"num_points must be at least {self.actor_num_points}, got {self.num_points}"
+            )
         self.robot_cls = robot_cls
         self.locator = locator
         self.locator_mode = locator_mode
@@ -427,7 +433,7 @@ class InputPreprocessor:
         )
         actor_xyz = np.stack([
             self._normalize_field(item["gripper_points_xyz"], "camera_xyz")[
-                list(ACTOR_POINT_INDICES)
+                list(self.actor_point_indices)
             ]
             for item in frames
         ], axis=0)
@@ -438,8 +444,8 @@ class InputPreprocessor:
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
         entity_mask = np.zeros((len(frames), 3, self.num_points), dtype=bool)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_xyz
-        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
+        entity_points[:, 0, :self.actor_num_points] = actor_xyz
+        entity_mask[:, 0, :self.actor_num_points] = True
         entity_points[:, 1:3] = object_points
         object_valid = np.any(object_points != 0, axis=(-1, -2))
         for object_index in range(2):
@@ -778,6 +784,7 @@ class EmbodimentAdapter:
         self,
         *,
         future_horizon: int,
+        actor_point_indices: tuple[int, ...],
         action_delta: bool = True,
         flow_mode: str = "joint",
         robot_cls: type[Any] | None = None,
@@ -789,6 +796,8 @@ class EmbodimentAdapter:
         if flow_mode == "point_only" and robot_cls is None:
             raise ValueError("point_only server execution requires robot_cls")
         self.future_horizon = future_horizon
+        self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
+        self.actor_num_points = len(self.actor_point_indices)
         self.action_delta = bool(action_delta)
         self.flow_mode = flow_mode
         self.robot_cls = robot_cls
@@ -852,12 +861,12 @@ class EmbodimentAdapter:
             point_plan.ndim != 4
             or point_plan.shape[0] != 1
             or point_plan.shape[1] != self.future_horizon
-            or point_plan.shape[2] != len(ACTOR_POINT_INDICES)
+            or point_plan.shape[2] != self.actor_num_points
             or point_plan.shape[3] != POINT_FEATURE_DIM
         ):
             raise ValueError(
                 "point_plan must have shape "
-                f"[1,{self.future_horizon},{len(ACTOR_POINT_INDICES)},{POINT_FEATURE_DIM}], "
+                f"[1,{self.future_horizon},{self.actor_num_points},{POINT_FEATURE_DIM}], "
                 f"got {point_plan.shape}"
             )
         actor_plan = point_plan[0]
@@ -893,13 +902,12 @@ class EmbodimentAdapter:
         robot = self._robot()
 
         actions = []
-        residuals = []
         for future_index, points in enumerate(actor_plan):
-            pose, residual = robot.project_actor_xyz_to_gripper(
+            pose = robot.project_actor_xyz_to_gripper(
                 points,
                 gripper_width=current_width,
                 extrinsic=extrinsic,
-                return_residual=True,
+                actor_point_indices=self.actor_point_indices,
             )
             action = np.asarray(pose, dtype=np.float64)
             if action.shape != (ACTION_DIM,) or not np.isfinite(action).all():
@@ -909,13 +917,7 @@ class EmbodimentAdapter:
             predicted_command = float(gripper_plan[0, future_index])
             action[6] = self._gripper_command(predicted_command)
             actions.append(action.astype(np.float32).tolist())
-            residuals.append(float(residual))
 
-        cs.print(
-            f"step={session.frame_index} actor SVD residual "
-            f"mean={np.mean(residuals):.6f} max={np.max(residuals):.6f}",
-            markup=False,
-        )
         return actions
 
     def _robot(self) -> Any:
@@ -1257,8 +1259,8 @@ class InferenceServer:
             np.concatenate(active_chunks, axis=0),
         )
 
-    @staticmethod
     def _tracking_response(
+        self,
         session: InferenceSession,
         current_features: Mapping[str, np.ndarray],
     ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
@@ -1268,18 +1270,18 @@ class InferenceServer:
 
         actor_xyz = np.asarray(current_features.get("gripper_points_xyz", []), dtype=np.float32)
         if actor_xyz.shape == (GRIPPER_NUM_POINTS, 3):
-            actor_xyz = actor_xyz[list(ACTOR_POINT_INDICES)]
+            actor_xyz = actor_xyz[list(self.embodiment.actor_point_indices)]
         intrinsic = np.asarray(current_features.get("intrinsic", []), dtype=np.float32)
-        if actor_xyz.shape == (len(ACTOR_POINT_INDICES), 3) and intrinsic.shape == (3, 3):
+        if actor_xyz.shape == (self.embodiment.actor_num_points, 3) and intrinsic.shape == (3, 3):
             valid = np.isfinite(actor_xyz).all(axis=1) & (actor_xyz[:, 2] > 1e-6)
-            actor_points = np.full((len(ACTOR_POINT_INDICES), 3), np.nan, dtype=np.float32)
+            actor_points = np.full((self.embodiment.actor_num_points, 3), np.nan, dtype=np.float32)
             actor_points[:, 2] = 0.0
             actor_points[valid, 0] = actor_xyz[valid, 0] / actor_xyz[valid, 2] * intrinsic[0, 0] + intrinsic[0, 2]
             actor_points[valid, 1] = actor_xyz[valid, 1] / actor_xyz[valid, 2] * intrinsic[1, 1] + intrinsic[1, 2]
             actor_points[valid, 2] = 1.0
             point_chunks.append(actor_points)
-            id_chunks.append(np.zeros(len(ACTOR_POINT_INDICES), dtype=np.int64))
-            active_chunks.append(np.ones(len(ACTOR_POINT_INDICES), dtype=bool))
+            id_chunks.append(np.zeros(self.embodiment.actor_num_points, dtype=np.int64))
+            active_chunks.append(np.ones(self.embodiment.actor_num_points, dtype=bool))
 
         if session.tracked_points is not None:
             points_by_object = np.asarray(session.tracked_points, dtype=np.float32)
@@ -1430,6 +1432,7 @@ def main() -> None:
         data_kwargs = data_config.to_kwargs()
         history_horizon = int(model_config.history_horizon)
         future_horizon = int(model_config.future_horizon)
+        actor_point_indices = validate_actor_point_indices(model_config.actor_point_indices)
     else:
         raise ValueError(f"Unsupported example: {args.example}")
         
@@ -1447,6 +1450,7 @@ def main() -> None:
             history_horizon=history_horizon,
             future_horizon=future_horizon,
             num_points=model_kwargs["num_points"],
+            actor_point_indices=actor_point_indices,
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
             locator=args.locator,
@@ -1464,6 +1468,7 @@ def main() -> None:
         ),
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
+            actor_point_indices=actor_point_indices,
             action_delta=bool(getattr(model_config, "action_delta", True)),
             flow_mode=str(getattr(model_config, "flow_mode", "joint")),
             robot_cls=GeomRobot,

@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from src.common.schema import validate_actor_point_indices
+
 
 @dataclass
 class ModelConfig:
+    actor_point_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
     num_points: int = 32
     cls_token_num: int = 1
     history_horizon: int = 9
@@ -29,6 +32,13 @@ class ModelConfig:
         "loss_complete": 0.5,
         "loss_contact": 0.5,
     })
+
+    def __post_init__(self) -> None:
+        self.actor_point_indices = validate_actor_point_indices(self.actor_point_indices)
+        if self.num_points < len(self.actor_point_indices):
+            raise ValueError(
+                f"num_points must be at least {len(self.actor_point_indices)}, got {self.num_points}"
+            )
 
     def to_kwargs(self) -> dict[str, Any]:
         kwargs = asdict(self)

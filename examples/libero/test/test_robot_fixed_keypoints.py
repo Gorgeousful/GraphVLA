@@ -4,8 +4,6 @@ import numpy as np
 import pytest
 
 from examples.libero.embodiment.robot import GeomFrankaPanda
-from src.common.schema import ACTOR_POINT_INDICES
-
 
 INTRINSIC = np.asarray(
     [
@@ -168,7 +166,8 @@ def test_six_xyz_keypoints_recover_pose(gripper_width: float) -> None:
     np.testing.assert_allclose(recovered[6], gripper_width, atol=1e-12)
     assert residual < 1e-12
 
-def test_actor_xyz_keypoints_recover_pose() -> None:
+@pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
+def test_actor_xyz_keypoints_recover_pose(actor_point_indices: tuple[int, ...]) -> None:
     geometry = GeomFrankaPanda()
     gripper_width = 0.03
     tcp_state = np.asarray([0.08, -0.04, 1.1, 0.2, -0.1, 0.3], dtype=np.float64)
@@ -179,9 +178,10 @@ def test_actor_xyz_keypoints_recover_pose() -> None:
         gripper_width=gripper_width,
     )
     recovered, residual = geometry.project_actor_xyz_to_gripper(
-        xyz[list(ACTOR_POINT_INDICES)],
+        xyz[list(actor_point_indices)],
         gripper_width=gripper_width,
         extrinsic=EXTRINSIC,
+        actor_point_indices=actor_point_indices,
         return_residual=True,
     )
 

@@ -13,7 +13,7 @@ from src.common.geom_utils import (
     sample_mesh_pcd,
     transform_points,
 )
-from src.common.schema import ACTOR_POINT_INDICES
+from src.common.schema import validate_actor_point_indices
 from rich.console import Console
 cs = Console()
 
@@ -315,14 +315,16 @@ class GeomFrankaPanda:
         extrinsic: np.ndarray | None = None,
         world_transform: np.ndarray | None = None,
         *,
+        actor_point_indices: tuple[int, ...],
         return_residual: bool = False,
     ) -> np.ndarray | tuple[np.ndarray, float]:
         """Recover a gripper pose from the configured actor keypoint subset."""
+        actor_point_indices = validate_actor_point_indices(actor_point_indices)
         points_camera = np.asarray(points_camera, dtype=np.float64)
-        expected = (len(ACTOR_POINT_INDICES), 3)
+        expected = (len(actor_point_indices), 3)
         if points_camera.shape != expected:
             raise ValueError(f"Expected actor XYZ keypoints {expected}, got {points_camera.shape}")
-        points_local = self._gripper_keypoints_local(gripper_width)[list(ACTOR_POINT_INDICES)]
+        points_local = self._gripper_keypoints_local(gripper_width)[list(actor_point_indices)]
         return self._fit_points_to_gripper(
             points_camera,
             points_local,

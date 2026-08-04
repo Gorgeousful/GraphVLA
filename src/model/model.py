@@ -9,13 +9,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import ACTOR_NUM_POINTS
+from src.common.schema import validate_actor_point_indices
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import make_scheduler, sample_time, training_path
 from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
 
 
-TRAJECTORY_DIM = ACTOR_NUM_POINTS * 3 + 1
 FLOW_MODES = {"joint", "point_then_action", "action_only", "point_only"}
 
 
@@ -29,11 +28,12 @@ def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
 
 
 class JointTrajectoryFlow(nn.Module):
-    """Condition future flow queries on the full 10D actor history."""
+    """Condition future flow queries on the full actor trajectory history."""
 
     def __init__(
         self,
         hidden_dim: int,
+        trajectory_dim: int,
         horizon: int,
         history_steps: int,
         layers: int,
@@ -44,7 +44,8 @@ class JointTrajectoryFlow(nn.Module):
         super().__init__()
         self.horizon = horizon
         self.history_steps = history_steps
-        self.input_projection = nn.Linear(TRAJECTORY_DIM, hidden_dim)
+        self.trajectory_dim = trajectory_dim
+        self.input_projection = nn.Linear(trajectory_dim, hidden_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
@@ -53,7 +54,7 @@ class JointTrajectoryFlow(nn.Module):
             RotaryFlowBlock(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
         ])
         self.norm = AdaRMSNorm(hidden_dim)
-        self.output_projection = nn.Linear(hidden_dim, TRAJECTORY_DIM)
+        self.output_projection = nn.Linear(hidden_dim, trajectory_dim)
         self.gradient_checkpointing = False
 
         self_attention_mask = torch.ones(
@@ -69,15 +70,15 @@ class JointTrajectoryFlow(nn.Module):
         memory: torch.Tensor,
         history_state: torch.Tensor,
     ) -> torch.Tensor:
-        if state.ndim != 3 or state.shape[1:] != (self.horizon, TRAJECTORY_DIM):
+        if state.ndim != 3 or state.shape[1:] != (self.horizon, self.trajectory_dim):
             raise ValueError(
-                f"Expected flow state [B,{self.horizon},{TRAJECTORY_DIM}], got {state.shape}"
+                f"Expected flow state [B,{self.horizon},{self.trajectory_dim}], got {state.shape}"
             )
         if history_state.ndim != 3 or history_state.shape[1:] != (
-            self.history_steps, TRAJECTORY_DIM
+            self.history_steps, self.trajectory_dim
         ):
             raise ValueError(
-                f"Expected history state [B,{self.history_steps},{TRAJECTORY_DIM}], "
+                f"Expected history state [B,{self.history_steps},{self.trajectory_dim}], "
                 f"got {history_state.shape}"
             )
 
@@ -111,6 +112,7 @@ class GraphFlowModel(nn.Module):
 
     def __init__(
         self,
+        actor_point_indices: tuple[int, ...],
         num_points: int = 32,
         cls_token_num: int = 1,
         history_horizon: int = 9,
@@ -129,8 +131,11 @@ class GraphFlowModel(nn.Module):
         weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
-        if num_points < ACTOR_NUM_POINTS:
-            raise ValueError(f"num_points must be at least {ACTOR_NUM_POINTS}, got {num_points}")
+        self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
+        self.actor_num_points = len(self.actor_point_indices)
+        self.trajectory_dim = self.actor_num_points * 3 + 1
+        if num_points < self.actor_num_points:
+            raise ValueError(f"num_points must be at least {self.actor_num_points}, got {num_points}")
         if flow_mode != "point_only":
             raise ValueError(f"Legacy trajectory model only supports flow_mode='point_only', got {flow_mode!r}")
         if complete_pos_weight <= 0:
@@ -148,11 +153,11 @@ class GraphFlowModel(nn.Module):
         self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
-            hidden_dim, encoder_layers, num_heads, mlp_ratio, condition_dim,
+            hidden_dim, self.actor_num_points, encoder_layers, num_heads, mlp_ratio, condition_dim,
             max_history=self.history_steps, cls_token_num=cls_token_num, dropout=dropout,
         )
         self.flow = JointTrajectoryFlow(
-            hidden_dim, future_horizon, self.history_steps,
+            hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.complete_head = nn.Sequential(
@@ -183,7 +188,7 @@ class GraphFlowModel(nn.Module):
         )
 
     def _actor_history(self, batch: dict[str, Any]) -> torch.Tensor:
-        actor_xyz = batch["entity_points"][:, :, 0, :ACTOR_NUM_POINTS].flatten(2)
+        actor_xyz = batch["entity_points"][:, :, 0, :self.actor_num_points].flatten(2)
         closedness = batch["gripper_closedness_history"]
         if closedness.shape != (*actor_xyz.shape[:2], 1):
             raise ValueError(
@@ -199,9 +204,9 @@ class GraphFlowModel(nn.Module):
         memory, relation_local = self._encode(batch)
         target = batch["target"]
         trajectory = target["trajectory"]
-        if trajectory.shape[1:] != (self.future_horizon, TRAJECTORY_DIM):
+        if trajectory.shape[1:] != (self.future_horizon, self.trajectory_dim):
             raise ValueError(
-                f"Expected target trajectory [B,{self.future_horizon},{TRAJECTORY_DIM}], got {trajectory.shape}"
+                f"Expected target trajectory [B,{self.future_horizon},{self.trajectory_dim}], got {trajectory.shape}"
             )
         time = sample_time(trajectory.shape[0], trajectory.device)
         state, target_velocity, _ = training_path(trajectory, time)
@@ -240,12 +245,12 @@ class GraphFlowModel(nn.Module):
         state = noise
         if state is None:
             state = torch.randn(
-                batch_size, self.future_horizon, TRAJECTORY_DIM,
+                batch_size, self.future_horizon, self.trajectory_dim,
                 device=memory.device, dtype=memory.dtype,
             )
-        elif state.shape != (batch_size, self.future_horizon, TRAJECTORY_DIM):
+        elif state.shape != (batch_size, self.future_horizon, self.trajectory_dim):
             raise ValueError(
-                f"Expected noise [B,{self.future_horizon},{TRAJECTORY_DIM}], got {state.shape}"
+                f"Expected noise [B,{self.future_horizon},{self.trajectory_dim}], got {state.shape}"
             )
 
         scheduler = make_scheduler(num_steps or self.sample_steps, memory.device)
@@ -254,8 +259,8 @@ class GraphFlowModel(nn.Module):
             velocity = self.flow(state, time, memory, self._actor_history(batch))
             state = scheduler.step(velocity, timestep, state).prev_sample
 
-        point_plan = state[..., : ACTOR_NUM_POINTS * 3].view(
-            batch_size, self.future_horizon, ACTOR_NUM_POINTS, 3
+        point_plan = state[..., : self.actor_num_points * 3].view(
+            batch_size, self.future_horizon, self.actor_num_points, 3
         )
         return {
             "point_plan": point_plan,

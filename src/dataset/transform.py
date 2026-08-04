@@ -10,11 +10,10 @@ from rich.console import Console
 from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTION_DIM,
-    ACTOR_NUM_POINTS,
-    ACTOR_POINT_INDICES,
     GRIPPER_NUM_POINTS,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
+    validate_actor_point_indices,
 )
 cs = Console()
 DataDict = dict[str, Any]
@@ -481,7 +480,11 @@ class CustomTransform(TransformFn):
             raise ValueError(
                 f"Expected gripper_points_xyz [T,{GRIPPER_NUM_POINTS},3], got {tuple(gripper_points_xyz.shape)}"
             )
-        actor_points = gripper_points_xyz[:, ACTOR_POINT_INDICES]
+        actor_point_indices = validate_actor_point_indices(
+            self._extra_value("actor_point_indices", ())
+        )
+        actor_num_points = len(actor_point_indices)
+        actor_points = gripper_points_xyz[:, actor_point_indices]
         history_horizon = int(data["history_horizon"])
         future_horizon = int(data["future_horizon"])
         num_frames = gripper_points_xyz.shape[0]
@@ -512,10 +515,15 @@ class CustomTransform(TransformFn):
         )
 
         points_per_entity = object_points.shape[2]
+        if points_per_entity < actor_num_points:
+            raise ValueError(
+                f"Entity point capacity {points_per_entity} is smaller than "
+                f"the configured {actor_num_points} actor points"
+            )
         entity_points = object_points.new_zeros((num_frames, 3, points_per_entity, POINT_FEATURE_DIM))
         entity_mask = torch.zeros((num_frames, 3, points_per_entity), dtype=torch.bool, device=object_points.device)
-        entity_points[:, 0, :ACTOR_NUM_POINTS] = actor_points
-        entity_mask[:, 0, :ACTOR_NUM_POINTS] = True
+        entity_points[:, 0, :actor_num_points] = actor_points
+        entity_mask[:, 0, :actor_num_points] = True
         entity_points[:, 1:3] = object_points
         for role_index, role in enumerate(object_roles[:selected_node_indices.numel()]):
             slot_index = {"patient": 0, "target": 1}.get(role, role_index)

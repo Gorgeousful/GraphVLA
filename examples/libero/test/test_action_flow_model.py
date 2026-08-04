@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.common.schema import ACTION_DIM, ACTOR_POINT_INDICES
+from src.common.schema import ACTION_DIM
+
+ACTOR_POINT_INDICES = (0, 1, 2, 5)
 from src.model.flow_matching import FlowMatchScheduler
 from src.model.model import GraphFlowModel
 
@@ -16,6 +18,7 @@ def _make_model(
     shared_horizon_sigma_sampling: bool = False,
 ) -> GraphFlowModel:
     return GraphFlowModel(
+        actor_point_indices=ACTOR_POINT_INDICES,
         num_points=4,
         history_horizon=history_horizon,
         future_horizon=3,
@@ -349,4 +352,4 @@ def test_future_point_flow_uses_one_actor_group_token_per_step() -> None:
 
 def test_rejects_mismatched_joint_sampling_steps() -> None:
     with pytest.raises(ValueError, match="matching point/action sample steps"):
-        GraphFlowModel(hidden_dim=48, num_heads=4, point_sample_steps=2, action_sample_steps=3)
+        GraphFlowModel(actor_point_indices=ACTOR_POINT_INDICES, hidden_dim=48, num_heads=4, point_sample_steps=2, action_sample_steps=3)

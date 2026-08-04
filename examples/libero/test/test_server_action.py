@@ -12,7 +12,7 @@ from script.server import (
     ObservationFrame,
     TopLevelTaskPlanner,
 )
-from src.common.schema import ACTOR_POINT_INDICES
+ACTOR_POINT_INDICES = (0, 1, 2, 5)
 
 
 def test_contact_score_text_uses_current_contact_score() -> None:
@@ -51,6 +51,8 @@ def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
 def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     preprocessor = object.__new__(InputPreprocessor)
     preprocessor.num_points = 4
+    preprocessor.actor_point_indices = ACTOR_POINT_INDICES
+    preprocessor.actor_num_points = len(ACTOR_POINT_INDICES)
     preprocessor.norm_stats = {
         "camera_xyz": {
             "q01": [0.0, 0.0, 0.0],
@@ -92,7 +94,7 @@ def test_camera_action_is_rotated_to_world_frame() -> None:
     extrinsic = np.eye(4, dtype=np.float64)
     extrinsic[:3, :3] = rotation
     camera_action = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.25]
-    adapter = EmbodimentAdapter(future_horizon=1)
+    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1)
     session = SimpleNamespace(benchmark="libero")
 
     actions = adapter.to_action(
@@ -107,7 +109,7 @@ def test_camera_action_is_rotated_to_world_frame() -> None:
 
 
 def test_continuous_delta_action_is_clipped() -> None:
-    adapter = EmbodimentAdapter(future_horizon=1)
+    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1)
     session = SimpleNamespace(benchmark="libero")
     predicted = [2.0, -2.0, 0.5, 1.5, -1.5, 0.0, 1.5]
 
@@ -121,7 +123,7 @@ def test_continuous_delta_action_is_clipped() -> None:
 
 
 def test_release_actions_are_zero_delta_and_open_gripper() -> None:
-    adapter = EmbodimentAdapter(future_horizon=10)
+    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=10)
     session = SimpleNamespace()
 
     actions = adapter.release_actions(session, chunk_len=3)
@@ -138,7 +140,7 @@ def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None
     extrinsic[:3, 3] = [1.0, 2.0, 3.0]
     camera_rotation = R.from_euler("x", 30, degrees=True)
     camera_action = [2.0, 0.0, 0.0, *camera_rotation.as_rotvec(), 0.25]
-    adapter = EmbodimentAdapter(future_horizon=1, action_delta=False)
+    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1, action_delta=False)
     session = SimpleNamespace(benchmark="libero")
 
     action = np.asarray(adapter.to_action(
@@ -161,11 +163,12 @@ def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> N
             captured["init"] = (embodiment, with_fingers)
 
         def project_actor_xyz_to_gripper(
-            self, points, *, gripper_width, extrinsic, return_residual,
+            self, points, *, gripper_width, extrinsic, actor_point_indices, return_residual=False,
         ):
             points = np.asarray(points, dtype=np.float64)
             captured["points"].append(points)
             captured["widths"].append(gripper_width)
+            captured.setdefault("actor_point_indices", []).append(actor_point_indices)
             pose = np.asarray([
                 *points.mean(axis=0),
                 0.1,
@@ -173,7 +176,7 @@ def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> N
                 0.3,
                 gripper_width,
             ])
-            return pose, 1e-4
+            return (pose, 1e-4) if return_residual else pose
 
     point_plan = np.zeros((1, 2, len(ACTOR_POINT_INDICES), 3), dtype=np.float32)
     point_plan[0, 0, :len(ACTOR_POINT_INDICES)] = [0.1, 0.2, 1.0]
@@ -189,6 +192,7 @@ def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> N
     }
     session = SimpleNamespace(benchmark="libero", frame_index=4)
     adapter = EmbodimentAdapter(
+        actor_point_indices=ACTOR_POINT_INDICES,
         future_horizon=2,
         action_delta=False,
         flow_mode="point_only",
@@ -203,6 +207,7 @@ def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> N
     assert captured["init"] == ("franka_panda", True)
     assert all(points.shape == (len(ACTOR_POINT_INDICES), 3) for points in captured["points"])
     assert captured["widths"] == pytest.approx([0.05, 0.05])
+    assert captured["actor_point_indices"] == [ACTOR_POINT_INDICES, ACTOR_POINT_INDICES]
 
 
 def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
@@ -211,12 +216,14 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
 
     with pytest.raises(ValueError, match="requires action_delta=False"):
         EmbodimentAdapter(
+            actor_point_indices=ACTOR_POINT_INDICES,
             future_horizon=2,
             flow_mode="point_only",
             robot_cls=Robot,
         )
     with pytest.raises(ValueError, match="requires robot_cls"):
         EmbodimentAdapter(
+            actor_point_indices=ACTOR_POINT_INDICES,
             future_horizon=2,
             action_delta=False,
             flow_mode="point_only",
@@ -224,7 +231,7 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
 
 
 def test_absolute_release_holds_current_tcp_pose() -> None:
-    adapter = EmbodimentAdapter(future_horizon=3, action_delta=False)
+    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=3, action_delta=False)
     session = SimpleNamespace()
     state = [0.4, -0.2, 1.3, 0.1, 0.2, 1.4, 0.02, -0.02]
 

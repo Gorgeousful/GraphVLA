@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+from collections.abc import Iterable
 from typing import Any, Optional
 
 import json
@@ -8,13 +9,25 @@ import os
 
 POINT_FEATURE_DIM = 3  # camera XYZ in meters, normalized per axis
 GRIPPER_NUM_POINTS = 6
-# ACTOR_POINT_INDICES = (0, 1, 2, 5)
-ACTOR_POINT_INDICES = (0, 1, 2, 3, 4, 5)
-ACTOR_NUM_POINTS = len(ACTOR_POINT_INDICES)
 ACTION_DIM = 7
 ENTITY_ROLES = ("actor", "patient", "target")
 NUM_ENTITIES = len(ENTITY_ROLES)
 LIBERO_GRIPPER_MAX_WIDTH = 0.08
+
+
+def validate_actor_point_indices(indices: Iterable[int]) -> tuple[int, ...]:
+    result = tuple(indices)
+    if not result:
+        raise ValueError("actor_point_indices must contain at least one point")
+    if any(not isinstance(index, int) or isinstance(index, bool) for index in result):
+        raise TypeError(f"actor_point_indices must contain integers, got {result!r}")
+    if len(set(result)) != len(result):
+        raise ValueError(f"actor_point_indices must be unique, got {result!r}")
+    if any(index < 0 or index >= GRIPPER_NUM_POINTS for index in result):
+        raise ValueError(
+            f"actor_point_indices must be in [0, {GRIPPER_NUM_POINTS - 1}], got {result!r}"
+        )
+    return result
 
 
 class NodeRole(str, Enum):
