@@ -356,7 +356,9 @@ def _draw_response_points(
         4: (0, 215, 255),
         5: (255, 0, 255),
         6: (255, 255, 0),
+        7: (255, 165, 0),
     }
+    inactive_color = (145, 145, 145)
     count = 0
 
     if mode == "tracking":
@@ -380,7 +382,7 @@ def _draw_response_points(
                 if 0 <= x < width and 0 <= y < height:
                     color = colors.get(int(object_id), (160, 80, 160))
                     if not is_active or float(point[2]) <= 0.5:
-                        color = (145, 145, 145)
+                        color = inactive_color
                     cv2.circle(image, (x, y), 2, color, -1, lineType=cv2.LINE_AA)
                     count += 1
         initial_count = 0
@@ -403,7 +405,7 @@ def _draw_response_points(
                     cv2.drawMarker(
                         image,
                         (x, y),
-                        (255, 230, 40) if is_active else (145, 145, 145),
+                        (255, 230, 40) if is_active else inactive_color,
                         markerType=cv2.MARKER_TILTED_CROSS,
                         markerSize=10,
                         thickness=2,
@@ -432,7 +434,6 @@ def _draw_response_points(
             camera_matrix = np.asarray(intrinsic, dtype=np.float32)
             if camera_matrix.shape != (3, 3):
                 raise ValueError(f"intrinsic must have shape (3, 3), got {camera_matrix.shape}")
-            object_points_per_role = max(0, (len(points) - 3) // 2)
             for point_index, (point, valid) in enumerate(zip(points, point_mask, strict=True)):
                 if not valid or not np.isfinite(point).all() or point[2] <= 1e-6:
                     continue
@@ -440,12 +441,7 @@ def _draw_response_points(
                 x, y = np.rint(pixel[:2] / pixel[2]).astype(int)
                 if not (0 <= x < width and 0 <= y < height):
                     continue
-                if point_index < 3:
-                    color = colors[point_index]
-                elif point_index < 3 + object_points_per_role:
-                    color = colors[3]
-                else:
-                    color = colors[4]
+                color = colors.get(point_index, inactive_color)
                 cv2.circle(image, (x, y), 4, color, -1, lineType=cv2.LINE_AA)
 
     if frame_id is not None:
