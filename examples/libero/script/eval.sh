@@ -2,7 +2,7 @@
 CUDA_VISIBLE_DEVICES=1 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0804-contact-basetcpfinger-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0804-contact-basetcpfinger-cls4-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0

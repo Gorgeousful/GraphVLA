@@ -23,7 +23,7 @@ def _encoder_block(hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: f
 
 
 class EntityEncoder(nn.Module):
-    """Encode point sets locally and exchange information globally through entity CLS tokens."""
+    """Alternate entity-local attention with register-only or dense global attention."""
 
     def __init__(
         self,
@@ -36,12 +36,26 @@ class EntityEncoder(nn.Module):
         max_history: int,
         cls_token_num: int = 1,
         dropout: float = 0.0,
+        global_layer_types: tuple[int, ...] | list[int] | None = None,
     ) -> None:
         super().__init__()
         if actor_num_points < 1:
             raise ValueError(f"actor_num_points must be at least 1, got {actor_num_points}")
         if cls_token_num < 1:
             raise ValueError(f"cls_token_num must be at least 1, got {cls_token_num}")
+        if global_layer_types is None:
+            global_layer_types = (0,) * num_layers
+        self.global_layer_types = tuple(global_layer_types)
+        if len(self.global_layer_types) != num_layers:
+            raise ValueError(
+                f"global_layer_types must contain {num_layers} entries, "
+                f"got {len(self.global_layer_types)}"
+            )
+        if any(layer_type not in (0, 1) for layer_type in self.global_layer_types):
+            raise ValueError(
+                f"global_layer_types entries must be 0 (register) or 1 (dense), "
+                f"got {self.global_layer_types}"
+            )
         self.actor_num_points = actor_num_points
         self.cls_token_num = cls_token_num
         self.point_stem = nn.Sequential(
@@ -107,6 +121,24 @@ class EntityEncoder(nn.Module):
             torch.zeros(2, device=points.device, dtype=history_positions.dtype),
         ])
         global_entity_tokens = steps * entities * self.cls_token_num
+        dense_positions = torch.cat([
+            history_positions.repeat_interleave(
+                entities * (self.cls_token_num + num_points)
+            ),
+            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
+        ])
+        dense_entity_tokens = steps * entities * (self.cls_token_num + num_points)
+        dense_key_mask = torch.cat([
+            torch.cat([
+                torch.ones(
+                    batch, steps, entities, self.cls_token_num,
+                    dtype=torch.bool, device=points.device,
+                ),
+                point_mask.bool(),
+            ], dim=3).reshape(batch, dense_entity_tokens),
+            torch.ones(batch, 2, dtype=torch.bool, device=points.device),
+        ], dim=1)
+        point_roles_added = False
 
         for layer_index, (local_block, global_block) in enumerate(
             zip(self.local_blocks, self.global_blocks, strict=True)
@@ -138,20 +170,44 @@ class EntityEncoder(nn.Module):
             tokens = local[:, :, :, self.cls_token_num:]
             if layer_index == 0:
                 cls = cls + role_types
-            global_cls = torch.cat(
-                [cls.reshape(batch, global_entity_tokens, -1), scene_tokens], dim=1
-            )
+            if self.global_layer_types[layer_index] == 0:
+                global_cls = torch.cat(
+                    [cls.reshape(batch, global_entity_tokens, -1), scene_tokens], dim=1
+                )
+                if self.gradient_checkpointing and self.training:
+                    global_cls = checkpoint(
+                        global_block, global_cls, global_positions,
+                        use_reentrant=False, preserve_rng_state=False,
+                    )
+                else:
+                    global_cls = global_block(global_cls, global_positions)
+                cls = global_cls[:, :global_entity_tokens].view(
+                    batch, steps, entities, self.cls_token_num, -1
+                )
+                scene_tokens = global_cls[:, global_entity_tokens:]
+                continue
+
+            if not point_roles_added:
+                tokens = tokens + role_types
+                point_roles_added = True
+            dense = torch.cat([
+                torch.cat([cls, tokens], dim=3).reshape(batch, dense_entity_tokens, -1),
+                scene_tokens,
+            ], dim=1)
             if self.gradient_checkpointing and self.training:
-                global_cls = checkpoint(
-                    global_block, global_cls, global_positions,
+                dense = checkpoint(
+                    global_block, dense, dense_positions, dense_key_mask, True,
                     use_reentrant=False, preserve_rng_state=False,
                 )
             else:
-                global_cls = global_block(global_cls, global_positions)
-            cls = global_cls[:, :global_entity_tokens].view(
-                batch, steps, entities, self.cls_token_num, -1
+                dense = global_block(dense, dense_positions, dense_key_mask, True)
+            dense_entities = dense[:, :dense_entity_tokens].view(
+                batch, steps, entities, self.cls_token_num + num_points, -1
             )
-            scene_tokens = global_cls[:, global_entity_tokens:]
+            cls = dense_entities[:, :, :, :self.cls_token_num]
+            tokens = dense_entities[:, :, :, self.cls_token_num:]
+            tokens = tokens.masked_fill(~point_mask.bool().unsqueeze(-1), 0.0)
+            scene_tokens = dense[:, dense_entity_tokens:]
 
         current_cls = cls[:, -1]
         relation_local = current_cls[:, 1:3].flatten(1, 2)

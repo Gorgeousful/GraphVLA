@@ -6,6 +6,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def apply_rope(x: torch.Tensor, positions: torch.Tensor, max_wavelength: float = 10_000.0) -> torch.Tensor:
@@ -50,6 +51,8 @@ class RotaryAttention(nn.Module):
         query_positions: torch.Tensor,
         key_positions: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
+        key_mask: torch.Tensor | None = None,
+        use_sdpa: bool = False,
     ) -> torch.Tensor:
         batch, query_length, hidden_dim = query.shape
         key_length = key_value.shape[1]
@@ -58,6 +61,25 @@ class RotaryAttention(nn.Module):
         v = self.v_projection(key_value).view(batch, key_length, self.num_heads, self.head_dim)
         q = apply_rope(q, query_positions)
         k = apply_rope(k, key_positions)
+        if use_sdpa:
+            if attention_mask is not None:
+                raise ValueError("SDPA path does not support attention_mask and key_mask together")
+            sdpa_mask = None
+            if key_mask is not None:
+                if key_mask.shape != (batch, key_length):
+                    raise ValueError(
+                        f"Expected key mask [B,K]=[{batch},{key_length}], got {key_mask.shape}"
+                    )
+                sdpa_mask = key_mask.to(device=q.device, dtype=torch.bool)[:, None, None, :]
+            output = F.scaled_dot_product_attention(
+                q.transpose(1, 2),
+                k.transpose(1, 2),
+                v.transpose(1, 2),
+                attn_mask=sdpa_mask,
+                dropout_p=self.attention_dropout.p if self.training else 0.0,
+            )
+            output = output.transpose(1, 2).reshape(batch, query_length, hidden_dim)
+            return self.output_projection(output)
         scores = torch.einsum("bqhd,bkhd->bhqk", q, k) / math.sqrt(self.head_dim)
         if attention_mask is not None:
             mask = attention_mask.to(device=scores.device, dtype=torch.bool)
@@ -87,9 +109,22 @@ class RotaryEncoderBlock(nn.Module):
         )
         self.residual_dropout = nn.Dropout(dropout)
 
-    def forward(self, token: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        token: torch.Tensor,
+        positions: torch.Tensor,
+        key_mask: torch.Tensor | None = None,
+        use_sdpa: bool = False,
+    ) -> torch.Tensor:
         normalized = self.attention_norm(token)
-        token = token + self.residual_dropout(self.attention(normalized, normalized, positions, positions))
+        token = token + self.residual_dropout(self.attention(
+            normalized,
+            normalized,
+            positions,
+            positions,
+            key_mask=key_mask,
+            use_sdpa=use_sdpa,
+        ))
         return token + self.residual_dropout(self.ffn(self.ffn_norm(token)))
 
 

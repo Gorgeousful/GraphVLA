@@ -12,12 +12,14 @@ from src.common.schema import validate_actor_point_indices
 class ModelConfig:
     actor_point_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
     num_points: int = 32
-    cls_token_num: int = 1
+    cls_token_num: int = 4
     history_horizon: int = 9
     future_horizon: int = 10
     condition_dim: int = 384
     hidden_dim: int = 512
     encoder_layers: int = 8
+    # 0: register-only global attention; 1: full-history CLS/point/scene attention.
+    global_layer_types: tuple[int, ...] = (0, 0, 0, 0, 1, 1, 1, 1)
     flow_layers: int = 6
     num_heads: int = 8
     mlp_ratio: float = 4.0
@@ -38,6 +40,17 @@ class ModelConfig:
         if self.num_points < len(self.actor_point_indices):
             raise ValueError(
                 f"num_points must be at least {len(self.actor_point_indices)}, got {self.num_points}"
+            )
+        self.global_layer_types = tuple(self.global_layer_types)
+        if len(self.global_layer_types) != self.encoder_layers:
+            raise ValueError(
+                f"global_layer_types must contain {self.encoder_layers} entries, "
+                f"got {len(self.global_layer_types)}"
+            )
+        if any(layer_type not in (0, 1) for layer_type in self.global_layer_types):
+            raise ValueError(
+                "global_layer_types entries must be 0 (register) or 1 (dense), "
+                f"got {self.global_layer_types}"
             )
 
     def to_kwargs(self) -> dict[str, Any]:
