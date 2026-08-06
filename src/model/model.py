@@ -98,7 +98,7 @@ class JointTrajectoryFlow(nn.Module):
             token = checkpoint(
                 block, token, memory, condition, token_positions, memory_positions,
                 self.self_attention_mask,
-                use_reentrant=False, preserve_rng_state=False,
+                use_reentrant=False, preserve_rng_state=True,
             ) if self.gradient_checkpointing and self.training else block(
                 token, memory, condition, token_positions, memory_positions,
                 self.self_attention_mask,

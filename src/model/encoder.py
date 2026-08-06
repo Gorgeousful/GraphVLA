@@ -181,7 +181,7 @@ class EntityEncoder(nn.Module):
             if self.gradient_checkpointing and self.training:
                 local = checkpoint(
                     local_block, local, src_key_padding_mask=padding,
-                    use_reentrant=False, preserve_rng_state=False,
+                    use_reentrant=False, preserve_rng_state=True,
                 )
             else:
                 local = local_block(local, src_key_padding_mask=padding)
@@ -199,7 +199,7 @@ class EntityEncoder(nn.Module):
                     global_cls = checkpoint(
                         global_block, global_cls, global_positions, None, False,
                         register_attention_mask,
-                        use_reentrant=False, preserve_rng_state=False,
+                        use_reentrant=False, preserve_rng_state=True,
                     )
                 else:
                     global_cls = global_block(
@@ -220,7 +220,7 @@ class EntityEncoder(nn.Module):
                 dense = checkpoint(
                     global_block, dense, dense_positions, dense_key_mask,
                     dense_attention_mask is None, dense_attention_mask,
-                    use_reentrant=False, preserve_rng_state=False,
+                    use_reentrant=False, preserve_rng_state=True,
                 )
             else:
                 dense = global_block(
