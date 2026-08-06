@@ -1110,7 +1110,14 @@ class InferenceServer:
         cs.print(f"[green]GraphVLA inference server listening on ws://{self.host}:{self.port}[/green]")
         cs.print("WebSocket messages must be flat observation requests; replies are model fields plus action.")
         self.last_message_time = asyncio.get_running_loop().time()
-        async with websockets.serve(self.handle_connection, self.host, self.port, max_size=None):
+        async with websockets.serve(
+            self.handle_connection,
+            self.host,
+            self.port,
+            max_size=None,
+            ping_interval=None,
+            ping_timeout=None,
+        ):
             await self.wait_for_idle_timeout()
 
     async def wait_for_idle_timeout(self) -> None:

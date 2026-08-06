@@ -166,7 +166,9 @@ class InferenceClient:
 
     @staticmethod
     async def _websocket_json(uri: str, data: dict[str, Any]) -> dict[str, Any]:
-        async with websockets.connect(uri, max_size=None, proxy=None) as websocket:
+        async with websockets.connect(
+            uri, max_size=None, proxy=None, ping_interval=None, ping_timeout=None
+        ) as websocket:
             await websocket.send(json.dumps(data))
             message = await websocket.recv()
         return json.loads(message)
