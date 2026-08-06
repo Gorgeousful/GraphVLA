@@ -174,7 +174,7 @@ class InferenceClient:
         return json.loads(message)
 
 
-def _save_evaluation_info(*, host: str, port: int, output_dir: Path) -> None:
+def _server_ckpt_path(*, host: str, port: int) -> str:
     uri = f"ws://{host}:{port}"
     response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
     if "error" in response:
@@ -182,9 +182,13 @@ def _save_evaluation_info(*, host: str, port: int, output_dir: Path) -> None:
     ckpt_path = response.get("ckpt_path")
     if not isinstance(ckpt_path, str) or not ckpt_path:
         raise ValueError(f"server returned invalid ckpt_path: {ckpt_path!r}")
-    info_path = output_dir / "evaluation_info.txt"
-    info_path.write_text(f"ckpt_path: {ckpt_path}\n", encoding="utf-8")
-    cs.print(f"saved evaluation info to: {info_path}")
+    return ckpt_path
+
+
+def _ckpt_dir_name(ckpt_path: str) -> str:
+    path = Path(ckpt_path)
+    run_dir = path.parent.parent.name if path.parent.name == "checkpoints" else path.parent.name
+    return f"{run_dir}-{path.stem}"
 
 
 def camera_matrices_from_env(env: Any, *, camera_name: str) -> tuple[np.ndarray, np.ndarray]:
@@ -606,12 +610,12 @@ def main() -> None:
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
     timestamp = datetime.now().strftime("%m%d-%H%M")
-    suite_output_dir = DEFAULT_OUTPUT_DIR / f"{args.task_suite_name}-{timestamp}"
+    ckpt_dir_name = _ckpt_dir_name(_server_ckpt_path(host=args.host, port=args.port))
+    suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    _save_evaluation_info(host=args.host, port=args.port, output_dir=suite_output_dir)
 
     client = InferenceClient(host=args.host, port=args.port)
     total_episodes = 0
