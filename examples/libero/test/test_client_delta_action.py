@@ -81,3 +81,18 @@ def test_prediction_visualization_projects_only_valid_point_plan() -> None:
     np.testing.assert_array_equal(rendered[50, 50], np.asarray([255, 80, 40]))
     np.testing.assert_array_equal(rendered[50, 60], np.zeros(3, dtype=np.uint8))
     assert rendered[60, 50].any()
+
+
+def test_tracking_visualization_distinguishes_inactive_and_invisible_points() -> None:
+    image = np.zeros((40, 40, 3), dtype=np.uint8)
+    response = {
+        "tracking_point": [[10.0, 10.0, 1.0], [20.0, 10.0, 0.0], [30.0, 10.0, 1.0]],
+        "tracking_object_id": [0, 0, 0],
+        "tracking_point_active": [True, True, False],
+    }
+
+    rendered = _draw_response_points(image, response, 1, mode="tracking")
+
+    np.testing.assert_array_equal(rendered[10, 10], np.asarray([255, 80, 40]))
+    np.testing.assert_array_equal(rendered[10, 20], np.asarray([255, 194, 180]))
+    np.testing.assert_array_equal(rendered[10, 30], np.asarray([145, 145, 145]))

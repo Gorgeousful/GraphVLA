@@ -388,8 +388,13 @@ def _draw_response_points(
                 x, y = np.rint(point[:2]).astype(int)
                 if 0 <= x < width and 0 <= y < height:
                     color = colors.get(int(object_id), (160, 80, 160))
-                    if not is_active or float(point[2]) <= 0.5:
+                    pale_color = tuple(
+                        int(round(channel * 0.35 + 255 * 0.65)) for channel in color
+                    )
+                    if not is_active:
                         color = inactive_color
+                    elif float(point[2]) <= 0.5:
+                        color = pale_color
                     cv2.circle(image, (x, y), 2, color, -1, lineType=cv2.LINE_AA)
                     count += 1
         initial_count = 0

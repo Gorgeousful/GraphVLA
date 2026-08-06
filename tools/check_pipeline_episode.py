@@ -12,6 +12,7 @@ import cv2
 import imageio_ffmpeg
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from PIL import Image
 
 
@@ -96,7 +97,7 @@ def project_xyz_to_uv(
     xyz: np.ndarray,
     intrinsic: np.ndarray,
     image_shape: tuple[int, int],
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     height, width = image_shape
     xyz = np.asarray(xyz, dtype=np.float32)
     valid = np.isfinite(xyz).all(axis=-1) & (xyz[:, 2] > 0.0)
@@ -109,7 +110,7 @@ def project_xyz_to_uv(
         & (uv[:, 1] >= 0)
         & (uv[:, 1] < height)
     )
-    return uv[valid]
+    return uv[valid], valid
 
 
 def draw_tracks(
@@ -118,9 +119,20 @@ def draw_tracks(
     valid_node_mask: Any,
     subtask_node_mask: Any,
     intrinsic: np.ndarray,
+    node_points_vis: Any | None = None,
 ) -> np.ndarray:
     panel = frame.copy()
     nodes = np.stack([np.stack(node) for node in node_points_xyz]).astype(np.float32)
+    point_visibility = (
+        None
+        if node_points_vis is None
+        else np.stack([np.asarray(node, dtype=bool) for node in node_points_vis])
+    )
+    if point_visibility is not None and point_visibility.shape != nodes.shape[:2]:
+        raise ValueError(
+            f"node_points_vis shape {point_visibility.shape} does not match "
+            f"node_points_xyz {nodes.shape[:2]}"
+        )
     valid_nodes = np.asarray(valid_node_mask, dtype=bool)
     active_nodes = np.asarray(subtask_node_mask, dtype=bool)
     draw_order = list(np.flatnonzero(~active_nodes)) + list(np.flatnonzero(active_nodes))
@@ -131,17 +143,25 @@ def draw_tracks(
             or not valid_nodes[node_index]
         ):
             continue
-        points = project_xyz_to_uv(nodes[node_index], intrinsic, panel.shape[:2])
+        points, projected_mask = project_xyz_to_uv(
+            nodes[node_index], intrinsic, panel.shape[:2]
+        )
         if not len(points):
             continue
         active = node_index < len(active_nodes) and active_nodes[node_index]
         color = COLORS[node_index % len(COLORS)] if active else (145, 145, 145)
-        for x, y in points:
+        pale_color = tuple(int(round(channel * 0.35 + 255 * 0.65)) for channel in color)
+        visible = (
+            np.ones(len(points), dtype=bool)
+            if point_visibility is None
+            else point_visibility[node_index, projected_mask]
+        )
+        for (x, y), is_visible in zip(points, visible, strict=True):
             cv2.circle(
                 panel,
                 (int(round(x)), int(round(y))),
                 2,
-                color,
+                color if is_visible else pale_color,
                 -1,
                 lineType=cv2.LINE_AA,
             )
@@ -191,16 +211,19 @@ def render_check_video(
 
     episode_index = episodes[local_episode_index]
     parquet_path = episode_parquet_path(dataset_dir, info, episode_index)
+    columns = [
+        "image",
+        "node_points_xyz",
+        "valid_node_mask",
+        "subtask_node_mask",
+        "subtask_id",
+        "is_complete",
+    ]
+    if "node_points_vis" in pq.read_schema(parquet_path).names:
+        columns.append("node_points_vis")
     df = pd.read_parquet(
         parquet_path,
-        columns=[
-            "image",
-            "node_points_xyz",
-            "valid_node_mask",
-            "subtask_node_mask",
-            "subtask_id",
-            "is_complete",
-        ],
+        columns=columns,
     )
     intrinsic = load_agentview_intrinsic(dataset_dir, task_index)
 
@@ -256,6 +279,7 @@ def render_check_video(
                 row["valid_node_mask"],
                 row["subtask_node_mask"],
                 intrinsic,
+                row.get("node_points_vis"),
             )
             canvas = np.zeros((height + header_height, width, 3), dtype=np.uint8)
             canvas[header_height:] = panel
