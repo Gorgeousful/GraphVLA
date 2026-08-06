@@ -1,0 +1,2641 @@
+{
+  "dataset_dir": "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action",
+  "episode": 0,
+  "task_index": 0,
+  "frames": 253,
+  "labels": [
+    "white mug",
+    "plate #1",
+    "small brown box",
+    "plate #2"
+  ],
+  "num_points": 32,
+  "missing_frame_counts": {
+    "white mug": 0,
+    "plate #1": 0,
+    "small brown box": 0,
+    "plate #2": 45
+  },
+  "records": [
+    {
+      "frame": 0,
+      "mask_areas": {
+        "white mug": 1196,
+        "plate #1": 2848,
+        "small brown box": 438,
+        "plate #2": 2848
+      },
+      "missing": []
+    },
+    {
+      "frame": 1,
+      "mask_areas": {
+        "white mug": 1146,
+        "plate #1": 2832,
+        "small brown box": 402,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 2,
+      "mask_areas": {
+        "white mug": 1152,
+        "plate #1": 2831,
+        "small brown box": 403,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 3,
+      "mask_areas": {
+        "white mug": 1181,
+        "plate #1": 2813,
+        "small brown box": 406,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 4,
+      "mask_areas": {
+        "white mug": 1191,
+        "plate #1": 2819,
+        "small brown box": 410,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 5,
+      "mask_areas": {
+        "white mug": 1196,
+        "plate #1": 2817,
+        "small brown box": 413,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 6,
+      "mask_areas": {
+        "white mug": 1197,
+        "plate #1": 2816,
+        "small brown box": 413,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 7,
+      "mask_areas": {
+        "white mug": 1199,
+        "plate #1": 2815,
+        "small brown box": 414,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 8,
+      "mask_areas": {
+        "white mug": 1201,
+        "plate #1": 2815,
+        "small brown box": 414,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 9,
+      "mask_areas": {
+        "white mug": 1199,
+        "plate #1": 2816,
+        "small brown box": 411,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 10,
+      "mask_areas": {
+        "white mug": 1199,
+        "plate #1": 2817,
+        "small brown box": 417,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 11,
+      "mask_areas": {
+        "white mug": 1198,
+        "plate #1": 2817,
+        "small brown box": 415,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 12,
+      "mask_areas": {
+        "white mug": 1199,
+        "plate #1": 2817,
+        "small brown box": 413,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 13,
+      "mask_areas": {
+        "white mug": 1201,
+        "plate #1": 2813,
+        "small brown box": 412,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 14,
+      "mask_areas": {
+        "white mug": 1198,
+        "plate #1": 2820,
+        "small brown box": 412,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 15,
+      "mask_areas": {
+        "white mug": 1199,
+        "plate #1": 2822,
+        "small brown box": 411,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 16,
+      "mask_areas": {
+        "white mug": 1197,
+        "plate #1": 2814,
+        "small brown box": 414,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 17,
+      "mask_areas": {
+        "white mug": 1200,
+        "plate #1": 2816,
+        "small brown box": 412,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 18,
+      "mask_areas": {
+        "white mug": 1197,
+        "plate #1": 2815,
+        "small brown box": 411,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 19,
+      "mask_areas": {
+        "white mug": 1194,
+        "plate #1": 2813,
+        "small brown box": 413,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 20,
+      "mask_areas": {
+        "white mug": 1194,
+        "plate #1": 2813,
+        "small brown box": 412,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 21,
+      "mask_areas": {
+        "white mug": 1192,
+        "plate #1": 2814,
+        "small brown box": 413,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 22,
+      "mask_areas": {
+        "white mug": 1192,
+        "plate #1": 2812,
+        "small brown box": 410,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 23,
+      "mask_areas": {
+        "white mug": 1191,
+        "plate #1": 2813,
+        "small brown box": 481,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 24,
+      "mask_areas": {
+        "white mug": 1192,
+        "plate #1": 2813,
+        "small brown box": 481,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 25,
+      "mask_areas": {
+        "white mug": 1190,
+        "plate #1": 2810,
+        "small brown box": 415,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 26,
+      "mask_areas": {
+        "white mug": 1188,
+        "plate #1": 2806,
+        "small brown box": 481,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 27,
+      "mask_areas": {
+        "white mug": 1189,
+        "plate #1": 2810,
+        "small brown box": 487,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 28,
+      "mask_areas": {
+        "white mug": 1187,
+        "plate #1": 2804,
+        "small brown box": 486,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 29,
+      "mask_areas": {
+        "white mug": 1189,
+        "plate #1": 2811,
+        "small brown box": 487,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 30,
+      "mask_areas": {
+        "white mug": 1187,
+        "plate #1": 2809,
+        "small brown box": 482,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 31,
+      "mask_areas": {
+        "white mug": 1188,
+        "plate #1": 2815,
+        "small brown box": 485,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 32,
+      "mask_areas": {
+        "white mug": 1178,
+        "plate #1": 2813,
+        "small brown box": 490,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 33,
+      "mask_areas": {
+        "white mug": 1170,
+        "plate #1": 2812,
+        "small brown box": 491,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 34,
+      "mask_areas": {
+        "white mug": 1154,
+        "plate #1": 2811,
+        "small brown box": 493,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 35,
+      "mask_areas": {
+        "white mug": 1141,
+        "plate #1": 2814,
+        "small brown box": 490,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 36,
+      "mask_areas": {
+        "white mug": 1205,
+        "plate #1": 2815,
+        "small brown box": 494,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 37,
+      "mask_areas": {
+        "white mug": 1093,
+        "plate #1": 2817,
+        "small brown box": 493,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 38,
+      "mask_areas": {
+        "white mug": 1142,
+        "plate #1": 2817,
+        "small brown box": 492,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 39,
+      "mask_areas": {
+        "white mug": 1029,
+        "plate #1": 2817,
+        "small brown box": 489,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 40,
+      "mask_areas": {
+        "white mug": 1000,
+        "plate #1": 2818,
+        "small brown box": 493,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 41,
+      "mask_areas": {
+        "white mug": 984,
+        "plate #1": 2818,
+        "small brown box": 491,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 42,
+      "mask_areas": {
+        "white mug": 979,
+        "plate #1": 2818,
+        "small brown box": 494,
+        "plate #2": 2
+      },
+      "missing": []
+    },
+    {
+      "frame": 43,
+      "mask_areas": {
+        "white mug": 978,
+        "plate #1": 2818,
+        "small brown box": 495,
+        "plate #2": 53
+      },
+      "missing": []
+    },
+    {
+      "frame": 44,
+      "mask_areas": {
+        "white mug": 977,
+        "plate #1": 2818,
+        "small brown box": 494,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 45,
+      "mask_areas": {
+        "white mug": 971,
+        "plate #1": 2818,
+        "small brown box": 496,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 46,
+      "mask_areas": {
+        "white mug": 984,
+        "plate #1": 2818,
+        "small brown box": 496,
+        "plate #2": 55
+      },
+      "missing": []
+    },
+    {
+      "frame": 47,
+      "mask_areas": {
+        "white mug": 988,
+        "plate #1": 2817,
+        "small brown box": 496,
+        "plate #2": 78
+      },
+      "missing": []
+    },
+    {
+      "frame": 48,
+      "mask_areas": {
+        "white mug": 1002,
+        "plate #1": 2817,
+        "small brown box": 498,
+        "plate #2": 77
+      },
+      "missing": []
+    },
+    {
+      "frame": 49,
+      "mask_areas": {
+        "white mug": 1013,
+        "plate #1": 2817,
+        "small brown box": 498,
+        "plate #2": 67
+      },
+      "missing": []
+    },
+    {
+      "frame": 50,
+      "mask_areas": {
+        "white mug": 1016,
+        "plate #1": 2817,
+        "small brown box": 497,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 51,
+      "mask_areas": {
+        "white mug": 1030,
+        "plate #1": 2817,
+        "small brown box": 496,
+        "plate #2": 81
+      },
+      "missing": []
+    },
+    {
+      "frame": 52,
+      "mask_areas": {
+        "white mug": 1036,
+        "plate #1": 2817,
+        "small brown box": 494,
+        "plate #2": 108
+      },
+      "missing": []
+    },
+    {
+      "frame": 53,
+      "mask_areas": {
+        "white mug": 1032,
+        "plate #1": 2817,
+        "small brown box": 495,
+        "plate #2": 211
+      },
+      "missing": []
+    },
+    {
+      "frame": 54,
+      "mask_areas": {
+        "white mug": 1030,
+        "plate #1": 2817,
+        "small brown box": 493,
+        "plate #2": 111
+      },
+      "missing": []
+    },
+    {
+      "frame": 55,
+      "mask_areas": {
+        "white mug": 1027,
+        "plate #1": 2817,
+        "small brown box": 495,
+        "plate #2": 187
+      },
+      "missing": []
+    },
+    {
+      "frame": 56,
+      "mask_areas": {
+        "white mug": 1104,
+        "plate #1": 2817,
+        "small brown box": 494,
+        "plate #2": 0
+      },
+      "missing": [
+        "plate #2"
+      ]
+    },
+    {
+      "frame": 57,
+      "mask_areas": {
+        "white mug": 1072,
+        "plate #1": 2817,
+        "small brown box": 494,
+        "plate #2": 157
+      },
+      "missing": []
+    },
+    {
+      "frame": 58,
+      "mask_areas": {
+        "white mug": 1041,
+        "plate #1": 2817,
+        "small brown box": 495,
+        "plate #2": 230
+      },
+      "missing": []
+    },
+    {
+      "frame": 59,
+      "mask_areas": {
+        "white mug": 1051,
+        "plate #1": 2816,
+        "small brown box": 498,
+        "plate #2": 278
+      },
+      "missing": []
+    },
+    {
+      "frame": 60,
+      "mask_areas": {
+        "white mug": 1048,
+        "plate #1": 2817,
+        "small brown box": 495,
+        "plate #2": 290
+      },
+      "missing": []
+    },
+    {
+      "frame": 61,
+      "mask_areas": {
+        "white mug": 1051,
+        "plate #1": 2816,
+        "small brown box": 496,
+        "plate #2": 244
+      },
+      "missing": []
+    },
+    {
+      "frame": 62,
+      "mask_areas": {
+        "white mug": 1059,
+        "plate #1": 2817,
+        "small brown box": 497,
+        "plate #2": 227
+      },
+      "missing": []
+    },
+    {
+      "frame": 63,
+      "mask_areas": {
+        "white mug": 1078,
+        "plate #1": 2817,
+        "small brown box": 495,
+        "plate #2": 181
+      },
+      "missing": []
+    },
+    {
+      "frame": 64,
+      "mask_areas": {
+        "white mug": 1112,
+        "plate #1": 2816,
+        "small brown box": 499,
+        "plate #2": 26
+      },
+      "missing": []
+    },
+    {
+      "frame": 65,
+      "mask_areas": {
+        "white mug": 1140,
+        "plate #1": 2817,
+        "small brown box": 498,
+        "plate #2": 28
+      },
+      "missing": []
+    },
+    {
+      "frame": 66,
+      "mask_areas": {
+        "white mug": 1156,
+        "plate #1": 2821,
+        "small brown box": 494,
+        "plate #2": 33
+      },
+      "missing": []
+    },
+    {
+      "frame": 67,
+      "mask_areas": {
+        "white mug": 1187,
+        "plate #1": 2819,
+        "small brown box": 496,
+        "plate #2": 28
+      },
+      "missing": []
+    },
+    {
+      "frame": 68,
+      "mask_areas": {
+        "white mug": 1205,
+        "plate #1": 2821,
+        "small brown box": 495,
+        "plate #2": 29
+      },
+      "missing": []
+    },
+    {
+      "frame": 69,
+      "mask_areas": {
+        "white mug": 1234,
+        "plate #1": 2821,
+        "small brown box": 495,
+        "plate #2": 36
+      },
+      "missing": []
+    },
+    {
+      "frame": 70,
+      "mask_areas": {
+        "white mug": 1275,
+        "plate #1": 2817,
+        "small brown box": 497,
+        "plate #2": 31
+      },
+      "missing": []
+    },
+    {
+      "frame": 71,
+      "mask_areas": {
+        "white mug": 1314,
+        "plate #1": 2818,
+        "small brown box": 498,
+        "plate #2": 38
+      },
+      "missing": []
+    },
+    {
+      "frame": 72,
+      "mask_areas": {
+        "white mug": 1382,
+        "plate #1": 2819,
+        "small brown box": 496,
+        "plate #2": 41
+      },
+      "missing": []
+    },
+    {
+      "frame": 73,
+      "mask_areas": {
+        "white mug": 1439,
+        "plate #1": 2817,
+        "small brown box": 499,
+        "plate #2": 40
+      },
+      "missing": []
+    },
+    {
+      "frame": 74,
+      "mask_areas": {
+        "white mug": 1494,
+        "plate #1": 2818,
+        "small brown box": 496,
+        "plate #2": 28
+      },
+      "missing": []
+    },
+    {
+      "frame": 75,
+      "mask_areas": {
+        "white mug": 1522,
+        "plate #1": 2818,
+        "small brown box": 497,
+        "plate #2": 34
+      },
+      "missing": []
+    },
+    {
+      "frame": 76,
+      "mask_areas": {
+        "white mug": 1567,
+        "plate #1": 2817,
+        "small brown box": 499,
+        "plate #2": 30
+      },
+      "missing": []
+    },
+    {
+      "frame": 77,
+      "mask_areas": {
+        "white mug": 1629,
+        "plate #1": 2816,
+        "small brown box": 498,
+        "plate #2": 57
+      },
+      "missing": []
+    },
+    {
+      "frame": 78,
+      "mask_areas": {
+        "white mug": 1674,
+        "plate #1": 2814,
+        "small brown box": 497,
+        "plate #2": 45
+      },
+      "missing": []
+    },
+    {
+      "frame": 79,
+      "mask_areas": {
+        "white mug": 1707,
+        "plate #1": 2815,
+        "small brown box": 495,
+        "plate #2": 63
+      },
+      "missing": []
+    },
+    {
+      "frame": 80,
+      "mask_areas": {
+        "white mug": 1739,
+        "plate #1": 2814,
+        "small brown box": 426,
+        "plate #2": 38
+      },
+      "missing": []
+    },
+    {
+      "frame": 81,
+      "mask_areas": {
+        "white mug": 1827,
+        "plate #1": 2815,
+        "small brown box": 494,
+        "plate #2": 34
+      },
+      "missing": []
+    },
+    {
+      "frame": 82,
+      "mask_areas": {
+        "white mug": 1856,
+        "plate #1": 2814,
+        "small brown box": 439,
+        "plate #2": 42
+      },
+      "missing": []
+    },
+    {
+      "frame": 83,
+      "mask_areas": {
+        "white mug": 1915,
+        "plate #1": 2811,
+        "small brown box": 423,
+        "plate #2": 40
+      },
+      "missing": []
+    },
+    {
+      "frame": 84,
+      "mask_areas": {
+        "white mug": 1992,
+        "plate #1": 2816,
+        "small brown box": 491,
+        "plate #2": 41
+      },
+      "missing": []
+    },
+    {
+      "frame": 85,
+      "mask_areas": {
+        "white mug": 2065,
+        "plate #1": 2816,
+        "small brown box": 441,
+        "plate #2": 47
+      },
+      "missing": []
+    },
+    {
+      "frame": 86,
+      "mask_areas": {
+        "white mug": 2094,
+        "plate #1": 2811,
+        "small brown box": 446,
+        "plate #2": 44
+      },
+      "missing": []
+    },
+    {
+      "frame": 87,
+      "mask_areas": {
+        "white mug": 2164,
+        "plate #1": 2809,
+        "small brown box": 444,
+        "plate #2": 51
+      },
+      "missing": []
+    },
+    {
+      "frame": 88,
+      "mask_areas": {
+        "white mug": 2178,
+        "plate #1": 2809,
+        "small brown box": 431,
+        "plate #2": 56
+      },
+      "missing": []
+    },
+    {
+      "frame": 89,
+      "mask_areas": {
+        "white mug": 2193,
+        "plate #1": 2808,
+        "small brown box": 431,
+        "plate #2": 59
+      },
+      "missing": []
+    },
+    {
+      "frame": 90,
+      "mask_areas": {
+        "white mug": 2329,
+        "plate #1": 2810,
+        "small brown box": 456,
+        "plate #2": 52
+      },
+      "missing": []
+    },
+    {
+      "frame": 91,
+      "mask_areas": {
+        "white mug": 2325,
+        "plate #1": 2811,
+        "small brown box": 462,
+        "plate #2": 58
+      },
+      "missing": []
+    },
+    {
+      "frame": 92,
+      "mask_areas": {
+        "white mug": 2443,
+        "plate #1": 2813,
+        "small brown box": 459,
+        "plate #2": 56
+      },
+      "missing": []
+    },
+    {
+      "frame": 93,
+      "mask_areas": {
+        "white mug": 2456,
+        "plate #1": 2812,
+        "small brown box": 454,
+        "plate #2": 58
+      },
+      "missing": []
+    },
+    {
+      "frame": 94,
+      "mask_areas": {
+        "white mug": 2487,
+        "plate #1": 2808,
+        "small brown box": 455,
+        "plate #2": 60
+      },
+      "missing": []
+    },
+    {
+      "frame": 95,
+      "mask_areas": {
+        "white mug": 2572,
+        "plate #1": 2809,
+        "small brown box": 454,
+        "plate #2": 65
+      },
+      "missing": []
+    },
+    {
+      "frame": 96,
+      "mask_areas": {
+        "white mug": 2616,
+        "plate #1": 2798,
+        "small brown box": 456,
+        "plate #2": 74
+      },
+      "missing": []
+    },
+    {
+      "frame": 97,
+      "mask_areas": {
+        "white mug": 2597,
+        "plate #1": 2800,
+        "small brown box": 462,
+        "plate #2": 75
+      },
+      "missing": []
+    },
+    {
+      "frame": 98,
+      "mask_areas": {
+        "white mug": 2631,
+        "plate #1": 2791,
+        "small brown box": 462,
+        "plate #2": 73
+      },
+      "missing": []
+    },
+    {
+      "frame": 99,
+      "mask_areas": {
+        "white mug": 2643,
+        "plate #1": 2788,
+        "small brown box": 459,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 100,
+      "mask_areas": {
+        "white mug": 2783,
+        "plate #1": 2816,
+        "small brown box": 446,
+        "plate #2": 91
+      },
+      "missing": []
+    },
+    {
+      "frame": 101,
+      "mask_areas": {
+        "white mug": 2691,
+        "plate #1": 2807,
+        "small brown box": 434,
+        "plate #2": 92
+      },
+      "missing": []
+    },
+    {
+      "frame": 102,
+      "mask_areas": {
+        "white mug": 2809,
+        "plate #1": 2764,
+        "small brown box": 425,
+        "plate #2": 94
+      },
+      "missing": []
+    },
+    {
+      "frame": 103,
+      "mask_areas": {
+        "white mug": 2875,
+        "plate #1": 2702,
+        "small brown box": 422,
+        "plate #2": 83
+      },
+      "missing": []
+    },
+    {
+      "frame": 104,
+      "mask_areas": {
+        "white mug": 2716,
+        "plate #1": 2629,
+        "small brown box": 430,
+        "plate #2": 99
+      },
+      "missing": []
+    },
+    {
+      "frame": 105,
+      "mask_areas": {
+        "white mug": 2779,
+        "plate #1": 2550,
+        "small brown box": 435,
+        "plate #2": 83
+      },
+      "missing": []
+    },
+    {
+      "frame": 106,
+      "mask_areas": {
+        "white mug": 2829,
+        "plate #1": 2484,
+        "small brown box": 449,
+        "plate #2": 95
+      },
+      "missing": []
+    },
+    {
+      "frame": 107,
+      "mask_areas": {
+        "white mug": 2809,
+        "plate #1": 2419,
+        "small brown box": 460,
+        "plate #2": 83
+      },
+      "missing": []
+    },
+    {
+      "frame": 108,
+      "mask_areas": {
+        "white mug": 2744,
+        "plate #1": 2372,
+        "small brown box": 468,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 109,
+      "mask_areas": {
+        "white mug": 2703,
+        "plate #1": 2290,
+        "small brown box": 469,
+        "plate #2": 87
+      },
+      "missing": []
+    },
+    {
+      "frame": 110,
+      "mask_areas": {
+        "white mug": 2695,
+        "plate #1": 2202,
+        "small brown box": 449,
+        "plate #2": 82
+      },
+      "missing": []
+    },
+    {
+      "frame": 111,
+      "mask_areas": {
+        "white mug": 2691,
+        "plate #1": 2122,
+        "small brown box": 419,
+        "plate #2": 102
+      },
+      "missing": []
+    },
+    {
+      "frame": 112,
+      "mask_areas": {
+        "white mug": 2640,
+        "plate #1": 2017,
+        "small brown box": 395,
+        "plate #2": 86
+      },
+      "missing": []
+    },
+    {
+      "frame": 113,
+      "mask_areas": {
+        "white mug": 2618,
+        "plate #1": 1918,
+        "small brown box": 377,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 114,
+      "mask_areas": {
+        "white mug": 2593,
+        "plate #1": 1815,
+        "small brown box": 348,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 115,
+      "mask_areas": {
+        "white mug": 2555,
+        "plate #1": 1729,
+        "small brown box": 322,
+        "plate #2": 82
+      },
+      "missing": []
+    },
+    {
+      "frame": 116,
+      "mask_areas": {
+        "white mug": 2549,
+        "plate #1": 1651,
+        "small brown box": 296,
+        "plate #2": 90
+      },
+      "missing": []
+    },
+    {
+      "frame": 117,
+      "mask_areas": {
+        "white mug": 2525,
+        "plate #1": 1512,
+        "small brown box": 276,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 118,
+      "mask_areas": {
+        "white mug": 2498,
+        "plate #1": 1451,
+        "small brown box": 257,
+        "plate #2": 115
+      },
+      "missing": []
+    },
+    {
+      "frame": 119,
+      "mask_areas": {
+        "white mug": 2074,
+        "plate #1": 1379,
+        "small brown box": 234,
+        "plate #2": 81
+      },
+      "missing": []
+    },
+    {
+      "frame": 120,
+      "mask_areas": {
+        "white mug": 2038,
+        "plate #1": 1316,
+        "small brown box": 215,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 121,
+      "mask_areas": {
+        "white mug": 2004,
+        "plate #1": 1260,
+        "small brown box": 196,
+        "plate #2": 88
+      },
+      "missing": []
+    },
+    {
+      "frame": 122,
+      "mask_areas": {
+        "white mug": 2008,
+        "plate #1": 1195,
+        "small brown box": 179,
+        "plate #2": 92
+      },
+      "missing": []
+    },
+    {
+      "frame": 123,
+      "mask_areas": {
+        "white mug": 1971,
+        "plate #1": 1189,
+        "small brown box": 156,
+        "plate #2": 92
+      },
+      "missing": []
+    },
+    {
+      "frame": 124,
+      "mask_areas": {
+        "white mug": 1943,
+        "plate #1": 1124,
+        "small brown box": 138,
+        "plate #2": 88
+      },
+      "missing": []
+    },
+    {
+      "frame": 125,
+      "mask_areas": {
+        "white mug": 1922,
+        "plate #1": 1039,
+        "small brown box": 120,
+        "plate #2": 101
+      },
+      "missing": []
+    },
+    {
+      "frame": 126,
+      "mask_areas": {
+        "white mug": 1945,
+        "plate #1": 1051,
+        "small brown box": 100,
+        "plate #2": 94
+      },
+      "missing": []
+    },
+    {
+      "frame": 127,
+      "mask_areas": {
+        "white mug": 1959,
+        "plate #1": 1047,
+        "small brown box": 78,
+        "plate #2": 94
+      },
+      "missing": []
+    },
+    {
+      "frame": 128,
+      "mask_areas": {
+        "white mug": 2021,
+        "plate #1": 1051,
+        "small brown box": 70,
+        "plate #2": 99
+      },
+      "missing": []
+    },
+    {
+      "frame": 129,
+      "mask_areas": {
+        "white mug": 2026,
+        "plate #1": 1060,
+        "small brown box": 66,
+        "plate #2": 95
+      },
+      "missing": []
+    },
+    {
+      "frame": 130,
+      "mask_areas": {
+        "white mug": 2266,
+        "plate #1": 1122,
+        "small brown box": 60,
+        "plate #2": 92
+      },
+      "missing": []
+    },
+    {
+      "frame": 131,
+      "mask_areas": {
+        "white mug": 2237,
+        "plate #1": 1106,
+        "small brown box": 60,
+        "plate #2": 82
+      },
+      "missing": []
+    },
+    {
+      "frame": 132,
+      "mask_areas": {
+        "white mug": 2092,
+        "plate #1": 1053,
+        "small brown box": 59,
+        "plate #2": 103
+      },
+      "missing": []
+    },
+    {
+      "frame": 133,
+      "mask_areas": {
+        "white mug": 2008,
+        "plate #1": 1084,
+        "small brown box": 64,
+        "plate #2": 77
+      },
+      "missing": []
+    },
+    {
+      "frame": 134,
+      "mask_areas": {
+        "white mug": 2348,
+        "plate #1": 1086,
+        "small brown box": 65,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 135,
+      "mask_areas": {
+        "white mug": 2321,
+        "plate #1": 1080,
+        "small brown box": 66,
+        "plate #2": 68
+      },
+      "missing": []
+    },
+    {
+      "frame": 136,
+      "mask_areas": {
+        "white mug": 2320,
+        "plate #1": 1095,
+        "small brown box": 68,
+        "plate #2": 57
+      },
+      "missing": []
+    },
+    {
+      "frame": 137,
+      "mask_areas": {
+        "white mug": 2211,
+        "plate #1": 1069,
+        "small brown box": 68,
+        "plate #2": 58
+      },
+      "missing": []
+    },
+    {
+      "frame": 138,
+      "mask_areas": {
+        "white mug": 2073,
+        "plate #1": 1076,
+        "small brown box": 70,
+        "plate #2": 54
+      },
+      "missing": []
+    },
+    {
+      "frame": 139,
+      "mask_areas": {
+        "white mug": 2087,
+        "plate #1": 1083,
+        "small brown box": 72,
+        "plate #2": 48
+      },
+      "missing": []
+    },
+    {
+      "frame": 140,
+      "mask_areas": {
+        "white mug": 2101,
+        "plate #1": 1062,
+        "small brown box": 73,
+        "plate #2": 57
+      },
+      "missing": []
+    },
+    {
+      "frame": 141,
+      "mask_areas": {
+        "white mug": 2255,
+        "plate #1": 1057,
+        "small brown box": 78,
+        "plate #2": 48
+      },
+      "missing": []
+    },
+    {
+      "frame": 142,
+      "mask_areas": {
+        "white mug": 2254,
+        "plate #1": 1033,
+        "small brown box": 84,
+        "plate #2": 50
+      },
+      "missing": []
+    },
+    {
+      "frame": 143,
+      "mask_areas": {
+        "white mug": 2234,
+        "plate #1": 1058,
+        "small brown box": 89,
+        "plate #2": 51
+      },
+      "missing": []
+    },
+    {
+      "frame": 144,
+      "mask_areas": {
+        "white mug": 2239,
+        "plate #1": 1062,
+        "small brown box": 98,
+        "plate #2": 41
+      },
+      "missing": []
+    },
+    {
+      "frame": 145,
+      "mask_areas": {
+        "white mug": 2302,
+        "plate #1": 1034,
+        "small brown box": 114,
+        "plate #2": 44
+      },
+      "missing": []
+    },
+    {
+      "frame": 146,
+      "mask_areas": {
+        "white mug": 2360,
+        "plate #1": 1022,
+        "small brown box": 132,
+        "plate #2": 51
+      },
+      "missing": []
+    },
+    {
+      "frame": 147,
+      "mask_areas": {
+        "white mug": 2400,
+        "plate #1": 1051,
+        "small brown box": 167,
+        "plate #2": 50
+      },
+      "missing": []
+    },
+    {
+      "frame": 148,
+      "mask_areas": {
+        "white mug": 2550,
+        "plate #1": 1044,
+        "small brown box": 197,
+        "plate #2": 46
+      },
+      "missing": []
+    },
+    {
+      "frame": 149,
+      "mask_areas": {
+        "white mug": 2681,
+        "plate #1": 992,
+        "small brown box": 225,
+        "plate #2": 50
+      },
+      "missing": []
+    },
+    {
+      "frame": 150,
+      "mask_areas": {
+        "white mug": 2807,
+        "plate #1": 993,
+        "small brown box": 295,
+        "plate #2": 49
+      },
+      "missing": []
+    },
+    {
+      "frame": 151,
+      "mask_areas": {
+        "white mug": 2936,
+        "plate #1": 1043,
+        "small brown box": 345,
+        "plate #2": 51
+      },
+      "missing": []
+    },
+    {
+      "frame": 152,
+      "mask_areas": {
+        "white mug": 3033,
+        "plate #1": 1044,
+        "small brown box": 387,
+        "plate #2": 55
+      },
+      "missing": []
+    },
+    {
+      "frame": 153,
+      "mask_areas": {
+        "white mug": 3119,
+        "plate #1": 993,
+        "small brown box": 428,
+        "plate #2": 52
+      },
+      "missing": []
+    },
+    {
+      "frame": 154,
+      "mask_areas": {
+        "white mug": 3178,
+        "plate #1": 991,
+        "small brown box": 462,
+        "plate #2": 68
+      },
+      "missing": []
+    },
+    {
+      "frame": 155,
+      "mask_areas": {
+        "white mug": 3175,
+        "plate #1": 1028,
+        "small brown box": 498,
+        "plate #2": 70
+      },
+      "missing": []
+    },
+    {
+      "frame": 156,
+      "mask_areas": {
+        "white mug": 3175,
+        "plate #1": 982,
+        "small brown box": 534,
+        "plate #2": 78
+      },
+      "missing": []
+    },
+    {
+      "frame": 157,
+      "mask_areas": {
+        "white mug": 3170,
+        "plate #1": 1030,
+        "small brown box": 514,
+        "plate #2": 82
+      },
+      "missing": []
+    },
+    {
+      "frame": 158,
+      "mask_areas": {
+        "white mug": 3172,
+        "plate #1": 980,
+        "small brown box": 511,
+        "plate #2": 89
+      },
+      "missing": []
+    },
+    {
+      "frame": 159,
+      "mask_areas": {
+        "white mug": 3172,
+        "plate #1": 972,
+        "small brown box": 511,
+        "plate #2": 95
+      },
+      "missing": []
+    },
+    {
+      "frame": 160,
+      "mask_areas": {
+        "white mug": 3161,
+        "plate #1": 1018,
+        "small brown box": 511,
+        "plate #2": 106
+      },
+      "missing": []
+    },
+    {
+      "frame": 161,
+      "mask_areas": {
+        "white mug": 3162,
+        "plate #1": 977,
+        "small brown box": 511,
+        "plate #2": 105
+      },
+      "missing": []
+    },
+    {
+      "frame": 162,
+      "mask_areas": {
+        "white mug": 3161,
+        "plate #1": 1016,
+        "small brown box": 506,
+        "plate #2": 114
+      },
+      "missing": []
+    },
+    {
+      "frame": 163,
+      "mask_areas": {
+        "white mug": 3120,
+        "plate #1": 980,
+        "small brown box": 504,
+        "plate #2": 116
+      },
+      "missing": []
+    },
+    {
+      "frame": 164,
+      "mask_areas": {
+        "white mug": 3218,
+        "plate #1": 1022,
+        "small brown box": 505,
+        "plate #2": 123
+      },
+      "missing": []
+    },
+    {
+      "frame": 165,
+      "mask_areas": {
+        "white mug": 3171,
+        "plate #1": 976,
+        "small brown box": 505,
+        "plate #2": 117
+      },
+      "missing": []
+    },
+    {
+      "frame": 166,
+      "mask_areas": {
+        "white mug": 3172,
+        "plate #1": 1017,
+        "small brown box": 504,
+        "plate #2": 122
+      },
+      "missing": []
+    },
+    {
+      "frame": 167,
+      "mask_areas": {
+        "white mug": 3170,
+        "plate #1": 1017,
+        "small brown box": 503,
+        "plate #2": 123
+      },
+      "missing": []
+    },
+    {
+      "frame": 168,
+      "mask_areas": {
+        "white mug": 3168,
+        "plate #1": 981,
+        "small brown box": 503,
+        "plate #2": 122
+      },
+      "missing": []
+    },
+    {
+      "frame": 169,
+      "mask_areas": {
+        "white mug": 3165,
+        "plate #1": 1020,
+        "small brown box": 503,
+        "plate #2": 126
+      },
+      "missing": []
+    },
+    {
+      "frame": 170,
+      "mask_areas": {
+        "white mug": 3172,
+        "plate #1": 980,
+        "small brown box": 499,
+        "plate #2": 125
+      },
+      "missing": []
+    },
+    {
+      "frame": 171,
+      "mask_areas": {
+        "white mug": 3151,
+        "plate #1": 979,
+        "small brown box": 501,
+        "plate #2": 121
+      },
+      "missing": []
+    },
+    {
+      "frame": 172,
+      "mask_areas": {
+        "white mug": 3148,
+        "plate #1": 981,
+        "small brown box": 496,
+        "plate #2": 121
+      },
+      "missing": []
+    },
+    {
+      "frame": 173,
+      "mask_areas": {
+        "white mug": 3152,
+        "plate #1": 980,
+        "small brown box": 492,
+        "plate #2": 114
+      },
+      "missing": []
+    },
+    {
+      "frame": 174,
+      "mask_areas": {
+        "white mug": 3131,
+        "plate #1": 1019,
+        "small brown box": 496,
+        "plate #2": 116
+      },
+      "missing": []
+    },
+    {
+      "frame": 175,
+      "mask_areas": {
+        "white mug": 3128,
+        "plate #1": 981,
+        "small brown box": 492,
+        "plate #2": 101
+      },
+      "missing": []
+    },
+    {
+      "frame": 176,
+      "mask_areas": {
+        "white mug": 3142,
+        "plate #1": 975,
+        "small brown box": 493,
+        "plate #2": 101
+      },
+      "missing": []
+    },
+    {
+      "frame": 177,
+      "mask_areas": {
+        "white mug": 3113,
+        "plate #1": 1022,
+        "small brown box": 494,
+        "plate #2": 101
+      },
+      "missing": []
+    },
+    {
+      "frame": 178,
+      "mask_areas": {
+        "white mug": 3105,
+        "plate #1": 1028,
+        "small brown box": 492,
+        "plate #2": 97
+      },
+      "missing": []
+    },
+    {
+      "frame": 179,
+      "mask_areas": {
+        "white mug": 3109,
+        "plate #1": 1032,
+        "small brown box": 494,
+        "plate #2": 97
+      },
+      "missing": []
+    },
+    {
+      "frame": 180,
+      "mask_areas": {
+        "white mug": 3092,
+        "plate #1": 982,
+        "small brown box": 493,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 181,
+      "mask_areas": {
+        "white mug": 3090,
+        "plate #1": 1029,
+        "small brown box": 493,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 182,
+      "mask_areas": {
+        "white mug": 3075,
+        "plate #1": 980,
+        "small brown box": 491,
+        "plate #2": 88
+      },
+      "missing": []
+    },
+    {
+      "frame": 183,
+      "mask_areas": {
+        "white mug": 3077,
+        "plate #1": 1038,
+        "small brown box": 490,
+        "plate #2": 78
+      },
+      "missing": []
+    },
+    {
+      "frame": 184,
+      "mask_areas": {
+        "white mug": 3073,
+        "plate #1": 1039,
+        "small brown box": 495,
+        "plate #2": 81
+      },
+      "missing": []
+    },
+    {
+      "frame": 185,
+      "mask_areas": {
+        "white mug": 3066,
+        "plate #1": 1038,
+        "small brown box": 490,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 186,
+      "mask_areas": {
+        "white mug": 3059,
+        "plate #1": 1033,
+        "small brown box": 492,
+        "plate #2": 81
+      },
+      "missing": []
+    },
+    {
+      "frame": 187,
+      "mask_areas": {
+        "white mug": 3059,
+        "plate #1": 1039,
+        "small brown box": 495,
+        "plate #2": 78
+      },
+      "missing": []
+    },
+    {
+      "frame": 188,
+      "mask_areas": {
+        "white mug": 3048,
+        "plate #1": 984,
+        "small brown box": 497,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 189,
+      "mask_areas": {
+        "white mug": 3053,
+        "plate #1": 987,
+        "small brown box": 498,
+        "plate #2": 83
+      },
+      "missing": []
+    },
+    {
+      "frame": 190,
+      "mask_areas": {
+        "white mug": 3047,
+        "plate #1": 1040,
+        "small brown box": 500,
+        "plate #2": 86
+      },
+      "missing": []
+    },
+    {
+      "frame": 191,
+      "mask_areas": {
+        "white mug": 3053,
+        "plate #1": 1039,
+        "small brown box": 498,
+        "plate #2": 82
+      },
+      "missing": []
+    },
+    {
+      "frame": 192,
+      "mask_areas": {
+        "white mug": 3038,
+        "plate #1": 987,
+        "small brown box": 498,
+        "plate #2": 77
+      },
+      "missing": []
+    },
+    {
+      "frame": 193,
+      "mask_areas": {
+        "white mug": 3042,
+        "plate #1": 1036,
+        "small brown box": 496,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 194,
+      "mask_areas": {
+        "white mug": 3058,
+        "plate #1": 1035,
+        "small brown box": 498,
+        "plate #2": 78
+      },
+      "missing": []
+    },
+    {
+      "frame": 195,
+      "mask_areas": {
+        "white mug": 3048,
+        "plate #1": 1038,
+        "small brown box": 498,
+        "plate #2": 73
+      },
+      "missing": []
+    },
+    {
+      "frame": 196,
+      "mask_areas": {
+        "white mug": 3052,
+        "plate #1": 1042,
+        "small brown box": 497,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 197,
+      "mask_areas": {
+        "white mug": 3058,
+        "plate #1": 1042,
+        "small brown box": 499,
+        "plate #2": 75
+      },
+      "missing": []
+    },
+    {
+      "frame": 198,
+      "mask_areas": {
+        "white mug": 3055,
+        "plate #1": 987,
+        "small brown box": 499,
+        "plate #2": 74
+      },
+      "missing": []
+    },
+    {
+      "frame": 199,
+      "mask_areas": {
+        "white mug": 3057,
+        "plate #1": 1042,
+        "small brown box": 488,
+        "plate #2": 73
+      },
+      "missing": []
+    },
+    {
+      "frame": 200,
+      "mask_areas": {
+        "white mug": 3057,
+        "plate #1": 994,
+        "small brown box": 471,
+        "plate #2": 70
+      },
+      "missing": []
+    },
+    {
+      "frame": 201,
+      "mask_areas": {
+        "white mug": 3065,
+        "plate #1": 1041,
+        "small brown box": 455,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 202,
+      "mask_areas": {
+        "white mug": 3057,
+        "plate #1": 993,
+        "small brown box": 426,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 203,
+      "mask_areas": {
+        "white mug": 3062,
+        "plate #1": 989,
+        "small brown box": 405,
+        "plate #2": 70
+      },
+      "missing": []
+    },
+    {
+      "frame": 204,
+      "mask_areas": {
+        "white mug": 3055,
+        "plate #1": 982,
+        "small brown box": 376,
+        "plate #2": 68
+      },
+      "missing": []
+    },
+    {
+      "frame": 205,
+      "mask_areas": {
+        "white mug": 3056,
+        "plate #1": 985,
+        "small brown box": 353,
+        "plate #2": 60
+      },
+      "missing": []
+    },
+    {
+      "frame": 206,
+      "mask_areas": {
+        "white mug": 3060,
+        "plate #1": 979,
+        "small brown box": 335,
+        "plate #2": 69
+      },
+      "missing": []
+    },
+    {
+      "frame": 207,
+      "mask_areas": {
+        "white mug": 3060,
+        "plate #1": 980,
+        "small brown box": 332,
+        "plate #2": 69
+      },
+      "missing": []
+    },
+    {
+      "frame": 208,
+      "mask_areas": {
+        "white mug": 3059,
+        "plate #1": 977,
+        "small brown box": 335,
+        "plate #2": 67
+      },
+      "missing": []
+    },
+    {
+      "frame": 209,
+      "mask_areas": {
+        "white mug": 3053,
+        "plate #1": 1021,
+        "small brown box": 335,
+        "plate #2": 69
+      },
+      "missing": []
+    },
+    {
+      "frame": 210,
+      "mask_areas": {
+        "white mug": 3062,
+        "plate #1": 1026,
+        "small brown box": 324,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 211,
+      "mask_areas": {
+        "white mug": 3060,
+        "plate #1": 978,
+        "small brown box": 321,
+        "plate #2": 76
+      },
+      "missing": []
+    },
+    {
+      "frame": 212,
+      "mask_areas": {
+        "white mug": 3066,
+        "plate #1": 1029,
+        "small brown box": 324,
+        "plate #2": 79
+      },
+      "missing": []
+    },
+    {
+      "frame": 213,
+      "mask_areas": {
+        "white mug": 3067,
+        "plate #1": 1028,
+        "small brown box": 326,
+        "plate #2": 56
+      },
+      "missing": []
+    },
+    {
+      "frame": 214,
+      "mask_areas": {
+        "white mug": 3058,
+        "plate #1": 980,
+        "small brown box": 312,
+        "plate #2": 53
+      },
+      "missing": []
+    },
+    {
+      "frame": 215,
+      "mask_areas": {
+        "white mug": 3061,
+        "plate #1": 982,
+        "small brown box": 320,
+        "plate #2": 49
+      },
+      "missing": []
+    },
+    {
+      "frame": 216,
+      "mask_areas": {
+        "white mug": 3057,
+        "plate #1": 981,
+        "small brown box": 317,
+        "plate #2": 60
+      },
+      "missing": []
+    },
+    {
+      "frame": 217,
+      "mask_areas": {
+        "white mug": 3060,
+        "plate #1": 974,
+        "small brown box": 317,
+        "plate #2": 58
+      },
+      "missing": []
+    },
+    {
+      "frame": 218,
+      "mask_areas": {
+        "white mug": 3057,
+        "plate #1": 977,
+        "small brown box": 332,
+        "plate #2": 57
+      },
+      "missing": []
+    },
+    {
+      "frame": 219,
+      "mask_areas": {
+        "white mug": 3062,
+        "plate #1": 1026,
+        "small brown box": 323,
+        "plate #2": 58
+      },
+      "missing": []
+    },
+    {
+      "frame": 220,
+      "mask_areas": {
+        "white mug": 3059,
+        "plate #1": 970,
+        "small brown box": 334,
+        "plate #2": 60
+      },
+      "missing": []
+    },
+    {
+      "frame": 221,
+      "mask_areas": {
+        "white mug": 3063,
+        "plate #1": 1017,
+        "small brown box": 346,
+        "plate #2": 64
+      },
+      "missing": []
+    },
+    {
+      "frame": 222,
+      "mask_areas": {
+        "white mug": 3056,
+        "plate #1": 1021,
+        "small brown box": 336,
+        "plate #2": 74
+      },
+      "missing": []
+    },
+    {
+      "frame": 223,
+      "mask_areas": {
+        "white mug": 3068,
+        "plate #1": 1022,
+        "small brown box": 343,
+        "plate #2": 72
+      },
+      "missing": []
+    },
+    {
+      "frame": 224,
+      "mask_areas": {
+        "white mug": 3059,
+        "plate #1": 1028,
+        "small brown box": 343,
+        "plate #2": 75
+      },
+      "missing": []
+    },
+    {
+      "frame": 225,
+      "mask_areas": {
+        "white mug": 3060,
+        "plate #1": 1035,
+        "small brown box": 352,
+        "plate #2": 68
+      },
+      "missing": []
+    },
+    {
+      "frame": 226,
+      "mask_areas": {
+        "white mug": 3063,
+        "plate #1": 980,
+        "small brown box": 365,
+        "plate #2": 75
+      },
+      "missing": []
+    },
+    {
+      "frame": 227,
+      "mask_areas": {
+        "white mug": 3063,
+        "plate #1": 1036,
+        "small brown box": 378,
+        "plate #2": 71
+      },
+      "missing": []
+    },
+    {
+      "frame": 228,
+      "mask_areas": {
+        "white mug": 3067,
+        "plate #1": 985,
+        "small brown box": 383,
+        "plate #2": 79
+      },
+      "missing": []
+    },
+    {
+      "frame": 229,
+      "mask_areas": {
+        "white mug": 3065,
+        "plate #1": 1037,
+        "small brown box": 409,
+        "plate #2": 77
+      },
+      "missing": []
+    },
+    {
+      "frame": 230,
+      "mask_areas": {
+        "white mug": 3064,
+        "plate #1": 985,
+        "small brown box": 419,
+        "plate #2": 79
+      },
+      "missing": []
+    },
+    {
+      "frame": 231,
+      "mask_areas": {
+        "white mug": 3069,
+        "plate #1": 981,
+        "small brown box": 426,
+        "plate #2": 141
+      },
+      "missing": []
+    },
+    {
+      "frame": 232,
+      "mask_areas": {
+        "white mug": 3069,
+        "plate #1": 1025,
+        "small brown box": 438,
+        "plate #2": 115
+      },
+      "missing": []
+    },
+    {
+      "frame": 233,
+      "mask_areas": {
+        "white mug": 3070,
+        "plate #1": 982,
+        "small brown box": 453,
+        "plate #2": 102
+      },
+      "missing": []
+    },
+    {
+      "frame": 234,
+      "mask_areas": {
+        "white mug": 3070,
+        "plate #1": 1028,
+        "small brown box": 457,
+        "plate #2": 80
+      },
+      "missing": []
+    },
+    {
+      "frame": 235,
+      "mask_areas": {
+        "white mug": 3069,
+        "plate #1": 980,
+        "small brown box": 466,
+        "plate #2": 159
+      },
+      "missing": []
+    },
+    {
+      "frame": 236,
+      "mask_areas": {
+        "white mug": 3069,
+        "plate #1": 1027,
+        "small brown box": 476,
+        "plate #2": 86
+      },
+      "missing": []
+    },
+    {
+      "frame": 237,
+      "mask_areas": {
+        "white mug": 3064,
+        "plate #1": 979,
+        "small brown box": 488,
+        "plate #2": 89
+      },
+      "missing": []
+    },
+    {
+      "frame": 238,
+      "mask_areas": {
+        "white mug": 3074,
+        "plate #1": 1031,
+        "small brown box": 500,
+        "plate #2": 97
+      },
+      "missing": []
+    },
+    {
+      "frame": 239,
+      "mask_areas": {
+        "white mug": 3073,
+        "plate #1": 1034,
+        "small brown box": 514,
+        "plate #2": 178
+      },
+      "missing": []
+    },
+    {
+      "frame": 240,
+      "mask_areas": {
+        "white mug": 3070,
+        "plate #1": 1039,
+        "small brown box": 520,
+        "plate #2": 85
+      },
+      "missing": []
+    },
+    {
+      "frame": 241,
+      "mask_areas": {
+        "white mug": 3078,
+        "plate #1": 1034,
+        "small brown box": 521,
+        "plate #2": 160
+      },
+      "missing": []
+    },
+    {
+      "frame": 242,
+      "mask_areas": {
+        "white mug": 3083,
+        "plate #1": 983,
+        "small brown box": 534,
+        "plate #2": 169
+      },
+      "missing": []
+    },
+    {
+      "frame": 243,
+      "mask_areas": {
+        "white mug": 3073,
+        "plate #1": 981,
+        "small brown box": 534,
+        "plate #2": 93
+      },
+      "missing": []
+    },
+    {
+      "frame": 244,
+      "mask_areas": {
+        "white mug": 3074,
+        "plate #1": 983,
+        "small brown box": 540,
+        "plate #2": 177
+      },
+      "missing": []
+    },
+    {
+      "frame": 245,
+      "mask_areas": {
+        "white mug": 3079,
+        "plate #1": 1035,
+        "small brown box": 540,
+        "plate #2": 180
+      },
+      "missing": []
+    },
+    {
+      "frame": 246,
+      "mask_areas": {
+        "white mug": 3085,
+        "plate #1": 980,
+        "small brown box": 544,
+        "plate #2": 171
+      },
+      "missing": []
+    },
+    {
+      "frame": 247,
+      "mask_areas": {
+        "white mug": 3077,
+        "plate #1": 1032,
+        "small brown box": 542,
+        "plate #2": 167
+      },
+      "missing": []
+    },
+    {
+      "frame": 248,
+      "mask_areas": {
+        "white mug": 3081,
+        "plate #1": 976,
+        "small brown box": 534,
+        "plate #2": 171
+      },
+      "missing": []
+    },
+    {
+      "frame": 249,
+      "mask_areas": {
+        "white mug": 3071,
+        "plate #1": 1018,
+        "small brown box": 542,
+        "plate #2": 178
+      },
+      "missing": []
+    },
+    {
+      "frame": 250,
+      "mask_areas": {
+        "white mug": 3039,
+        "plate #1": 1020,
+        "small brown box": 528,
+        "plate #2": 94
+      },
+      "missing": []
+    },
+    {
+      "frame": 251,
+      "mask_areas": {
+        "white mug": 3050,
+        "plate #1": 1022,
+        "small brown box": 528,
+        "plate #2": 142
+      },
+      "missing": []
+    },
+    {
+      "frame": 252,
+      "mask_areas": {
+        "white mug": 3061,
+        "plate #1": 1019,
+        "small brown box": 514,
+        "plate #2": 119
+      },
+      "missing": []
+    }
+  ]
+}

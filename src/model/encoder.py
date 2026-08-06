@@ -37,6 +37,7 @@ class EntityEncoder(nn.Module):
         cls_token_num: int = 1,
         dropout: float = 0.0,
         global_layer_types: tuple[int, ...] | list[int] | None = None,
+        node_attention_mode: str = "full",
     ) -> None:
         super().__init__()
         if actor_num_points < 1:
@@ -56,8 +57,14 @@ class EntityEncoder(nn.Module):
                 f"global_layer_types entries must be 0 (register) or 1 (dense), "
                 f"got {self.global_layer_types}"
             )
+        if node_attention_mode not in ("full", "role_chain"):
+            raise ValueError(
+                "node_attention_mode must be 'full' or 'role_chain', "
+                f"got {node_attention_mode!r}"
+            )
         self.actor_num_points = actor_num_points
         self.cls_token_num = cls_token_num
+        self.node_attention_mode = node_attention_mode
         self.point_stem = nn.Sequential(
             nn.Linear(POINT_FEATURE_DIM, hidden_dim),
             nn.GELU(),
@@ -138,6 +145,23 @@ class EntityEncoder(nn.Module):
             ], dim=3).reshape(batch, dense_entity_tokens),
             torch.ones(batch, 2, dtype=torch.bool, device=points.device),
         ], dim=1)
+        register_attention_mask = None
+        dense_attention_mask = None
+        if self.node_attention_mode == "role_chain":
+            def make_attention_mask(tokens_per_entity: int) -> torch.Tensor:
+                role_ids = torch.arange(entities, device=points.device).repeat_interleave(
+                    tokens_per_entity
+                ).repeat(steps)
+                role_ids = torch.cat([role_ids, role_ids.new_full((2,), -1)])
+                is_entity_query = role_ids >= 0
+                is_entity_key = role_ids >= 0
+                blocks_actor_target = (role_ids[:, None] - role_ids[None, :]).abs() > 1
+                return ~(
+                    is_entity_query[:, None] & is_entity_key[None, :] & blocks_actor_target
+                )
+
+            register_attention_mask = make_attention_mask(self.cls_token_num)
+            dense_attention_mask = make_attention_mask(self.cls_token_num + num_points)
         point_roles_added = False
 
         for layer_index, (local_block, global_block) in enumerate(
@@ -176,11 +200,15 @@ class EntityEncoder(nn.Module):
                 )
                 if self.gradient_checkpointing and self.training:
                     global_cls = checkpoint(
-                        global_block, global_cls, global_positions,
+                        global_block, global_cls, global_positions, None, False,
+                        register_attention_mask,
                         use_reentrant=False, preserve_rng_state=False,
                     )
                 else:
-                    global_cls = global_block(global_cls, global_positions)
+                    global_cls = global_block(
+                        global_cls, global_positions,
+                        attention_mask=register_attention_mask,
+                    )
                 cls = global_cls[:, :global_entity_tokens].view(
                     batch, steps, entities, self.cls_token_num, -1
                 )
@@ -196,11 +224,18 @@ class EntityEncoder(nn.Module):
             ], dim=1)
             if self.gradient_checkpointing and self.training:
                 dense = checkpoint(
-                    global_block, dense, dense_positions, dense_key_mask, True,
+                    global_block, dense, dense_positions, dense_key_mask,
+                    dense_attention_mask is None, dense_attention_mask,
                     use_reentrant=False, preserve_rng_state=False,
                 )
             else:
-                dense = global_block(dense, dense_positions, dense_key_mask, True)
+                dense = global_block(
+                    dense,
+                    dense_positions,
+                    key_mask=dense_key_mask,
+                    use_sdpa=dense_attention_mask is None,
+                    attention_mask=dense_attention_mask,
+                )
             dense_entities = dense[:, :dense_entity_tokens].view(
                 batch, steps, entities, self.cls_token_num + num_points, -1
             )

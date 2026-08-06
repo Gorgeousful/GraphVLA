@@ -121,6 +121,7 @@ class GraphFlowModel(nn.Module):
         hidden_dim: int = 512,
         encoder_layers: int = 8,
         global_layer_types: tuple[int, ...] | list[int] | None = None,
+        node_attention_mode: str = "full",
         flow_layers: int = 6,
         num_heads: int = 8,
         mlp_ratio: float = 4.0,
@@ -157,6 +158,7 @@ class GraphFlowModel(nn.Module):
             hidden_dim, self.actor_num_points, encoder_layers, num_heads, mlp_ratio, condition_dim,
             max_history=self.history_steps, cls_token_num=cls_token_num, dropout=dropout,
             global_layer_types=global_layer_types,
+            node_attention_mode=node_attention_mode,
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,

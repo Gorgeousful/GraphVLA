@@ -1,10 +1,10 @@
 # robobrain环境 0723
 # 0804-contact-basetcpfinger-cls4-7
 # 0804-contact-basetcpfinger-cls4-omega-7
-CUDA_VISIBLE_DEVICES=1 \
+CUDA_VISIBLE_DEVICES=0 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0804-contact-basetcpfinger-cls4-omega-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0804-contact-basetcpfinger-cls4-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0
@@ -25,7 +25,7 @@ python -m examples.libero.eval.client \
 --task-suite-name libero_swap_test \
 --tasks 3 \
 --num-trials-per-task 10 \
---max-steps 500 \
+--max-steps 1000 \
 --control-freq 10
 
 # libero_custom
@@ -37,7 +37,7 @@ python -m examples.libero.eval.client \
 --control-freq 10
  
 
- # libero_custom 任务列表（任务序号从 0 开始）
+ # libero_custom 任务列表（任务序号从 0 开始）  
 #
 # 0: white mug on → pudding right
 #    把白杯放到盘子上，然后把巧克力布丁放到盘子右侧。

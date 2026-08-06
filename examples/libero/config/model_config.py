@@ -20,6 +20,8 @@ class ModelConfig:
     encoder_layers: int = 8
     # 0: register-only global attention; 1: full-history CLS/point/scene attention.
     global_layer_types: tuple[int, ...] = (1,1,0,1,1,1,0,1)
+    # full: unrestricted global attention; role_chain: node tokens follow actor-patient-target edges.
+    node_attention_mode: str = "full"
     flow_layers: int = 6
     num_heads: int = 8
     mlp_ratio: float = 4.0
@@ -51,6 +53,11 @@ class ModelConfig:
             raise ValueError(
                 "global_layer_types entries must be 0 (register) or 1 (dense), "
                 f"got {self.global_layer_types}"
+            )
+        if self.node_attention_mode not in ("full", "role_chain"):
+            raise ValueError(
+                "node_attention_mode must be 'full' or 'role_chain', "
+                f"got {self.node_attention_mode!r}"
             )
 
     def to_kwargs(self) -> dict[str, Any]:

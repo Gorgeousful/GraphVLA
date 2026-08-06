@@ -90,6 +90,15 @@ class RotaryAttention(nn.Module):
             else:
                 raise ValueError(f"Expected attention mask [Q,K] or [B,Q,K], got {mask.shape}")
             scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+        if key_mask is not None:
+            if key_mask.shape != (batch, key_length):
+                raise ValueError(
+                    f"Expected key mask [B,K]=[{batch},{key_length}], got {key_mask.shape}"
+                )
+            scores = scores.masked_fill(
+                ~key_mask.to(device=scores.device, dtype=torch.bool)[:, None, None, :],
+                torch.finfo(scores.dtype).min,
+            )
         weights = self.attention_dropout(scores.softmax(dim=-1))
         output = torch.einsum("bhqk,bkhd->bqhd", weights, v).reshape(batch, query_length, hidden_dim)
         return self.output_projection(output)
@@ -115,6 +124,7 @@ class RotaryEncoderBlock(nn.Module):
         positions: torch.Tensor,
         key_mask: torch.Tensor | None = None,
         use_sdpa: bool = False,
+        attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         normalized = self.attention_norm(token)
         token = token + self.residual_dropout(self.attention(
@@ -122,6 +132,7 @@ class RotaryEncoderBlock(nn.Module):
             normalized,
             positions,
             positions,
+            attention_mask=attention_mask,
             key_mask=key_mask,
             use_sdpa=use_sdpa,
         ))
