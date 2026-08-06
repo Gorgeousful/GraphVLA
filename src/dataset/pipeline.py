@@ -67,6 +67,7 @@ class OfflinePipeline:
         overwrite_defaults = {
             "taskstructure": False,
             "node_points_xyz": True,
+            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
@@ -192,13 +193,14 @@ class OfflinePipeline:
         if task_index not in taskstructures:
             raise KeyError(f"Missing taskstructure for episode={episode_index}, task_index={task_index}")
 
-        need_node_xyz = (
+        need_node_tracking = (
             self.overwrite["node_points_xyz"]
             or "node_points_xyz" not in df.columns
+            or self.overwrite["node_points_vis"]
+            or "node_points_vis" not in df.columns
             or self.overwrite["valid_node_mask"]
             or "valid_node_mask" not in df.columns
         )
-        need_valid_node_mask = need_node_xyz
         need_subtask_node_mask = (
             self.overwrite["subtask_node_mask"]
             or "subtask_node_mask" not in df.columns
@@ -212,8 +214,7 @@ class OfflinePipeline:
         if "subtask_id" not in df.columns:
             raise KeyError(f"subtask_id is required in {parquet_path}")
         if (
-            not need_node_xyz
-            and not need_valid_node_mask
+            not need_node_tracking
             and not need_subtask_node_mask
             and not need_gripper_points_xyz
             and not need_actions_camera
@@ -222,7 +223,7 @@ class OfflinePipeline:
             return
 
         subtask_node_mask = self._build_subtask_node_mask(df, taskstructures[task_index])
-        if need_node_xyz:
+        if need_node_tracking:
             frames = self._read_parquet_frames(df)
             tracks = self._build_node_points_track(
                 frames,
@@ -234,11 +235,11 @@ class OfflinePipeline:
             intrinsic = np.asarray(
                 self._load_libero_cameras()[task_index]["agentview"]["intrinsic"], dtype=np.float64
             )
-            node_xyz, valid_node_mask = self._build_node_points_xyz(
+            node_xyz, node_vis, valid_node_mask = self._build_node_points_xyz(
                 tracks, self._read_metric_depths(df), intrinsic,
             )
             df["node_points_xyz"] = [points.tolist() for points in node_xyz]
-        if need_valid_node_mask:
+            df["node_points_vis"] = [visibility.tolist() for visibility in node_vis]
             df["valid_node_mask"] = [mask.tolist() for mask in valid_node_mask]
         if need_subtask_node_mask:
             df["subtask_node_mask"] = [mask.tolist() for mask in subtask_node_mask]
@@ -261,6 +262,7 @@ class OfflinePipeline:
         table = pa.Table.from_pandas(df, preserve_index=False)
         target_types = {
             "node_points_xyz": pa.list_(pa.list_(pa.list_(pa.float32()))),
+            "node_points_vis": pa.list_(pa.list_(pa.bool_())),
             "valid_node_mask": pa.list_(pa.bool_()),
             "subtask_node_mask": pa.list_(pa.bool_()),
             "gripper_points_xyz": pa.list_(pa.list_(pa.float32())),
@@ -429,8 +431,8 @@ class OfflinePipeline:
         tracks: np.ndarray,
         metric_depths: np.ndarray,
         intrinsic: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Backproject every tracked task node and return per-frame XYZ validity."""
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Backproject tracked points in their original order and return tracker visibility."""
         tracks = np.asarray(tracks, dtype=np.float32)
         metric_depths = np.asarray(metric_depths, dtype=np.float32)
         if tracks.ndim != 4 or tracks.shape[-1] < 3:
@@ -442,34 +444,27 @@ class OfflinePipeline:
         fx, fy = float(intrinsic[0, 0]), float(intrinsic[1, 1])
         cx, cy = float(intrinsic[0, 2]), float(intrinsic[1, 2])
         output = np.zeros(tracks.shape[:3] + (3,), dtype=np.float32)
+        point_vis = tracks[..., 2] > 0.5
         valid_nodes = np.zeros(tracks.shape[:2], dtype=bool)
         for frame_index in range(tracks.shape[0]):
             for node_index in range(tracks.shape[1]):
                 uv = tracks[frame_index, node_index, :, :2]
                 u = np.rint(uv[:, 0]).astype(np.int64)
                 v = np.rint(uv[:, 1]).astype(np.int64)
-                valid = (
-                    (tracks[frame_index, node_index, :, 2] > 0.5)
-                    & (u >= 0) & (u < width) & (v >= 0) & (v < height)
-                )
+                in_bounds = (u >= 0) & (u < width) & (v >= 0) & (v < height)
                 safe_u = np.clip(u, 0, width - 1)
                 safe_v = np.clip(v, 0, height - 1)
                 z = metric_depths[frame_index, safe_v, safe_u]
-                valid &= np.isfinite(z) & (z > 0.0)
-                valid_indices = np.flatnonzero(valid)
-                if valid_indices.size == 0:
-                    continue
-                fill_indices = np.resize(valid_indices, tracks.shape[2])
-                selected_u = uv[fill_indices, 0]
-                selected_v = uv[fill_indices, 1]
-                selected_z = z[fill_indices]
-                output[frame_index, node_index] = np.stack([
-                    (selected_u - cx) / fx * selected_z,
-                    (selected_v - cy) / fy * selected_z,
-                    selected_z,
+                projectable = in_bounds & np.isfinite(z) & (z > 0.0)
+                output[frame_index, node_index, projectable] = np.stack([
+                    (uv[projectable, 0] - cx) / fx * z[projectable],
+                    (uv[projectable, 1] - cy) / fy * z[projectable],
+                    z[projectable],
                 ], axis=-1)
-                valid_nodes[frame_index, node_index] = True
-        return output, valid_nodes
+                valid_nodes[frame_index, node_index] = np.any(
+                    point_vis[frame_index, node_index] & projectable
+                )
+        return output, point_vis, valid_nodes
 
     def _read_parquet_frames(self, df: pd.DataFrame) -> list[np.ndarray]:
         frames = []
@@ -616,8 +611,8 @@ class OfflinePipeline:
         else:
             cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
             cs.print(
-                "parquet fields: node_points_xyz, valid_node_mask, subtask_node_mask, "
-                "gripper_points_xyz, actions_camera"
+                "parquet fields: node_points_xyz, node_points_vis, valid_node_mask, "
+                "subtask_node_mask, gripper_points_xyz, actions_camera"
             )
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
@@ -831,6 +826,11 @@ class OfflinePipeline:
                 "shape": [self.config.max_nodes, self.config.points_per_node, 3],
                 "names": ["node", "point", "xyz"],
             },
+            "node_points_vis": {
+                "dtype": "bool",
+                "shape": [self.config.max_nodes, self.config.points_per_node],
+                "names": ["node", "point"],
+            },
             "valid_node_mask": {
                 "dtype": "bool",
                 "shape": [self.config.max_nodes],
@@ -945,6 +945,7 @@ if __name__ == "__main__":
         overwrite={
             "taskstructure": False,
             "node_points_xyz": True,
+            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,

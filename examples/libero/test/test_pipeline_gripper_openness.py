@@ -8,7 +8,7 @@ from src.common.schema import NodeRole
 from src.dataset.pipeline import OfflinePipeline
 
 
-def test_metric_backprojection_processes_all_tracked_nodes_and_repeats_valid_points() -> None:
+def test_metric_backprojection_preserves_tracked_point_order_and_visibility() -> None:
     pipeline = object.__new__(OfflinePipeline)
     tracks = np.zeros((1, 2, 4, 3), dtype=np.float32)
     tracks[0, 0, :, :2] = [[2, 2], [3, 2], [20, 2], [2, 2]]
@@ -17,10 +17,13 @@ def test_metric_backprojection_processes_all_tracked_nodes_and_repeats_valid_poi
     tracks[0, 1, :, 2] = 1.0
     depth = np.ones((1, 8, 8), dtype=np.float32) * 0.5
     intrinsic = np.asarray([[10.0, 0, 2.0], [0, 10.0, 2.0], [0, 0, 1.0]])
-    xyz, valid_node_mask = pipeline._build_node_points_xyz(tracks, depth, intrinsic)
+    xyz, node_points_vis, valid_node_mask = pipeline._build_node_points_xyz(
+        tracks, depth, intrinsic
+    )
 
     assert valid_node_mask.tolist() == [[True, True]]
-    np.testing.assert_allclose(xyz[0, 0, :, 0], [0.0, 0.05, 0.0, 0.05], atol=1e-7)
+    assert node_points_vis.tolist() == [[[True, True, False, False], [True] * 4]]
+    np.testing.assert_allclose(xyz[0, 0, :, 0], [0.0, 0.05, 0.0, 0.0], atol=1e-7)
     np.testing.assert_allclose(xyz[0, 1], [[0.0, 0.0, 0.5]] * 4, atol=1e-7)
 
 
@@ -28,9 +31,12 @@ def test_metric_backprojection_disables_node_without_any_valid_depth() -> None:
     pipeline = object.__new__(OfflinePipeline)
     tracks = np.zeros((1, 1, 4, 3), dtype=np.float32)
     depth = np.ones((1, 8, 8), dtype=np.float32)
-    xyz, valid_node_mask = pipeline._build_node_points_xyz(tracks, depth, np.eye(3))
+    xyz, node_points_vis, valid_node_mask = pipeline._build_node_points_xyz(
+        tracks, depth, np.eye(3)
+    )
     assert valid_node_mask.tolist() == [[False]]
-    assert not xyz.any()
+    assert node_points_vis.tolist() == [[[False] * 4]]
+    np.testing.assert_allclose(xyz[0, 0], [[0.0, 0.0, 1.0]] * 4)
 
 
 def test_subtask_node_mask_follows_flattened_taskstructure_order() -> None:
