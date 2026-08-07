@@ -22,8 +22,6 @@ from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import NodeRole, TaskStructure, json_to_taskstructure, taskstructure_to_json
-from src.module.node_locator import NodeLocatorLA
-from src.module.node_segmenter import NodeSegmenter
 from src.module.point_tracker import PointTracker
 from src.module.task_analyzer import TaskAnalyzer
 
@@ -85,14 +83,11 @@ class OfflinePipeline:
         self.task_index_to_desc = self._load_task_index_to_desc()
 
         self.task_analyzer = None
-        self.node_locator = None
-        self.node_segmenter = None
         self.point_tracker = None
         self.libero_cameras = None
         self.gripper_geometry = None
 
     def run(self):
-        self._ensure_output_features()
         selector = self.config.episode_selector
         if selector is None:
             raise TypeError("episode_selector must be a mapping; use {} to select all episodes")
@@ -110,6 +105,8 @@ class OfflinePipeline:
             )
             cs.print(f"selected all {len(episode_indices)} episodes")
 
+        self._preflight_node_initialization_caches(episode_indices)
+        self._ensure_output_features()
         taskstructures = self.build_taskstructures(task_indices)
         self._print_save_plan()
         self.process_episodes(episode_indices, taskstructures)
@@ -296,20 +293,10 @@ class OfflinePipeline:
                 dtype=np.float32,
             )
 
-        cached = self._load_node_initialization_cache(
+        point_prompts, masks = self._load_node_initialization_cache(
             episode_index, task_index, nodes, frames[0].shape[:2]
         )
-        self._ensure_node_modules(initialize=cached is None)
-        if cached is None:
-            point_prompts = [
-                self._locate_node_points(frames[0], node.name)
-                for node in nodes
-            ]
-            masks = self.node_segmenter.predict(
-                frames[0], points=point_prompts, anchor_frame=True
-            )
-        else:
-            point_prompts, masks = cached
+        self._ensure_point_tracker()
         if self.config.debug:
             self._save_node_locator_vis(
                 frames[0],
@@ -366,10 +353,14 @@ class OfflinePipeline:
         task_index: int,
         nodes,
         image_size: tuple[int, int],
-    ) -> tuple[list[list[list[float]]], np.ndarray] | None:
+    ) -> tuple[list[list[list[float]]], np.ndarray]:
         path = self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
         if not path.exists():
-            return None
+            raise FileNotFoundError(
+                f"Missing node initialization cache: {path}. "
+                f"Run `python src/dataset/pipeline_init.py initialize "
+                f"--dataset-dir {self.dataset_dir}` first."
+            )
 
         with np.load(path, allow_pickle=False) as cache:
             required = {
@@ -629,28 +620,6 @@ class OfflinePipeline:
                     nodes.append(node)
         return nodes
 
-    def _locate_node_points(self, frame_rgb: np.ndarray, node_name: str) -> list[list[float]]:
-        result = self.node_locator.inference(
-            text=node_name,
-            image=Image.fromarray(frame_rgb),
-        )
-        points = result.get("points") or []
-        if not points:
-            raise RuntimeError(f"NodeLocatorLA found no points for node={node_name!r}")
-        return self._locator_points_to_pixels(points, frame_rgb.shape[:2])
-
-    def _locator_points_to_pixels(self, points, image_size: tuple[int, int]) -> list[list[float]]:
-        height, width = image_size
-        converted = []
-        for x, y in points:
-            x = float(x) / 1000.0 * width
-            y = float(y) / 1000.0 * height
-            converted.append([
-                float(np.clip(x, 0, width - 1)),
-                float(np.clip(y, 0, height - 1)),
-            ])
-        return converted
-
     def _save_node_locator_vis(
         self,
         frame_rgb: np.ndarray,
@@ -772,14 +741,32 @@ class OfflinePipeline:
         return drawn
 
 
-    def _ensure_node_modules(self, initialize: bool = True):
-        if initialize:
-            if self.node_locator is None:
-                self.node_locator = NodeLocatorLA()
-            if self.node_segmenter is None:
-                self.node_segmenter = NodeSegmenter()
+    def _ensure_point_tracker(self):
         if self.point_tracker is None:
             self.point_tracker = PointTracker()
+
+    def _preflight_node_initialization_caches(
+        self, episode_indices: Sequence[int]
+    ) -> None:
+        missing = [
+            self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
+            for episode_index in episode_indices
+            if not (
+                self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
+            ).is_file()
+        ]
+        if not missing:
+            return
+
+        preview = "\n".join(f"  - {path}" for path in missing[:10])
+        if len(missing) > 10:
+            preview += f"\n  - ... and {len(missing) - 10} more"
+        raise FileNotFoundError(
+            f"Missing node initialization cache for {len(missing)} selected episode(s):\n"
+            f"{preview}\n"
+            f"Run `python src/dataset/pipeline_init.py initialize "
+            f"--dataset-dir {self.dataset_dir}` first."
+        )
 
 
     def _infer_image_key(self) -> str:
