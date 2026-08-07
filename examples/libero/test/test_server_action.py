@@ -86,6 +86,28 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     np.testing.assert_allclose(closedness, expected_closedness, atol=1e-6)
 
 
+def test_sam_only_deduplicates_names_and_expands_sampled_masks() -> None:
+    preprocessor = object.__new__(InputPreprocessor)
+    preprocessor.segmenter = "sam3"
+    preprocessor.num_points = 4
+    nodes = [
+        {"name": "plate", "role": "patient"},
+        {"name": "box", "role": "patient"},
+        {"name": "plate", "role": "target"},
+    ]
+
+    unique_nodes, inverse = preprocessor._unique_nodes_by_name(nodes)
+    masks = [np.eye(6, dtype=bool), np.zeros((6, 6), dtype=bool)]
+    unique_tracks = preprocessor._tracks_from_masks(masks, (6, 6), len(unique_nodes))
+    tracks = unique_tracks[inverse]
+
+    assert [node["name"] for node in unique_nodes] == ["plate", "box"]
+    assert inverse == [0, 1, 0]
+    np.testing.assert_array_equal(tracks[0], tracks[2])
+    np.testing.assert_array_equal(tracks[0, :, 2], np.ones(4, dtype=np.float32))
+    np.testing.assert_array_equal(tracks[1], np.zeros((4, 3), dtype=np.float32))
+
+
 def test_camera_action_is_rotated_to_world_frame() -> None:
     rotation = np.asarray(
         [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],

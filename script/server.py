@@ -69,6 +69,7 @@ class Args:
     locator_mode: str = "point"
     locator_scale: float = 1.0
     segmenter: str = "sam2"
+    sam_only: bool = False
     execute_chunk_len: int = 5
     seed: int = 42
     complete_threshold: float = 0.5
@@ -104,6 +105,7 @@ class InferenceSession:
     point_tracker: Any = None
     tracked_points: np.ndarray | None = None
     initial_points: np.ndarray | None = None
+    object_to_unique_indices: list[int] = field(default_factory=list)
 
     def reset(self, *, benchmark: str, language: str) -> None:
         self.benchmark = benchmark
@@ -125,6 +127,7 @@ class InferenceSession:
         self.point_tracker = None
         self.tracked_points = None
         self.initial_points = None
+        self.object_to_unique_indices.clear()
 
 
 #: =======================================================
@@ -275,6 +278,7 @@ class InputPreprocessor:
         locator_mode: str = "point",
         locator_scale: float = 1.0,
         segmenter: str = "sam2",
+        sam_only: bool = False,
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_horizon = history_horizon
@@ -291,6 +295,7 @@ class InputPreprocessor:
         self.locator_mode = locator_mode
         self.locator_scale = locator_scale
         self.segmenter = segmenter
+        self.sam_only = sam_only
         self.devices = dict(devices or {})
         self.norm_stats = self._load_norm_stats(Path(dataset_dir))
         self.node_segmenter_model = None
@@ -333,16 +338,22 @@ class InputPreprocessor:
         if session.taskstructure is None:
             raise RuntimeError("taskstructure is missing before perception initialization")
         session.object_nodes = self._task_object_nodes(session.taskstructure)
+        perception_nodes = session.object_nodes
+        session.object_to_unique_indices = list(range(len(session.object_nodes)))
+        if self.sam_only:
+            perception_nodes, session.object_to_unique_indices = self._unique_nodes_by_name(
+                session.object_nodes
+            )
         point_prompts = None
         box_prompts = None
-        if session.object_nodes:
+        if perception_nodes:
             locator_cls = NodeLocatorLA if self.locator == "locateanything" else NodeLocatorRobo
             node_locator = locator_cls(device_map=self._device("node_locator"))
             try:
                 if self.locator_mode == "box":
                     box_prompts = []
                     initial_points = []
-                    for node in session.object_nodes:
+                    for node in perception_nodes:
                         box = self._locate_node_box(node_locator, frame.image, node["name"])
                         cs.print(
                             f"node locator node={node['name']} pixel_xyxy={np.round(box, 1).tolist()}",
@@ -353,7 +364,7 @@ class InputPreprocessor:
                     session.initial_points = np.asarray(initial_points, dtype=np.float32)
                 else:
                     point_prompts = []
-                    for node in session.object_nodes:
+                    for node in perception_nodes:
                         points = self._locate_node_points(node_locator, frame.image, node["name"])
                         cs.print(
                             f"node locator node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
@@ -361,6 +372,10 @@ class InputPreprocessor:
                         )
                         point_prompts.append(points)
                     session.initial_points = np.asarray(point_prompts, dtype=np.float32)
+                if self.sam_only:
+                    session.initial_points = session.initial_points[
+                        session.object_to_unique_indices
+                    ]
             finally:
                 del node_locator
                 gc.collect()
@@ -376,14 +391,21 @@ class InputPreprocessor:
             model=self.node_segmenter_model,
         )
 
-        if session.object_nodes:
-            session.point_tracker = PointTracker(device=self._device("point_tracker"))
+        if perception_nodes:
             object_masks = session.object_segmenter.predict(
                 frame.image,
                 points=point_prompts,
                 boxes=box_prompts,
                 anchor_frame=True,
             )
+            if self.sam_only:
+                unique_tracks = self._tracks_from_masks(
+                    object_masks, frame.image.shape[:2], len(perception_nodes)
+                )
+                session.tracked_points = unique_tracks[session.object_to_unique_indices]
+                return
+
+            session.point_tracker = PointTracker(device=self._device("point_tracker"))
             object_points = np.stack(
                 [sample_points_from_mask(mask, num_points=self.num_points) for mask in object_masks],
                 axis=0,
@@ -395,9 +417,56 @@ class InputPreprocessor:
 
     def _update_perception(self, session: InferenceSession, frame: ObservationFrame) -> None:
         if session.object_segmenter is not None and session.object_nodes:
-            session.object_segmenter.predict(frame.image, anchor_frame=False)
+            object_masks = session.object_segmenter.predict(frame.image, anchor_frame=False)
+            if self.sam_only:
+                unique_count = len(set(session.object_to_unique_indices))
+                unique_tracks = self._tracks_from_masks(
+                    object_masks, frame.image.shape[:2], unique_count
+                )
+                session.tracked_points = unique_tracks[session.object_to_unique_indices]
+                return
         if session.point_tracker is not None and session.object_nodes:
             session.tracked_points = self._pack_tracks(session.point_tracker.track(frame.image, anchor_frame=False))
+
+    @staticmethod
+    def _unique_nodes_by_name(
+        nodes: Sequence[Mapping[str, Any]],
+    ) -> tuple[list[Mapping[str, Any]], list[int]]:
+        unique_nodes = []
+        unique_index_by_name = {}
+        object_to_unique_indices = []
+        for node in nodes:
+            name = str(node.get("name", ""))
+            if name not in unique_index_by_name:
+                unique_index_by_name[name] = len(unique_nodes)
+                unique_nodes.append(node)
+            object_to_unique_indices.append(unique_index_by_name[name])
+        return unique_nodes, object_to_unique_indices
+
+    def _tracks_from_masks(
+        self,
+        masks: Sequence[np.ndarray],
+        image_shape: tuple[int, int],
+        expected_count: int,
+    ) -> np.ndarray:
+        if len(masks) != expected_count:
+            raise RuntimeError(
+                f"{self.segmenter} returned {len(masks)} masks for "
+                f"{expected_count} unique node names"
+            )
+        tracks = np.zeros((expected_count, self.num_points, 3), dtype=np.float32)
+        for index, mask in enumerate(masks):
+            mask = np.asarray(mask, dtype=bool)
+            if mask.shape != image_shape:
+                raise ValueError(
+                    f"mask {index} has shape {mask.shape}, expected {image_shape}"
+                )
+            if mask.any():
+                tracks[index, :, :2] = sample_points_from_mask(
+                    mask, num_points=self.num_points, erode_pixel=2
+                )
+                tracks[index, :, 2] = 1.0
+        return tracks
 
     def _state_to_gripper_points_xyz(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
@@ -1378,6 +1447,11 @@ def parse_args() -> Args:
         default=Args.segmenter,
         help="Node segmenter used to initialize object masks.",
     )
+    parser.add_argument(
+        "--sam-only",
+        action="store_true",
+        help="Track masks with SAM and resample object points every frame without PointTracker.",
+    )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
@@ -1464,6 +1538,7 @@ def main() -> None:
             locator_mode=args.locator_mode,
             locator_scale=args.locator_scale,
             segmenter=args.segmenter,
+            sam_only=args.sam_only,
             devices=args.devices,
         ),
         inference = InferenceModel(
