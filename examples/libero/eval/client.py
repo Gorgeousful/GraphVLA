@@ -782,11 +782,10 @@ def main() -> None:
                     env_result = "success" if env_success else "failure"
                     server_result = "success" if server_done else "failure"
                     duration_seconds = round(len(combined_frames) / args.control_freq)
-                    video_stem = (
-                        f"task_{task_id:03d}_ep_{episode_idx:03d}_"
-                        f"{env_result}_{server_result}_{duration_seconds:03d}"
+                    artifact_stem = (
+                        f"task_{task_id:03d}_ep_{episode_idx:03d}_sec_{duration_seconds:03d}_"
+                        f"{env_result}_{server_result}"
                     )
-                    artifact_stem = f"{video_stem}_combined"
                     _save_video_ffmpeg(combined_frames, video_dir / f"{artifact_stem}.mp4", fps=float(args.control_freq))
                     record = {
                         "metadata": {
