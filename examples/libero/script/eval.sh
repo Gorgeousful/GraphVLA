@@ -1,14 +1,15 @@
 # robobrain环境 0723
 # 0804-contact-basetcpfinger-cls4-7
 # 0804-contact-basetcpfinger-cls4-omega-7
-CUDA_VISIBLE_DEVICES=0 \
+# 0806-contact-basetcpfinger-cls4-rolechain-7
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0806-contact-basetcpfinger-cls4-rolechain-datafix-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0806-contact-basetcpfinger-cls4-rolechain-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --complete-window 1 \
 --locator-scale 2.0 \
---port 8002
+--port 8002 \
+--devices '{"inference":"cuda:0","node_segmenter":"cuda:0","point_tracker":"cuda:0","node_locator":"cuda:1"}'
 
 
 # --trials-init-state 0 1 2

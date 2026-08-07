@@ -5,6 +5,7 @@ import io
 import json
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--task-index", type=int, default=0)
-    parser.add_argument("--local-episode-index", type=int, default=0)
+    parser.add_argument(
+        "--local-episode-index",
+        dest="local_episode_indices",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Task-local episode indices to check; omit to check the entire task.",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -197,19 +205,10 @@ def add_header(canvas: np.ndarray, text: str, header_height: int) -> None:
 def render_check_video(
     dataset_dir: Path,
     task_index: int,
-    local_episode_index: int,
+    episode_index: int,
     output_dir: Path,
 ) -> Path:
     info = load_json(dataset_dir / "meta" / "info.json")
-    episodes = scan_task_episodes(dataset_dir, task_index)
-    if not episodes:
-        raise KeyError(f"No episodes found for task_index={task_index}")
-    if not 0 <= local_episode_index < len(episodes):
-        raise IndexError(
-            f"local_episode_index={local_episode_index} out of range [0, {len(episodes)})"
-        )
-
-    episode_index = episodes[local_episode_index]
     parquet_path = episode_parquet_path(dataset_dir, info, episode_index)
     columns = [
         "image",
@@ -312,12 +311,30 @@ def render_check_video(
 
 def main() -> None:
     args = parse_args()
-    render_check_video(
-        dataset_dir=args.dataset_dir.resolve(),
-        task_index=args.task_index,
-        local_episode_index=args.local_episode_index,
-        output_dir=args.output_dir.resolve(),
-    )
+    dataset_dir = args.dataset_dir.resolve()
+    episodes = scan_task_episodes(dataset_dir, args.task_index)
+    if not episodes:
+        raise KeyError(f"No episodes found for task_index={args.task_index}")
+
+    local_episode_indices = args.local_episode_indices
+    if local_episode_indices is None:
+        local_episode_indices = range(len(episodes))
+    invalid_indices = [
+        index for index in local_episode_indices if not 0 <= index < len(episodes)
+    ]
+    if invalid_indices:
+        raise IndexError(
+            f"local episode indices {invalid_indices} out of range [0, {len(episodes)})"
+        )
+
+    output_dir = args.output_dir.resolve() / datetime.now().strftime("%m%d-%H%M")
+    for local_episode_index in local_episode_indices:
+        render_check_video(
+            dataset_dir=dataset_dir,
+            task_index=args.task_index,
+            episode_index=episodes[local_episode_index],
+            output_dir=output_dir,
+        )
 
 
 if __name__ == "__main__":
