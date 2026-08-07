@@ -86,7 +86,7 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     np.testing.assert_allclose(closedness, expected_closedness, atol=1e-6)
 
 
-def test_sam_only_deduplicates_names_and_expands_sampled_masks() -> None:
+def test_object_names_are_deduplicated_and_sampled_masks_expand() -> None:
     preprocessor = object.__new__(InputPreprocessor)
     preprocessor.segmenter = "sam3"
     preprocessor.num_points = 4
@@ -106,6 +106,38 @@ def test_sam_only_deduplicates_names_and_expands_sampled_masks() -> None:
     np.testing.assert_array_equal(tracks[0], tracks[2])
     np.testing.assert_array_equal(tracks[0, :, 2], np.ones(4, dtype=np.float32))
     np.testing.assert_array_equal(tracks[1], np.zeros((4, 3), dtype=np.float32))
+
+
+def test_tracker_update_expands_unique_tracks_to_duplicate_nodes() -> None:
+    class Segmenter:
+        def predict(self, image, *, anchor_frame):
+            assert anchor_frame is False
+            return []
+
+    class Tracker:
+        def track(self, image, *, anchor_frame):
+            assert anchor_frame is False
+            return {
+                "points": np.asarray([[[1.0, 2.0]], [[3.0, 4.0]]], dtype=np.float32),
+                "visibles": np.ones((2, 1), dtype=np.float32),
+            }
+
+    preprocessor = object.__new__(InputPreprocessor)
+    preprocessor.sam_only = False
+    session = SimpleNamespace(
+        object_segmenter=Segmenter(),
+        point_tracker=Tracker(),
+        object_nodes=[{"name": "plate"}, {"name": "box"}, {"name": "plate"}],
+        object_to_unique_indices=[0, 1, 0],
+        tracked_points=None,
+    )
+    frame = SimpleNamespace(image=np.zeros((6, 6, 3), dtype=np.uint8))
+
+    preprocessor._update_perception(session, frame)
+
+    assert session.tracked_points.shape == (3, 1, 3)
+    np.testing.assert_array_equal(session.tracked_points[0], session.tracked_points[2])
+    np.testing.assert_array_equal(session.tracked_points[1, 0], [3.0, 4.0, 1.0])
 
 
 def test_camera_action_is_rotated_to_world_frame() -> None:

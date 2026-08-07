@@ -338,12 +338,9 @@ class InputPreprocessor:
         if session.taskstructure is None:
             raise RuntimeError("taskstructure is missing before perception initialization")
         session.object_nodes = self._task_object_nodes(session.taskstructure)
-        perception_nodes = session.object_nodes
-        session.object_to_unique_indices = list(range(len(session.object_nodes)))
-        if self.sam_only:
-            perception_nodes, session.object_to_unique_indices = self._unique_nodes_by_name(
-                session.object_nodes
-            )
+        perception_nodes, session.object_to_unique_indices = self._unique_nodes_by_name(
+            session.object_nodes
+        )
         point_prompts = None
         box_prompts = None
         if perception_nodes:
@@ -372,10 +369,9 @@ class InputPreprocessor:
                         )
                         point_prompts.append(points)
                     session.initial_points = np.asarray(point_prompts, dtype=np.float32)
-                if self.sam_only:
-                    session.initial_points = session.initial_points[
-                        session.object_to_unique_indices
-                    ]
+                session.initial_points = session.initial_points[
+                    session.object_to_unique_indices
+                ]
             finally:
                 del node_locator
                 gc.collect()
@@ -411,7 +407,8 @@ class InputPreprocessor:
                 axis=0,
             ).astype(np.float32)
             track_result = session.point_tracker.track(frame.image, points=object_points, anchor_frame=True)
-            session.tracked_points = self._pack_tracks(track_result)
+            unique_tracks = self._pack_tracks(track_result)
+            session.tracked_points = unique_tracks[session.object_to_unique_indices]
         else:
             session.tracked_points = np.zeros((0, self.num_points, 3), dtype=np.float32)
 
@@ -426,7 +423,10 @@ class InputPreprocessor:
                 session.tracked_points = unique_tracks[session.object_to_unique_indices]
                 return
         if session.point_tracker is not None and session.object_nodes:
-            session.tracked_points = self._pack_tracks(session.point_tracker.track(frame.image, anchor_frame=False))
+            unique_tracks = self._pack_tracks(
+                session.point_tracker.track(frame.image, anchor_frame=False)
+            )
+            session.tracked_points = unique_tracks[session.object_to_unique_indices]
 
     @staticmethod
     def _unique_nodes_by_name(
