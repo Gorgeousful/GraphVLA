@@ -67,7 +67,7 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action_0806", # 0804
 )
 LIBERO_USE_SOFT = True
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
