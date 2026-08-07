@@ -492,9 +492,10 @@ def initialize_cache(args: argparse.Namespace) -> None:
             print(f"cached: {output_path}")
             continue
 
-        point_groups = []
+        unique_node_names = list(dict.fromkeys(node_names))
+        unique_point_groups = []
         height, width = frame_rgb.shape[:2]
-        for node_name in node_names:
+        for node_name in unique_node_names:
             result = locator.inference(
                 text=node_name,
                 image=Image.fromarray(frame_rgb),
@@ -507,15 +508,26 @@ def initialize_cache(args: argparse.Namespace) -> None:
                 )
             normalized[:, 0] = np.clip(normalized[:, 0] / 1000.0 * width, 0, width - 1)
             normalized[:, 1] = np.clip(normalized[:, 1] / 1000.0 * height, 0, height - 1)
-            point_groups.append(normalized.tolist())
+            unique_point_groups.append(normalized.tolist())
 
-        masks = segmenter.predict(frame_rgb, points=point_groups, anchor_frame=True)
-        if len(masks) != len(node_names):
+        unique_masks = segmenter.predict(
+            frame_rgb, points=unique_point_groups, anchor_frame=True
+        )
+        if len(unique_masks) != len(unique_node_names):
             raise RuntimeError(
-                f"Segmenter returned {len(masks)} masks for {len(node_names)} nodes "
+                f"Segmenter returned {len(unique_masks)} masks for "
+                f"{len(unique_node_names)} unique node names "
                 f"in episode={episode_index}"
             )
-        masks_array = np.stack([np.asarray(mask, dtype=bool) for mask in masks])
+        unique_index_by_name = {
+            node_name: index for index, node_name in enumerate(unique_node_names)
+        }
+        unique_index_by_node = [unique_index_by_name[name] for name in node_names]
+        point_groups = [unique_point_groups[index] for index in unique_index_by_node]
+        unique_masks_array = np.stack(
+            [np.asarray(mask, dtype=bool) for mask in unique_masks]
+        )
+        masks_array = unique_masks_array[unique_index_by_node]
         points_array, point_counts = pack_points(point_groups)
         data = {
             "episode_index": np.asarray(episode_index, dtype=np.int64),
@@ -633,13 +645,19 @@ class CacheEditor:
         if len(masks) != 1:
             raise RuntimeError(f"Segmenter returned {len(masks)} masks; expected 1")
 
-        data["points_xy"][node_index] = np.nan
-        data["points_xy"][node_index, 0] = np.asarray(point, dtype=np.float32)
-        data["point_counts"][node_index] = 1
-        data["masks"][node_index] = np.asarray(masks[0], dtype=bool)
+        node_name = data["node_names"][node_index]
+        matching_indices = np.flatnonzero(data["node_names"] == node_name).tolist()
+        for matching_index in matching_indices:
+            data["points_xy"][matching_index] = np.nan
+            data["points_xy"][matching_index, 0] = np.asarray(point, dtype=np.float32)
+            data["point_counts"][matching_index] = 1
+            data["masks"][matching_index] = np.asarray(masks[0], dtype=bool)
         atomic_save_cache(self.cache_paths[episode_index], data)
         return {
-            "message": f"已保存 N{node_index}: {data['node_names'][node_index]}",
+            "message": (
+                f"Saved {', '.join(f'N{index}' for index in matching_indices)}: "
+                f"{node_name}"
+            ),
             "point": point,
         }
 
@@ -649,11 +667,20 @@ class CacheEditor:
         data = load_cache(self.cache_paths[episode_index])
         if not 0 <= node_index < len(data["node_names"]):
             raise IndexError(f"Invalid node_index={node_index}")
-        data["points_xy"][node_index] = data["initial_points_xy"][node_index]
-        data["point_counts"][node_index] = data["initial_point_counts"][node_index]
-        data["masks"][node_index] = data["initial_masks"][node_index]
+        node_name = data["node_names"][node_index]
+        matching_indices = np.flatnonzero(data["node_names"] == node_name).tolist()
+        canonical_index = matching_indices[0]
+        for matching_index in matching_indices:
+            data["points_xy"][matching_index] = data["initial_points_xy"][canonical_index]
+            data["point_counts"][matching_index] = data["initial_point_counts"][canonical_index]
+            data["masks"][matching_index] = data["initial_masks"][canonical_index]
         atomic_save_cache(self.cache_paths[episode_index], data)
-        return {"message": f"已恢复 N{node_index}: {data['node_names'][node_index]}"}
+        return {
+            "message": (
+                f"Restored {', '.join(f'N{index}' for index in matching_indices)}: "
+                f"{node_name}"
+            )
+        }
 
 
 def build_segmenter_for_editor(segmenter_name: str) -> Any:
@@ -772,6 +799,7 @@ def serve_editor(args: argparse.Namespace) -> None:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     uvicorn.run(app, host=args.host, port=args.port)
+
 
 def main() -> None:
     args = parse_args()

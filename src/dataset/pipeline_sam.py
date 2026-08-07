@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
 from src.common.schema import NodeRole, TaskStructure, json_to_taskstructure, taskstructure_to_json
-from src.module.point_tracker import PointTracker
+from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.task_analyzer import TaskAnalyzer
 
 cs = Console()
@@ -37,16 +37,20 @@ class PipelineConfig:
     points_per_node: int = 32
     max_nodes: int = 10
     erode_pixel: int = 2
+    sam_version: str = "sam3"
+    sam_device: str = "cuda"
     overwrite: Mapping[str, bool] | None = None
     debug: bool = False
-    debug_dir: str | os.PathLike = "/data0/luokang/research/GraphVLA/__tmp__/pipeline"
+    debug_dir: str | os.PathLike = "/data0/luokang/research/GraphVLA/__tmp__/pipeline_sam"
 
 
-class OfflinePipeline:
-    """Precompute camera-XYZ entity points and gripper keypoints for LIBERO."""
+class OfflineSAMPipeline:
+    """Precompute LIBERO entity points with SAM mask tracking."""
 
     def __init__(self, config: PipelineConfig):
         self.config = config
+        if config.sam_version not in {"sam2", "sam3"}:
+            raise ValueError(f"Unsupported sam_version={config.sam_version!r}; expected 'sam2' or 'sam3'")
         self.dataset_dir = Path(config.dataset_dir)
         self.meta_dir = self.dataset_dir / "meta"
         self.taskstructures_jsonl_path = self.meta_dir / "taskstructures.jsonl"
@@ -60,8 +64,8 @@ class OfflinePipeline:
             if config.debug
             else debug_root
         )
-        self.node_locator_vis_dir = self.debug_dir / "node_locator"
-        self.point_tracker_vis_dir = self.debug_dir / "point_tracker"
+        self.sam_initialization_vis_dir = self.debug_dir / "sam_initialization"
+        self.sam_tracker_vis_dir = self.debug_dir / "sam_tracker"
         overwrite_defaults = {
             "taskstructure": False,
             "node_points_xyz": True,
@@ -83,7 +87,7 @@ class OfflinePipeline:
         self.task_index_to_desc = self._load_task_index_to_desc()
 
         self.task_analyzer = None
-        self.point_tracker = None
+        self.node_segmenter = None
         self.libero_cameras = None
         self.gripper_geometry = None
 
@@ -293,7 +297,7 @@ class OfflinePipeline:
                 dtype=np.float32,
             )
 
-        point_prompts, masks = self._load_node_initialization_cache(
+        initial_masks = self._load_node_initialization_cache(
             episode_index, task_index, nodes, frames[0].shape[:2]
         )
         first_node_by_name = {}
@@ -305,21 +309,10 @@ class OfflinePipeline:
                 unique_node_indices.append(node_index)
             unique_index_by_node.append(first_node_by_name[node.name])
 
-        unique_point_prompts = [point_prompts[index] for index in unique_node_indices]
-        point_prompts = [unique_point_prompts[index] for index in unique_index_by_node]
-        self._ensure_point_tracker()
-        if self.config.debug:
-            self._save_node_locator_vis(
-                frames[0],
-                nodes,
-                point_prompts,
-                episode_index=episode_index,
-                task_index=task_index,
-            )
-        unique_sampled_points = np.stack(
+        unique_initial_points = np.stack(
             [
                 sample_points_from_mask(
-                    masks[node_index],
+                    initial_masks[node_index],
                     num_points=self.config.points_per_node,
                     erode_pixel=self.config.erode_pixel,
                 )
@@ -327,43 +320,74 @@ class OfflinePipeline:
             ],
             axis=0,
         ).astype(np.float32)
+        initial_points = unique_initial_points[unique_index_by_node]
+        self._ensure_node_segmenter()
+
+        if self.config.debug:
+            self._save_sam_initialization_vis(
+                frames[0],
+                nodes,
+                initial_points,
+                episode_index=episode_index,
+                task_index=task_index,
+            )
 
         frame_tracks = []
-        tracker_results = []
+        sam_results = []
         for frame_index, frame in enumerate(frames):
-            result = self.point_tracker.track(
+            masks = self.node_segmenter.predict(
                 frame,
-                points=unique_sampled_points if frame_index == 0 else None,
+                points=unique_initial_points if frame_index == 0 else None,
                 anchor_frame=(frame_index == 0),
             )
-            unique_points = np.asarray(result["points"], dtype=np.float32)
-            unique_visibles = np.asarray(result["visibles"], dtype=bool)
-            if (
-                unique_points.shape[0] != len(unique_node_indices)
-                or unique_visibles.shape[0] != len(unique_node_indices)
-            ):
+            if len(masks) != len(unique_node_indices):
                 raise RuntimeError(
-                    f"episode={episode_index} frame={frame_index}: PointTracker returned "
-                    f"{unique_points.shape[0]} point tracks and "
-                    f"{unique_visibles.shape[0]} visibility tracks for "
-                    f"{len(unique_node_indices)} unique node names"
+                    f"episode={episode_index} frame={frame_index}: "
+                    f"{self.config.sam_version} returned {len(masks)} masks "
+                    f"for {len(unique_node_indices)} unique node names"
                 )
+
+            unique_points = np.zeros(
+                (len(unique_node_indices), self.config.points_per_node, 2),
+                dtype=np.float32,
+            )
+            unique_visibles = np.zeros(
+                (len(unique_node_indices), self.config.points_per_node), dtype=bool
+            )
+            for unique_index, mask in enumerate(masks):
+                mask = np.asarray(mask, dtype=bool)
+                if mask.shape != frame.shape[:2]:
+                    raise ValueError(
+                        f"episode={episode_index} frame={frame_index} "
+                        f"unique_node={unique_index}: mask shape {mask.shape} "
+                        f"does not match frame shape {frame.shape[:2]}"
+                    )
+                if mask.any():
+                    unique_points[unique_index] = sample_points_from_mask(
+                        mask,
+                        num_points=self.config.points_per_node,
+                        erode_pixel=self.config.erode_pixel,
+                    )
+                    unique_visibles[unique_index] = True
+
             points = unique_points[unique_index_by_node]
             visibles = unique_visibles[unique_index_by_node]
+
             frame_tracks.append(
                 np.concatenate([points, visibles[..., None]], axis=-1)
             )
             if self.config.debug:
-                tracker_results.append({"points": points, "visibles": visibles})
+                sam_results.append({"points": points, "visibles": visibles})
 
         if self.config.debug:
-            self._save_point_tracker_vis_video(
+            self._save_sam_tracker_vis_video(
                 frames,
-                tracker_results,
+                sam_results,
                 episode_index=episode_index,
                 task_index=task_index,
                 subtask_node_masks=subtask_node_masks,
             )
+
         tracks = np.stack(frame_tracks, axis=0).astype(np.float32)
         padded_tracks = np.zeros(
             (len(frames), self.config.max_nodes, self.config.points_per_node, 3),
@@ -378,7 +402,7 @@ class OfflinePipeline:
         task_index: int,
         nodes,
         image_size: tuple[int, int],
-    ) -> tuple[list[list[list[float]]], np.ndarray]:
+    ) -> np.ndarray:
         path = self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
         if not path.exists():
             raise FileNotFoundError(
@@ -389,8 +413,7 @@ class OfflinePipeline:
 
         with np.load(path, allow_pickle=False) as cache:
             required = {
-                "episode_index", "task_index", "node_names", "points_xy",
-                "point_counts", "masks", "metadata_json",
+                "episode_index", "task_index", "node_names", "masks", "metadata_json",
             }
             missing = required - set(cache.files)
             if missing:
@@ -399,8 +422,6 @@ class OfflinePipeline:
             cached_episode = int(cache["episode_index"])
             cached_task = int(cache["task_index"])
             node_names = cache["node_names"].tolist()
-            points = np.asarray(cache["points_xy"], dtype=np.float32)
-            point_counts = np.asarray(cache["point_counts"], dtype=np.int32)
             masks = np.asarray(cache["masks"], dtype=bool)
             metadata = json.loads(str(cache["metadata_json"].item()))
 
@@ -423,24 +444,12 @@ class OfflinePipeline:
                 f"Cache {path} masks have shape {masks.shape}; "
                 f"expected {(len(nodes), height, width)}"
             )
-        if points.ndim != 3 or points.shape[0] != len(nodes) or points.shape[2] != 2:
-            raise ValueError(f"Cache {path} points have invalid shape {points.shape}")
-        if point_counts.shape != (len(nodes),):
-            raise ValueError(f"Cache {path} point_counts have invalid shape {point_counts.shape}")
-        if np.any(point_counts <= 0) or np.any(point_counts > points.shape[1]):
-            raise ValueError(f"Cache {path} contains invalid point counts")
-
-        point_prompts = []
-        for node_index, count in enumerate(point_counts):
-            active_points = points[node_index, :count]
-            if not np.isfinite(active_points).all():
-                raise ValueError(f"Cache {path} contains non-finite active points")
-            if not masks[node_index].any():
+        for node_index, mask in enumerate(masks):
+            if not mask.any():
                 raise ValueError(f"Cache {path} contains an empty mask for node {node_index}")
-            point_prompts.append(active_points.tolist())
 
-        cs.print(f"using node initialization cache: {path}")
-        return point_prompts, masks
+        cs.print(f"using node initialization cache masks: {path}")
+        return masks
 
     def _build_node_points_xyz(
         self,
@@ -448,7 +457,7 @@ class OfflinePipeline:
         metric_depths: np.ndarray,
         intrinsic: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Backproject tracked points in their original order and return tracker visibility."""
+        """Backproject tracked points in their original order and return SAM mask visibility."""
         tracks = np.asarray(tracks, dtype=np.float32)
         metric_depths = np.asarray(metric_depths, dtype=np.float32)
         if tracks.ndim != 4 or tracks.shape[-1] < 3:
@@ -631,8 +640,8 @@ class OfflinePipeline:
                 "subtask_node_mask, gripper_points_xyz, actions_camera"
             )
         if self.config.debug:
-            cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
-            cs.print(f"debug point tracker videos: {self.point_tracker_vis_dir}")
+            cs.print(f"debug SAM initialization images: {self.sam_initialization_vis_dir}")
+            cs.print(f"debug SAM tracker videos: {self.sam_tracker_vis_dir}")
         else:
             cs.print("debug outputs: disabled (use --debug to enable)")
         cs.rule()
@@ -645,15 +654,15 @@ class OfflinePipeline:
                     nodes.append(node)
         return nodes
 
-    def _save_node_locator_vis(
+    def _save_sam_initialization_vis(
         self,
         frame_rgb: np.ndarray,
         nodes,
-        point_prompts: Sequence[Sequence[Sequence[float]]],
+        sampled_points: Sequence[Sequence[Sequence[float]]],
         episode_index: int,
         task_index: int,
     ):
-        self.node_locator_vis_dir.mkdir(parents=True, exist_ok=True)
+        self.sam_initialization_vis_dir.mkdir(parents=True, exist_ok=True)
         image = cv2.cvtColor(frame_rgb.copy(), cv2.COLOR_RGB2BGR)
         colors = [
             (60, 60, 255),
@@ -663,13 +672,13 @@ class OfflinePipeline:
             (255, 0, 255),
             (255, 255, 0),
         ]
-        for node_index, (node, points) in enumerate(zip(nodes, point_prompts)):
+        for node_index, (node, points) in enumerate(zip(nodes, sampled_points)):
             color = colors[node_index % len(colors)]
             for point in points:
                 x, y = np.round(point).astype(int)
                 cv2.circle(image, (int(x), int(y)), 5, color, -1, lineType=cv2.LINE_AA)
                 cv2.circle(image, (int(x), int(y)), 7, (255, 255, 255), 2, lineType=cv2.LINE_AA)
-            if points:
+            if len(points):
                 x, y = np.round(points[0]).astype(int)
                 label = f"{node_index}:{node.name}"
                 cv2.putText(
@@ -682,21 +691,21 @@ class OfflinePipeline:
                     1,
                     cv2.LINE_AA,
                 )
-        save_path = self.node_locator_vis_dir / f"episode_{int(episode_index):06d}_task_{int(task_index):03d}.png"
+        save_path = self.sam_initialization_vis_dir / f"episode_{int(episode_index):06d}_task_{int(task_index):03d}.png"
         cv2.imwrite(os.fspath(save_path), image)
 
-    def _save_point_tracker_vis_video(
+    def _save_sam_tracker_vis_video(
         self,
         frames: Sequence[np.ndarray],
-        tracker_results: Sequence[dict],
+        sam_results: Sequence[dict],
         episode_index: int,
         task_index: int,
         subtask_node_masks: np.ndarray | None = None,
     ):
         if not frames:
             return
-        self.point_tracker_vis_dir.mkdir(parents=True, exist_ok=True)
-        save_path = self.point_tracker_vis_dir / f"episode_{int(episode_index):06d}_task_{int(task_index):03d}.mp4"
+        self.sam_tracker_vis_dir.mkdir(parents=True, exist_ok=True)
+        save_path = self.sam_tracker_vis_dir / f"episode_{int(episode_index):06d}_task_{int(task_index):03d}.mp4"
         height, width = frames[0].shape[:2]
         fps = float(self.info.get("fps", 10) or 10)
         proc = subprocess.Popen(
@@ -716,10 +725,10 @@ class OfflinePipeline:
             stderr=subprocess.PIPE,
         )
         try:
-            for frame_index, (frame, result) in enumerate(zip(frames, tracker_results)):
+            for frame_index, (frame, result) in enumerate(zip(frames, sam_results)):
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 mask = None if subtask_node_masks is None else subtask_node_masks[frame_index]
-                drawn = self._draw_point_tracker_result(frame_bgr, result, mask)
+                drawn = self._draw_sam_tracker_result(frame_bgr, result, mask)
                 proc.stdin.write(drawn.tobytes())
             proc.stdin.close()
             proc.wait()
@@ -732,7 +741,7 @@ class OfflinePipeline:
 
 
     @staticmethod
-    def _draw_point_tracker_result(
+    def _draw_sam_tracker_result(
         image_bgr: np.ndarray,
         result: Mapping[str, np.ndarray],
         subtask_node_mask: np.ndarray | None = None,
@@ -766,9 +775,13 @@ class OfflinePipeline:
         return drawn
 
 
-    def _ensure_point_tracker(self):
-        if self.point_tracker is None:
-            self.point_tracker = PointTracker()
+    def _ensure_node_segmenter(self):
+        if self.node_segmenter is not None:
+            return
+        segmenter_cls = (
+            NodeSegmenterSAM2 if self.config.sam_version == "sam2" else NodeSegmenter
+        )
+        self.node_segmenter = segmenter_cls(device=self.config.sam_device)
 
     def _preflight_node_initialization_caches(
         self, episode_indices: Sequence[int]
@@ -935,9 +948,11 @@ class OfflinePipeline:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--debug-dir", default="/data0/luokang/research/GraphVLA/__tmp__/pipeline")
+    parser.add_argument("--sam-version", choices=("sam2", "sam3"), default="sam3")
+    parser.add_argument("--sam-device", default="cuda")
+    parser.add_argument("--debug-dir", default="/data0/luokang/research/GraphVLA/__tmp__/pipeline_sam")
     args = parser.parse_args()
-    api_key = "sk-UZpG2yYwDE5itw7s57eIJA"
+    api_key = os.environ.get("OPENAI_API_KEY")
 
     config = PipelineConfig(
         dataset_dir="/data0/luokang/research/GraphVLA/examples/libero/extra/libero_with_depth_0_5_6_7_8",
@@ -954,6 +969,8 @@ if __name__ == "__main__":
         # },
         episode_selector = {},
         points_per_node=32,
+        sam_version=args.sam_version,
+        sam_device=args.sam_device,
         overwrite={
             "taskstructure": False,
             "node_points_xyz": True,
@@ -968,4 +985,4 @@ if __name__ == "__main__":
         debug=args.debug,
         debug_dir=args.debug_dir,
     )
-    OfflinePipeline(config).run()
+    OfflineSAMPipeline(config).run()
