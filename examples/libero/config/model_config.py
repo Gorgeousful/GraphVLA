@@ -18,6 +18,8 @@ class ModelConfig:
     condition_dim: int = 384
     hidden_dim: int = 512
     encoder_layers: int = 8
+    # current: expose only the latest entity CLS tokens; all: expose CLS tokens from every history step.
+    encoder_output_type: str = "current"
     # 0: register-only global attention; 1: full-history CLS/point/scene attention.
     global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
     # global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0)
@@ -59,6 +61,11 @@ class ModelConfig:
             raise ValueError(
                 "node_attention_mode must be 'full' or 'role_chain', "
                 f"got {self.node_attention_mode!r}"
+            )
+        if self.encoder_output_type not in ("current", "all"):
+            raise ValueError(
+                "encoder_output_type must be 'current' or 'all', "
+                f"got {self.encoder_output_type!r}"
             )
 
     def to_kwargs(self) -> dict[str, Any]:

@@ -11,6 +11,7 @@ def _make_encoder(
     *,
     num_layers: int = 2,
     node_attention_mode: str = "full",
+    encoder_output_type: str = "current",
 ) -> EntityEncoder:
     return EntityEncoder(
         hidden_dim=32,
@@ -24,6 +25,7 @@ def _make_encoder(
         dropout=0.0,
         global_layer_types=global_layer_types,
         node_attention_mode=node_attention_mode,
+        encoder_output_type=encoder_output_type,
     )
 
 
@@ -81,6 +83,28 @@ def test_global_layer_types_are_validated(global_layer_types: tuple[int, ...]) -
 def test_node_attention_mode_is_validated() -> None:
     with pytest.raises(ValueError, match="node_attention_mode"):
         _make_encoder((0, 0), node_attention_mode="invalid")
+
+
+def test_encoder_output_type_controls_history_cls_memory() -> None:
+    torch.manual_seed(0)
+    current = _make_encoder((0, 0), encoder_output_type="current").eval()
+    all_history = _make_encoder((0, 0), encoder_output_type="all").eval()
+    all_history.load_state_dict(current.state_dict())
+    points, point_mask, scene_condition = _make_inputs()
+
+    current_memory, current_relation = current(points, point_mask, scene_condition)
+    all_memory, all_relation = all_history(points, point_mask, scene_condition)
+
+    assert current_memory.shape == (2, 3 * 2 + 2, 32)
+    assert all_memory.shape == (2, 2 * 3 * 2 + 2, 32)
+    torch.testing.assert_close(current_memory[:, :-2], all_memory[:, -8:-2])
+    torch.testing.assert_close(current_memory[:, -2:], all_memory[:, -2:])
+    torch.testing.assert_close(current_relation, all_relation)
+
+
+def test_encoder_output_type_is_validated() -> None:
+    with pytest.raises(ValueError, match="encoder_output_type"):
+        _make_encoder((0, 0), encoder_output_type="invalid")
 
 
 @pytest.mark.parametrize("global_layer_type", [0, 1])

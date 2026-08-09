@@ -38,6 +38,7 @@ class EntityEncoder(nn.Module):
         dropout: float = 0.0,
         global_layer_types: tuple[int, ...] | list[int] | None = None,
         node_attention_mode: str = "full",
+        encoder_output_type: str = "current",
     ) -> None:
         super().__init__()
         if actor_num_points < 1:
@@ -62,9 +63,15 @@ class EntityEncoder(nn.Module):
                 "node_attention_mode must be 'full' or 'role_chain', "
                 f"got {node_attention_mode!r}"
             )
+        if encoder_output_type not in ("current", "all"):
+            raise ValueError(
+                "encoder_output_type must be 'current' or 'all', "
+                f"got {encoder_output_type!r}"
+            )
         self.actor_num_points = actor_num_points
         self.cls_token_num = cls_token_num
         self.node_attention_mode = node_attention_mode
+        self.encoder_output_type = encoder_output_type
         self.point_stem = nn.Sequential(
             nn.Linear(POINT_FEATURE_DIM, hidden_dim),
             nn.GELU(),
@@ -240,5 +247,10 @@ class EntityEncoder(nn.Module):
 
         current_cls = cls[:, -1]
         relation_local = current_cls[:, 1:3].flatten(1, 2)
-        memory = torch.cat([current_cls.flatten(1, 2), scene_tokens], dim=1)
+        entity_memory = (
+            current_cls.flatten(1, 2)
+            if self.encoder_output_type == "current"
+            else cls.flatten(1, 3)
+        )
+        memory = torch.cat([entity_memory, scene_tokens], dim=1)
         return self.norm(memory), self.norm(relation_local)

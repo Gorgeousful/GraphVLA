@@ -79,6 +79,50 @@ def test_model_config_controls_actor_dimensions(actor_point_indices: tuple[int, 
     assert model.flow.output_projection.out_features == trajectory_dim
 
 
+def test_model_config_validates_encoder_output_type() -> None:
+    with pytest.raises(ValueError, match="encoder_output_type"):
+        ModelConfig(encoder_output_type="invalid")
+
+
+@pytest.mark.parametrize(
+    ("encoder_output_type", "memory_tokens", "expected_positions"),
+    [
+        ("current", 8, [0] * 8),
+        ("all", 14, [-1] * 6 + [0] * 8),
+    ],
+)
+def test_encoder_output_type_controls_model_memory(
+    encoder_output_type: str,
+    memory_tokens: int,
+    expected_positions: list[int],
+) -> None:
+    model = GraphFlowModel(
+        actor_point_indices=(0, 1, 2, 3),
+        num_points=4,
+        cls_token_num=2,
+        history_horizon=1,
+        future_horizon=2,
+        condition_dim=8,
+        hidden_dim=32,
+        encoder_layers=1,
+        encoder_output_type=encoder_output_type,
+        global_layer_types=(0,),
+        flow_layers=1,
+        num_heads=4,
+        mlp_ratio=2.0,
+        dropout=0.0,
+    ).eval()
+    memory, relation_local = model.encoder(
+        torch.randn(2, 2, 3, 4, 3),
+        torch.ones(2, 2, 3, 4, dtype=torch.bool),
+        torch.randn(2, 2, 8),
+    )
+
+    assert memory.shape == (2, memory_tokens, 32)
+    assert relation_local.shape == (2, 4, 32)
+    assert model._memory_positions(memory).tolist() == expected_positions
+
+
 def test_build_model_output_unnormalizes_action_and_points() -> None:
     action_q01 = [float(index) for index in range(ACTION_DIM)]
     action_q99 = [float(index + 2) for index in range(ACTION_DIM)]

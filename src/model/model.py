@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from src.common.schema import validate_actor_point_indices
+from src.common.schema import NUM_ENTITIES, validate_actor_point_indices
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import make_scheduler, sample_time, training_path
 from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
@@ -69,6 +69,7 @@ class JointTrajectoryFlow(nn.Module):
         time: torch.Tensor,
         memory: torch.Tensor,
         history_state: torch.Tensor,
+        memory_positions: torch.Tensor,
     ) -> torch.Tensor:
         if state.ndim != 3 or state.shape[1:] != (self.horizon, self.trajectory_dim):
             raise ValueError(
@@ -81,6 +82,10 @@ class JointTrajectoryFlow(nn.Module):
                 f"Expected history state [B,{self.history_steps},{self.trajectory_dim}], "
                 f"got {history_state.shape}"
             )
+        if memory_positions.shape != (memory.shape[1],):
+            raise ValueError(
+                f"Expected memory positions [{memory.shape[1]}], got {memory_positions.shape}"
+            )
 
         token = self.input_projection(torch.cat([history_state, state], dim=1))
         condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
@@ -91,8 +96,8 @@ class JointTrajectoryFlow(nn.Module):
             1, self.horizon + 1, device=state.device, dtype=history_positions.dtype
         )
         token_positions = torch.cat([history_positions, future_positions])
-        memory_positions = torch.zeros(
-            memory.shape[1], device=memory.device, dtype=token_positions.dtype
+        memory_positions = memory_positions.to(
+            device=memory.device, dtype=token_positions.dtype,
         )
         for block in self.blocks:
             token = checkpoint(
@@ -120,6 +125,7 @@ class GraphFlowModel(nn.Module):
         condition_dim: int = 384,
         hidden_dim: int = 512,
         encoder_layers: int = 8,
+        encoder_output_type: str = "current",
         global_layer_types: tuple[int, ...] | list[int] | None = None,
         node_attention_mode: str = "full",
         flow_layers: int = 6,
@@ -140,6 +146,11 @@ class GraphFlowModel(nn.Module):
             raise ValueError(f"num_points must be at least {self.actor_num_points}, got {num_points}")
         if flow_mode != "point_only":
             raise ValueError(f"Legacy trajectory model only supports flow_mode='point_only', got {flow_mode!r}")
+        if encoder_output_type not in ("current", "all"):
+            raise ValueError(
+                "encoder_output_type must be 'current' or 'all', "
+                f"got {encoder_output_type!r}"
+            )
         if complete_pos_weight <= 0:
             raise ValueError(f"complete_pos_weight must be positive, got {complete_pos_weight}")
         if contact_pos_weight <= 0:
@@ -151,6 +162,7 @@ class GraphFlowModel(nn.Module):
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
         self.flow_mode = flow_mode
+        self.encoder_output_type = encoder_output_type
         self.complete_pos_weight = float(complete_pos_weight)
         self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
@@ -159,6 +171,7 @@ class GraphFlowModel(nn.Module):
             max_history=self.history_steps, cls_token_num=cls_token_num, dropout=dropout,
             global_layer_types=global_layer_types,
             node_attention_mode=node_attention_mode,
+            encoder_output_type=encoder_output_type,
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
@@ -200,8 +213,16 @@ class GraphFlowModel(nn.Module):
             )
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
 
-    def _contact_logits(self, memory: torch.Tensor) -> torch.Tensor:
-        patient_cls = memory[:, self.cls_token_num:2 * self.cls_token_num].flatten(1)
+    def _memory_positions(self, memory: torch.Tensor) -> torch.Tensor:
+        if self.encoder_output_type == "current":
+            return torch.zeros(memory.shape[1], device=memory.device, dtype=torch.long)
+        history_positions = torch.arange(
+            1 - self.history_steps, 1, device=memory.device,
+        ).repeat_interleave(NUM_ENTITIES * self.cls_token_num)
+        return torch.cat([history_positions, history_positions.new_zeros(2)])
+
+    def _contact_logits(self, relation_local: torch.Tensor) -> torch.Tensor:
+        patient_cls = relation_local[:, :self.cls_token_num].flatten(1)
         return self.contact_head(patient_cls)
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
@@ -214,7 +235,9 @@ class GraphFlowModel(nn.Module):
             )
         time = sample_time(trajectory.shape[0], trajectory.device)
         state, target_velocity, _ = training_path(trajectory, time)
-        velocity = self.flow(state, time, memory, self._actor_history(batch))
+        velocity = self.flow(
+            state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+        )
         loss_flow = F.mse_loss(velocity, target_velocity)
 
         complete_logits = self.complete_head(relation_local.flatten(1))
@@ -223,7 +246,7 @@ class GraphFlowModel(nn.Module):
             target["is_complete"].to(dtype=complete_logits.dtype),
             pos_weight=complete_logits.new_tensor([self.complete_pos_weight]),
         )
-        contact_logits = self._contact_logits(memory)
+        contact_logits = self._contact_logits(relation_local)
         loss_contact = F.binary_cross_entropy_with_logits(
             contact_logits,
             target["is_contact"].to(dtype=contact_logits.dtype),
@@ -260,7 +283,9 @@ class GraphFlowModel(nn.Module):
         scheduler = make_scheduler(num_steps or self.sample_steps, memory.device)
         for timestep in scheduler.timesteps:
             time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
-            velocity = self.flow(state, time, memory, self._actor_history(batch))
+            velocity = self.flow(
+                state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+            )
             state = scheduler.step(velocity, timestep, state).prev_sample
 
         point_plan = state[..., : self.actor_num_points * 3].view(
@@ -273,5 +298,5 @@ class GraphFlowModel(nn.Module):
             ),
             "gripper_plan": state[..., -1],
             "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
-            "is_contact": torch.sigmoid(self._contact_logits(memory)),
+            "is_contact": torch.sigmoid(self._contact_logits(relation_local)),
         }
