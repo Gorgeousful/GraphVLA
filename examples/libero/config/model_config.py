@@ -19,10 +19,10 @@ class ModelConfig:
     hidden_dim: int = 512
     encoder_layers: int = 8
     # 0: register-only global attention; 1: full-history CLS/point/scene attention.
-    # global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
-    global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0)
+    global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
+    # global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0)
     # full: unrestricted global attention; role_chain: node tokens follow actor-patient-target edges.
-    node_attention_mode: str = "role_chain"
+    node_attention_mode: str = "full"
     flow_layers: int = 6
     num_heads: int = 8
     mlp_ratio: float = 4.0
