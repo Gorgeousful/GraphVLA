@@ -16,16 +16,16 @@ class ModelConfig:
     history_horizon: int = 9
     future_horizon: int = 10
     condition_dim: int = 384
-    hidden_dim: int = 512
-    encoder_layers: int = 8
+    hidden_dim: int = 1024 # 512
+    encoder_layers: int = 24 # 8
     # current: expose only the latest entity CLS tokens; all: expose CLS tokens from every history step.
-    encoder_output_type: str = "current"
+    encoder_output_type: str = "all"
     # 0: register-only global attention; 1: full-history CLS/point/scene attention.
-    global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
-    # global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0)
+    # global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
+    global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0)
     # full: unrestricted global attention; role_chain: node tokens follow actor-patient-target edges.
     node_attention_mode: str = "full"
-    flow_layers: int = 6
+    flow_layers: int = 12 # 6
     num_heads: int = 8
     mlp_ratio: float = 4.0
     dropout: float = 0.1
