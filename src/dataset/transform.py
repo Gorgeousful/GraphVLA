@@ -575,7 +575,7 @@ class CustomTransform(TransformFn):
                 "is_contact": torch.as_tensor(
                     data[f"is_contact{target_suffix}"], device=entity_points.device,
                     dtype=entity_points.dtype,
-                )[history_horizon].reshape(1),
+                )[input_horizon:input_horizon + future_horizon],
             },
         }
         for key in ("images", "state", "metadata"):

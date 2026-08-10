@@ -15,10 +15,12 @@ from script.server import (
 ACTOR_POINT_INDICES = (0, 1, 2, 5)
 
 
-def test_contact_score_text_uses_current_contact_score() -> None:
-    text = TopLevelTaskPlanner._contact_score_text({"is_contact": [[0.4]]})
+def test_contact_score_text_uses_executed_contact_profile() -> None:
+    text = TopLevelTaskPlanner._contact_score_text(
+        {"is_contact": [[0.1, 0.4, 0.8]]}, frame_count=2,
+    )
 
-    assert text == "contact_score=0.400"
+    assert text == "contact_score[2]=[0.100, 0.400]"
 
 
 def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:

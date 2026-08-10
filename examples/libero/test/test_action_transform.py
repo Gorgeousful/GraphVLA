@@ -42,7 +42,7 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
         "future_horizon": 2,
         "action": action,
         "subtask_progress": torch.linspace(0.0, 1.0, num_frames),
-        "is_contact": torch.ones(num_frames),
+        "is_contact": torch.tensor([1.0, 1.0, 0.0, 1.0]),
     }
     result = transform.build_model_input(data)
     torch.testing.assert_close(
@@ -57,7 +57,9 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
     assert result["gripper_closedness_history"].shape == (2, 1)
     torch.testing.assert_close(result["target"]["subtask_progress"], torch.tensor([1.0 / 3.0]))
-    assert result["target"]["is_contact"].shape == (1,)
+    torch.testing.assert_close(
+        result["target"]["is_contact"], torch.tensor([0.0, 1.0]),
+    )
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])

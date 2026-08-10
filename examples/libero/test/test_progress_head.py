@@ -5,16 +5,19 @@ import torch
 from src.model.model import GraphFlowModel
 
 
-def _model() -> GraphFlowModel:
+def _model(
+    *, encoder_output_type: str = "current", cls_token_num: int = 1,
+) -> GraphFlowModel:
     return GraphFlowModel(
         actor_point_indices=(0, 1),
         num_points=2,
-        cls_token_num=1,
+        cls_token_num=cls_token_num,
         history_horizon=1,
         future_horizon=2,
         condition_dim=8,
         hidden_dim=32,
         encoder_layers=1,
+        encoder_output_type=encoder_output_type,
         global_layer_types=(0,),
         flow_layers=1,
         num_heads=4,
@@ -37,7 +40,7 @@ def _batch() -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         "target": {
             "trajectory": torch.randn(batch_size, future_steps, num_points * 3 + 1),
             "subtask_progress": torch.tensor([[0.25], [0.75]]),
-            "is_contact": torch.tensor([[0.0], [1.0]]),
+            "is_contact": torch.tensor([[0.0, 1.0], [1.0, 0.0]]),
         },
     }
 
@@ -63,4 +66,21 @@ def test_progress_head_forward_backward_and_sample() -> None:
         "subtask_progress", "is_contact",
     }
     assert outputs["subtask_progress"].shape == (2, 1)
+    assert outputs["is_contact"].shape == (2, 2)
     assert torch.all((outputs["subtask_progress"] >= 0.0) & (outputs["subtask_progress"] <= 1.0))
+
+
+def test_all_history_contact_head_uses_one_query_per_cls() -> None:
+    model = _model(encoder_output_type="all", cls_token_num=4)
+    batch = _batch()
+
+    loss, _ = model(batch)
+    loss.backward()
+    memory, relation_local = model._encode(batch)
+    logits = model._contact_logits(memory, relation_local)
+
+    assert model.contact_query is not None
+    assert model.contact_query.shape == (1, 4, 32)
+    assert logits.shape == (2, 2)
+    assert model.contact_query.grad is not None
+    assert model.contact_head[0].in_features == 4 * 32
