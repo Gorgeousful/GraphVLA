@@ -6,7 +6,21 @@ import torch
 from examples.libero.config.model_config import ModelConfig
 from src.common.schema import ACTION_DIM
 from src.model.model import GraphFlowModel
-from src.dataset.transform import CustomTransform
+from src.dataset.transform import CustomTransform, SubtaskBoundryPadding
+
+
+def test_subtask_boundary_padding_clamps_contact_targets() -> None:
+    data = {
+        "history_horizon": 1,
+        "subtask_id": torch.tensor([0, 0, 1, 1]),
+        "is_contact": torch.tensor([0.0, 1.0, 0.0, 0.0]),
+        "is_contact_soft": torch.tensor([0.1, 0.9, 0.2, 0.3]),
+    }
+
+    result = SubtaskBoundryPadding()(data)
+
+    torch.testing.assert_close(result["is_contact"], torch.tensor([0.0, 1.0, 1.0, 1.0]))
+    torch.testing.assert_close(result["is_contact_soft"], torch.tensor([0.1, 0.9, 0.9, 0.9]))
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])

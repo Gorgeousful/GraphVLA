@@ -64,6 +64,8 @@ class SubtaskBoundryPadding(TransformFn):
         "gripper_points_xyz",
         "state",
         "action",
+        "is_contact",
+        "is_contact_soft",
     )
 
     def __call__(self, data: DataDict) -> DataDict:
