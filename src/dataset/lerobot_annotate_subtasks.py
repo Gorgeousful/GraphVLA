@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 AGENT_IMAGE_KEYS = ("image", "observation.images.image")
 SUBTASK_FEATURE = {"dtype": "int64", "shape": [1], "names": None}
+SUBTASK_PROGRESS_FEATURE = {"dtype": "float32", "shape": [1], "names": None}
 IS_COMPLETE_FEATURE = {"dtype": "bool", "shape": [1], "names": None}
 IS_COMPLETE_SOFT_FEATURE = {"dtype": "float32", "shape": [1], "names": None}
 
@@ -143,6 +144,11 @@ class DatasetStore:
         self.annotated_episodes = {
             episode_index for episode_index, names in schemas.items() if "subtask_id" in names
         }
+        self.progress_column_episodes = {
+            episode_index
+            for episode_index, names in schemas.items()
+            if "subtask_progress" in names
+        }
         self.completion_column_episodes = {
             episode_index for episode_index, names in schemas.items() if "is_complete" in names
         }
@@ -152,7 +158,12 @@ class DatasetStore:
         }
         self.completion_episodes = set(self.completion_column_episodes)
         features = self.info.get("features", {})
-        if self.annotated_episodes and features.get("subtask_id") != SUBTASK_FEATURE:
+        if (
+            self.annotated_episodes and features.get("subtask_id") != SUBTASK_FEATURE
+        ) or (
+            self.progress_column_episodes
+            and features.get("subtask_progress") != SUBTASK_PROGRESS_FEATURE
+        ):
             self._ensure_info_features(include_completion=False)
         all_complete = len(self.completion_column_episodes) == len(self.episodes_by_index)
         all_complete_soft = len(self.completion_soft_column_episodes) == len(self.episodes_by_index)
@@ -229,6 +240,7 @@ class DatasetStore:
                 "episode_index": episode_index,
                 "length": int(self.episodes_by_index[episode_index]["length"]),
                 "annotated": episode_index in self.annotated_episodes,
+                "progress_annotated": episode_index in self.progress_column_episodes,
                 "completion_annotated": episode_index in self.completion_episodes,
                 "completion_soft_annotated": (
                     episode_index in self.completion_soft_column_episodes
@@ -259,6 +271,7 @@ class DatasetStore:
             "soft_width": self.completion_soft_width,
             "completion_ranges": self.completion_ranges(episode_index),
             "annotated": episode_index in self.annotated_episodes,
+            "progress_annotated": episode_index in self.progress_column_episodes,
             "completion_annotated": episode_index in self.completion_episodes,
             "completion_soft_annotated": (
                 episode_index in self.completion_soft_column_episodes
@@ -371,11 +384,14 @@ class DatasetStore:
             length = int(episode["length"])
             validated = validate_boundaries(boundaries, length)
             subtask_ids = np.searchsorted(validated, np.arange(length), side="right") + 1
+            subtask_progress = linear_subtask_progress(validated, length)
             is_complete = completion_mask(validated, length, self.completion_frames)
             is_complete_soft = completion_soft_mask(
                 validated, length, self.completion_frames, self.completion_soft_width
             )
-            prepared.append((episode_index, subtask_ids, is_complete, is_complete_soft))
+            prepared.append(
+                (episode_index, subtask_ids, subtask_progress, is_complete, is_complete_soft)
+            )
 
         saved = []
         with self.lock, exclusive_dataset_lock(self.meta_dir):
@@ -388,10 +404,17 @@ class DatasetStore:
                             self._write_episode_annotations,
                             episode_index,
                             subtask_ids,
+                            subtask_progress,
                             is_complete,
                             is_complete_soft,
                         ): episode_index
-                        for episode_index, subtask_ids, is_complete, is_complete_soft in prepared
+                        for (
+                            episode_index,
+                            subtask_ids,
+                            subtask_progress,
+                            is_complete,
+                            is_complete_soft,
+                        ) in prepared
                     }
                     for future in as_completed(futures):
                         episode_index = futures[future]
@@ -406,6 +429,7 @@ class DatasetStore:
                             continue
                         saved.append(episode_index)
                         self.annotated_episodes.add(episode_index)
+                        self.progress_column_episodes.add(episode_index)
                         self.completion_column_episodes.add(episode_index)
                         self.completion_soft_column_episodes.add(episode_index)
                         self.completion_episodes.add(episode_index)
@@ -432,6 +456,7 @@ class DatasetStore:
         self,
         episode_index: int,
         subtask_ids: np.ndarray,
+        subtask_progress: np.ndarray,
         is_complete: np.ndarray,
         is_complete_soft: np.ndarray,
     ) -> bool:
@@ -440,6 +465,7 @@ class DatasetStore:
         if not (
             source.metadata.num_rows
             == len(subtask_ids)
+            == len(subtask_progress)
             == len(is_complete)
             == len(is_complete_soft)
         ):
@@ -449,6 +475,7 @@ class DatasetStore:
             )
         expected = {
             "subtask_id": subtask_ids,
+            "subtask_progress": subtask_progress,
             "is_complete": is_complete,
             "is_complete_soft": is_complete_soft,
         }
@@ -472,6 +499,12 @@ class DatasetStore:
                 length = table.num_rows
                 columns = (
                     ("subtask_id", pa.array(subtask_ids[offset : offset + length], type=pa.int64())),
+                    (
+                        "subtask_progress",
+                        pa.array(
+                            subtask_progress[offset : offset + length], type=pa.float32()
+                        ),
+                    ),
                     ("is_complete", pa.array(is_complete[offset : offset + length], type=pa.bool_())),
                     (
                         "is_complete_soft",
@@ -504,7 +537,10 @@ class DatasetStore:
     def _ensure_info_features(
         self, include_completion: bool, include_completion_soft: bool = False
     ) -> None:
-        required = {"subtask_id": SUBTASK_FEATURE}
+        required = {
+            "subtask_id": SUBTASK_FEATURE,
+            "subtask_progress": SUBTASK_PROGRESS_FEATURE,
+        }
         if include_completion:
             required["is_complete"] = IS_COMPLETE_FEATURE
         if include_completion_soft:
@@ -534,6 +570,17 @@ def completion_mask(
     for start, end in zip([0, *boundaries], [*boundaries, length], strict=True):
         mask[max(start, end - completion_frames) : end] = True
     return mask
+
+
+def linear_subtask_progress(boundaries: list[int], length: int) -> np.ndarray:
+    progress = np.empty(length, dtype=np.float32)
+    for start, end in zip([0, *boundaries], [*boundaries, length], strict=True):
+        segment_length = end - start
+        if segment_length == 1:
+            progress[start] = 1.0
+        else:
+            progress[start:end] = np.linspace(0.0, 1.0, segment_length, dtype=np.float32)
+    return progress
 
 
 def completion_soft_mask(
@@ -737,7 +784,7 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <script>
 const $=id=>document.getElementById(id);
 let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null;
-const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),completionByEpisode=new Map(),completionSoftByEpisode=new Map();
+const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),progressByEpisode=new Map(),completionByEpisode=new Map(),completionSoftByEpisode=new Map();
 const edited=new Set(),completionPending=new Set();
 async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
 function equal(a,b){return JSON.stringify(a||[])===JSON.stringify(b||[])}
@@ -745,13 +792,13 @@ function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries
 function needsSave(id){return completionPending.has(id)||(edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id)))}
 function dirtyIds(){return [...new Set([...edited,...completionPending])].filter(needsSave).sort((a,b)=>a-b)}
 function saveIds(){return episodes.map(item=>item.episode_index).filter(id=>annotatedByEpisode.get(id)||edited.has(id)||completionPending.has(id))}
-function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);completionByEpisode.set(id,episode.completion_annotated);completionSoftByEpisode.set(id,episode.completion_soft_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
-function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);completionByEpisode.set(id,false);completionSoftByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
+function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);progressByEpisode.set(id,episode.progress_annotated);completionByEpisode.set(id,episode.completion_annotated);completionSoftByEpisode.set(id,episode.completion_soft_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
+function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);progressByEpisode.set(id,false);completionByEpisode.set(id,false);completionSoftByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
 async function init(){tasks=await json('/api/tasks');const pending=await json('/api/completion-pending');for(const episode of pending)rememberCompletionPending(episode);$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Annotated ('+saveIds().length+')'}
-function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}if(completionSoftByEpisode.get(id)){const soft=document.createElement('span');soft.className='persisted';soft.textContent='is_complete_soft ✓';right.appendChild(soft)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
-async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);completionByEpisode.set(id,next.completion_annotated);completionSoftByEpisode.set(id,next.completion_soft_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(progressByEpisode.get(id)){const progress=document.createElement('span');progress.className='persisted';progress.textContent='subtask_progress ✓';right.appendChild(progress)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}if(completionSoftByEpisode.get(id)){const soft=document.createElement('span');soft.className='persisted';soft.textContent='is_complete_soft ✓';right.appendChild(soft)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);progressByEpisode.set(id,next.progress_annotated);completionByEpisode.set(id,next.completion_annotated);completionSoftByEpisode.set(id,next.completion_soft_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
 function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
@@ -782,7 +829,7 @@ async function saveAll(){
       for(const line of lines){
         if(!line.trim())continue;const event=JSON.parse(line);
         if(event.status==='saved'){
-          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);completionByEpisode.set(id,true);completionSoftByEpisode.set(id,true);completionPending.delete(id);
+          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);progressByEpisode.set(id,true);completionByEpisode.set(id,true);completionSoftByEpisode.set(id,true);completionPending.delete(id);
           if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
           if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.completion_ranges=completionRangesFromBoundaries(submitted);detail.annotated=true;renderAnnotation()}
           metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;

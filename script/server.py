@@ -44,6 +44,7 @@ from src.common.schema import (
 
 cs = Console()
 
+LIBERO_DELTA_POSITION_SCALE = 0.05
 REQUIRED_REQUEST_FIELDS = (
     "benchmark",
     "session_id",
@@ -71,6 +72,7 @@ class Args:
     segmenter: str = "sam2"
     sam_only: bool = False
     execute_chunk_len: int = 5
+    release_lift_height: float = 0.05
     seed: int = 42
     complete_threshold: float = 0.5
     complete_window: int = 3
@@ -857,6 +859,7 @@ class EmbodimentAdapter:
         action_delta: bool = True,
         flow_mode: str = "joint",
         robot_cls: type[Any] | None = None,
+        release_lift_height: float = 0.05,
     ) -> None:
         if flow_mode not in FLOW_MODES:
             raise ValueError(f"Unsupported flow mode: {flow_mode!r}")
@@ -870,6 +873,9 @@ class EmbodimentAdapter:
         self.action_delta = bool(action_delta)
         self.flow_mode = flow_mode
         self.robot_cls = robot_cls
+        if release_lift_height < 0:
+            raise ValueError("release_lift_height must be non-negative")
+        self.release_lift_height = float(release_lift_height)
         self.robot: Any = None
 
     def to_action(
@@ -1016,7 +1022,22 @@ class EmbodimentAdapter:
                 raise ValueError(f"observation.state must contain a 6-D TCP pose, got {state.shape}")
             action[:6] = state[:6]
         action[6] = -1.0
-        return [action.tolist() for _ in range(chunk_len)]
+        actions = np.repeat(action[None], chunk_len, axis=0)
+        if chunk_len > 0:
+            if self.action_delta:
+                actions[:, 2] = np.clip(
+                    self.release_lift_height / chunk_len / LIBERO_DELTA_POSITION_SCALE,
+                    -1.0,
+                    1.0,
+                )
+            else:
+                actions[:, 2] += np.linspace(
+                    self.release_lift_height / chunk_len,
+                    self.release_lift_height,
+                    chunk_len,
+                    dtype=np.float32,
+                )
+        return actions.tolist()
 
     @staticmethod
     def _current_camera_matrix(
@@ -1453,6 +1474,12 @@ def parse_args() -> Args:
         help="Track masks with SAM and resample object points every frame without PointTracker.",
     )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
+    parser.add_argument(
+        "--release-lift-height",
+        type=float,
+        default=Args.release_lift_height,
+        help="Total world-Z lift in meters while releasing in absolute-action mode.",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--bge-path",
@@ -1485,6 +1512,8 @@ def parse_args() -> Args:
     namespace = parser.parse_args()
     if namespace.locator_scale <= 0:
         parser.error("--locator-scale must be positive")
+    if namespace.release_lift_height < 0:
+        parser.error("--release-lift-height must be non-negative")
     namespace.devices = parse_devices(namespace.devices, default_device=namespace.device)
     return Args(**vars(namespace))
 
@@ -1554,6 +1583,7 @@ def main() -> None:
             action_delta=bool(getattr(model_config, "action_delta", True)),
             flow_mode=str(getattr(model_config, "flow_mode", "joint")),
             robot_cls=GeomRobot,
+            release_lift_height=args.release_lift_height,
         ),
         ckpt_path=args.ckpt_path,
     )

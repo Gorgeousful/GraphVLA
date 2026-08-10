@@ -176,13 +176,14 @@ def test_continuous_delta_action_is_clipped() -> None:
     assert action == pytest.approx([1.0, -1.0, 0.5, 1.0, -1.0, 0.0, 1.0])
 
 
-def test_release_actions_are_zero_delta_and_open_gripper() -> None:
+def test_delta_release_opens_gripper_and_evenly_distributes_lift() -> None:
     adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=10)
     session = SimpleNamespace()
 
     actions = adapter.release_actions(session, chunk_len=3)
 
     expected = np.zeros(7, dtype=np.float32)
+    expected[2] = 1.0 / 3.0
     expected[6] = -1.0
     np.testing.assert_allclose(actions, np.repeat(expected[None], 3, axis=0))
 
@@ -284,12 +285,15 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
         )
 
 
-def test_absolute_release_holds_current_tcp_pose() -> None:
+def test_absolute_release_opens_gripper_and_linearly_lifts_tcp() -> None:
     adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=3, action_delta=False)
     session = SimpleNamespace()
     state = [0.4, -0.2, 1.3, 0.1, 0.2, 1.4, 0.02, -0.02]
 
     actions = adapter.release_actions(session, 2, {"observation.state": [state]})
 
-    expected = np.asarray(state[:6] + [-1.0], dtype=np.float32)
-    np.testing.assert_allclose(actions, np.repeat(expected[None], 2, axis=0), atol=1e-7)
+    expected = np.asarray([
+        [0.4, -0.2, 1.325, 0.1, 0.2, 1.4, -1.0],
+        [0.4, -0.2, 1.350, 0.1, 0.2, 1.4, -1.0],
+    ], dtype=np.float32)
+    np.testing.assert_allclose(actions, expected, atol=1e-7)
