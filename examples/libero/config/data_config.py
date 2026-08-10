@@ -69,7 +69,7 @@ LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
     "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action_0807", # 0804 0806
 )
-LIBERO_USE_SOFT = True
+LIBERO_USE_SOFT = False
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
 LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
 LIBERO_ACTION_STATS_FIELD = "camera_action" if LIBERO_ACTION_DELTA else "absolute_camera_action"

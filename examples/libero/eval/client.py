@@ -331,7 +331,7 @@ def _draw_response_scores(
 ) -> None:
     progress = _current_score(response, "subtask_progress")
     progress_text = "-" if progress is None else f"{progress:.2f}"
-    progress_color = (80, 255, 80) if progress is not None and progress >= 0.9 else (255, 255, 255)
+    progress_color = (80, 255, 80) if progress is not None and progress >= 0.85 else (255, 255, 255)
     _draw_text_rgb_right(image, progress_text, 18, color=progress_color)
 
     contact = _current_score(response, "is_contact")

@@ -1,10 +1,11 @@
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0807-contact-basetcpfinger-cls4-vggt-rolechain-sam-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0810-contact-basetcpfinger-cls4-rolechain-current-progress-sam-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
---progress-window 1 \
+--progress-window 3 \
+--progress-threshold 0.85 \
 --locator-scale 2.0 \
---port 8002 \
+--port 8001 \
 --devices '{"inference":"cuda:0","node_segmenter":"cuda:0","point_tracker":"cuda:0","node_locator":"cuda:1"}' \
 --sam-only \
 --locator-mode box 
@@ -22,7 +23,7 @@ python -m examples.libero.eval.client \
 --num-trials-per-task 10 \
 --max-steps 1000 \
 --control-freq 10 \
---port 8002
+--port 8001
 
 # libero_swap_test
 python -m examples.libero.eval.client \
@@ -31,7 +32,7 @@ python -m examples.libero.eval.client \
 --num-trials-per-task 10 \
 --max-steps 1000 \
 --control-freq 10 \
---port 8002
+--port 8001
 
 # libero_custom
 python -m examples.libero.eval.client \
