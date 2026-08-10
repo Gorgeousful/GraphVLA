@@ -2,7 +2,7 @@ python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/0807-contact-basetcpfinger-cls4-vggt-rolechain-sam-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
---complete-window 1 \
+--progress-window 1 \
 --locator-scale 2.0 \
 --port 8002 \
 --devices '{"inference":"cuda:0","node_segmenter":"cuda:0","point_tracker":"cuda:0","node_locator":"cuda:1"}' \

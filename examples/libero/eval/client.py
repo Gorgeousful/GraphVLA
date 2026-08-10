@@ -329,10 +329,10 @@ def _draw_response_scores(
     image: np.ndarray,
     response: dict[str, Any],
 ) -> None:
-    complete = _current_score(response, "is_complete")
-    complete_text = "-" if complete is None else f"{complete:.2f}"
-    complete_color = (80, 255, 80) if complete is not None and complete >= 0.5 else (255, 255, 255)
-    _draw_text_rgb_right(image, complete_text, 18, color=complete_color)
+    progress = _current_score(response, "subtask_progress")
+    progress_text = "-" if progress is None else f"{progress:.2f}"
+    progress_color = (80, 255, 80) if progress is not None and progress >= 0.9 else (255, 255, 255)
+    _draw_text_rgb_right(image, progress_text, 18, color=progress_color)
 
     contact = _current_score(response, "is_contact")
     contact_text = "-" if contact is None else f"{contact:.2f}"

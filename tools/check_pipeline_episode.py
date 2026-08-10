@@ -216,7 +216,7 @@ def render_check_video(
         "valid_node_mask",
         "subtask_node_mask",
         "subtask_id",
-        "is_complete",
+        "subtask_progress",
     ]
     if "node_points_vis" in pq.read_schema(parquet_path).names:
         columns.append("node_points_vis")
@@ -287,7 +287,7 @@ def render_check_video(
                 (
                     f"ep={episode_index} f={frame_index} "
                     f"st={int(row['subtask_id'])} "
-                    f"done={int(bool(row['is_complete']))}"
+                    f"progress={float(row['subtask_progress']):.3f}"
                 ),
                 header_height,
             )

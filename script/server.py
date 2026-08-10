@@ -74,8 +74,8 @@ class Args:
     execute_chunk_len: int = 5
     release_lift_height: float = 0.05
     seed: int = 42
-    complete_threshold: float = 0.5
-    complete_window: int = 3
+    progress_threshold: float = 0.9
+    progress_window: int = 3
     devices: dict[str, str] = field(default_factory=dict)
 
 
@@ -98,7 +98,7 @@ class InferenceSession:
     subtask_index: int = 0
     task_complete: bool = False
     release_pending: bool = False
-    complete_streak: int = 0
+    progress_streak: int = 0
     feature_history: list[dict[str, np.ndarray]] = field(default_factory=list)
     frame_index: int = 0
     object_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -117,7 +117,7 @@ class InferenceSession:
         self.subtask_index = 0
         self.task_complete = False
         self.release_pending = False
-        self.complete_streak = 0
+        self.progress_streak = 0
         self.reset_preprocessor()
 
     def reset_preprocessor(self) -> None:
@@ -141,13 +141,13 @@ class TopLevelTaskPlanner:
         *,
         dataset_dir: str | Path,
         task_analyzer_api_key: str | None = None,
-        complete_threshold: float = 0.5,
-        complete_window: int = 3,
+        progress_threshold: float = 0.9,
+        progress_window: int = 3,
     ) -> None:
         self.dataset_dir = Path(dataset_dir)
         self.task_analyzer_api_key = task_analyzer_api_key
-        self.complete_threshold = complete_threshold
-        self.complete_window = max(1, complete_window)
+        self.progress_threshold = progress_threshold
+        self.progress_window = max(1, progress_window)
         self.task_cache: dict[str, dict[str, Any]] = {}
         self.task_analyzer: TaskAnalyzer | None = None
         self._load_taskstructure_cache()
@@ -173,22 +173,22 @@ class TopLevelTaskPlanner:
         if session.task_complete or session.release_pending or session.taskstructure is None:
             return False
 
-        frame_scores = self._completion_frame_scores(outputs)
+        frame_scores = self._progress_frame_scores(outputs)
         subtasks = session.taskstructure.get("subtasks", [])
         subtask_label = f"subtask [{session.subtask_index + 1}/{len(subtasks)}]"
         for frame_id, score in frame_scores:
             score_text = (
                 f"step={session.frame_index} {subtask_label} f={frame_id} "
-                f"complete_score={score:.4f}"
+                f"subtask_progress={score:.4f}"
             )
-            if score >= self.complete_threshold:
+            if score >= self.progress_threshold:
                 cs.print(f"[green]{score_text}[/green]")
-                session.complete_streak += 1
+                session.progress_streak += 1
             else:
                 cs.print(score_text)
-                session.complete_streak = 0
-            if session.complete_streak >= self.complete_window:
-                session.complete_streak = 0
+                session.progress_streak = 0
+            if session.progress_streak >= self.progress_window:
+                session.progress_streak = 0
                 session.release_pending = True
                 return True
         return False
@@ -199,7 +199,7 @@ class TopLevelTaskPlanner:
 
         subtasks = session.taskstructure.get("subtasks", [])
         session.release_pending = False
-        session.complete_streak = 0
+        session.progress_streak = 0
         if session.subtask_index + 1 >= len(subtasks):
             session.task_complete = True
             return False
@@ -235,11 +235,11 @@ class TopLevelTaskPlanner:
             self.task_cache[language] = taskstructure_to_json(self.task_analyzer.analyze_task(language))
         return self.task_cache[language]
 
-    def _completion_frame_scores(
+    def _progress_frame_scores(
         self,
         outputs: Mapping[str, Any],
     ) -> list[tuple[int, float]]:
-        score = self._output_score(outputs, "is_complete")
+        score = self._output_score(outputs, "subtask_progress")
         return [] if score is None else [(0, score)]
 
     @staticmethod
@@ -1493,16 +1493,16 @@ def parse_args() -> Args:
     )
     parser.add_argument("--seed", type=int, default=Args.seed, help="Random seed for server inference.")
     parser.add_argument(
-        "--complete-threshold",
+        "--progress-threshold",
         type=float,
-        default=0.5,
-        help="Frame completion score threshold for subtask switching.",
+        default=Args.progress_threshold,
+        help="Current subtask progress threshold for subtask switching.",
     )
     parser.add_argument(
-        "--complete-window",
+        "--progress-window",
         type=int,
-        default=3,
-        help="Number of consecutive completed frames required before switching subtasks.",
+        default=Args.progress_window,
+        help="Number of consecutive progress-threshold hits required before switching subtasks.",
     )
     parser.add_argument(
         "--devices",
@@ -1553,8 +1553,8 @@ def main() -> None:
         planner=TopLevelTaskPlanner(
             dataset_dir=data_kwargs["dataset_dir"],
             task_analyzer_api_key=args.task_analyzer_api_key,
-            complete_threshold=args.complete_threshold,
-            complete_window=args.complete_window,
+            progress_threshold=args.progress_threshold,
+            progress_window=args.progress_window,
         ),
         preprocessor=InputPreprocessor(
             history_horizon=history_horizon,

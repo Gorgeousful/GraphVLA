@@ -87,7 +87,7 @@ LIBERO_REPACK = {
         "index": "index",
     },
     "subtask_id": "subtask_id",
-    "is_complete": "is_complete",
+    "subtask_progress": "subtask_progress",
     "is_contact": "is_contact",
     "node_points_xyz": "node_points_xyz",
     "valid_node_mask": "valid_node_mask",
@@ -105,7 +105,7 @@ LIBERO_HORIZON = {
     # "action": list(range(16)),
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "is_complete": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "subtask_progress": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "is_contact": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "node_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
@@ -116,11 +116,9 @@ LIBERO_HORIZON = {
 
 if LIBERO_USE_SOFT:
     LIBERO_REPACK.update({
-        "is_complete_soft": "is_complete_soft",
         "is_contact_soft": "is_contact_soft",
     })
     LIBERO_HORIZON.update({
-        "is_complete_soft": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
         "is_contact_soft": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     })
 

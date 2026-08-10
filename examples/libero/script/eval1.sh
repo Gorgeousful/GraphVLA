@@ -63,7 +63,7 @@ for weight in "${WEIGHTS[@]}"; do
     --example libero \
     --ckpt-path "$weight" \
     --execute-chunk-len 5 \
-    --complete-window 1 \
+    --progress-window 1 \
     --locator-scale 2.0 \
     --port "$PORT" \
     --devices '{"inference":"cuda:0","node_segmenter":"cuda:0","point_tracker":"cuda:0","node_locator":"cuda:1"}' \

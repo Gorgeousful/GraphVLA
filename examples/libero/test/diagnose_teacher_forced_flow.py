@@ -31,18 +31,18 @@ def parse_args():
 def select_samples(dataset_dir: Path, count: int):
     candidates = defaultdict(list)
     for path in sorted(glob.glob(str(dataset_dir / "data/chunk-*/*.parquet"))):
-        df = pd.read_parquet(path, columns=["index", "episode_index", "frame_index", "subtask_id", "is_contact", "is_complete"])
+        df = pd.read_parquet(path, columns=["index", "episode_index", "frame_index", "subtask_id", "is_contact", "subtask_progress"])
         for sid in sorted(df.subtask_id.unique()):
             local = df.index[df.subtask_id == sid].to_numpy()
             contact = local[df.loc[local, "is_contact"].to_numpy(bool)]
             if len(local) < 20 or len(contact) == 0:
                 continue
-            onset = int(contact[0]); complete = local[df.loc[local, "is_complete"].to_numpy(bool)]
+            onset = int(contact[0]); near_complete = local[df.loc[local, "subtask_progress"].to_numpy() >= 0.9]
             choices = {
                 "approach": max(int(local[0]) + 5, onset - 10),
                 "contact_onset": onset,
                 "transport": min(onset + 15, int(local[-1]) - 10),
-                "pre_completion": max(onset + 1, int(complete[0]) - 5) if len(complete) else int(local[-1]) - 5,
+                "pre_completion": max(onset + 1, int(near_complete[0]) - 5) if len(near_complete) else int(local[-1]) - 5,
             }
             for phase, row_index in choices.items():
                 row = df.loc[row_index]

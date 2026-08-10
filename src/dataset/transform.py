@@ -57,8 +57,7 @@ class FlattenTransform(TransformFn):
 class SubtaskBoundryPadding(TransformFn):
     fields: Sequence[str] = (
         "subtask_id",
-        "is_complete",
-        "is_complete_soft",
+        "subtask_progress",
         "node_points_xyz",
         "valid_node_mask",
         "subtask_node_mask",
@@ -569,8 +568,8 @@ class CustomTransform(TransformFn):
             "gripper_closedness_history": closedness[:input_horizon],
             "target": {
                 "trajectory": trajectory,
-                "is_complete": torch.as_tensor(
-                    data[f"is_complete{target_suffix}"], device=entity_points.device,
+                "subtask_progress": torch.as_tensor(
+                    data["subtask_progress"], device=entity_points.device,
                     dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
                 "is_contact": torch.as_tensor(

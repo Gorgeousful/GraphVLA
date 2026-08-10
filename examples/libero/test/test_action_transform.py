@@ -41,7 +41,7 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
         "history_horizon": 1,
         "future_horizon": 2,
         "action": action,
-        "is_complete": torch.zeros(num_frames),
+        "subtask_progress": torch.linspace(0.0, 1.0, num_frames),
         "is_contact": torch.ones(num_frames),
     }
     result = transform.build_model_input(data)
@@ -56,6 +56,7 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     torch.testing.assert_close(result["target"]["trajectory"], expected_trajectory)
     assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
     assert result["gripper_closedness_history"].shape == (2, 1)
+    torch.testing.assert_close(result["target"]["subtask_progress"], torch.tensor([1.0 / 3.0]))
     assert result["target"]["is_contact"].shape == (1,)
 
 
@@ -66,6 +67,7 @@ def test_model_config_controls_actor_dimensions(actor_point_indices: tuple[int, 
         num_points=6,
         hidden_dim=48,
         encoder_layers=1,
+        global_layer_types=(0,),
         flow_layers=1,
         num_heads=4,
         condition_dim=8,

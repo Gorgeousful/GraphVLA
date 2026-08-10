@@ -113,7 +113,7 @@ class JointTrajectoryFlow(nn.Module):
 
 
 class GraphFlowModel(nn.Module):
-    """Single joint trajectory flow with the unchanged completion head."""
+    """Single joint trajectory flow with progress and contact heads."""
 
     def __init__(
         self,
@@ -134,7 +134,6 @@ class GraphFlowModel(nn.Module):
         dropout: float = 0.1,
         sample_steps: int = 10,
         flow_mode: str = "point_only",
-        complete_pos_weight: float = 1.0,
         contact_pos_weight: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
@@ -151,8 +150,6 @@ class GraphFlowModel(nn.Module):
                 "encoder_output_type must be 'current' or 'all', "
                 f"got {encoder_output_type!r}"
             )
-        if complete_pos_weight <= 0:
-            raise ValueError(f"complete_pos_weight must be positive, got {complete_pos_weight}")
         if contact_pos_weight <= 0:
             raise ValueError(f"contact_pos_weight must be positive, got {contact_pos_weight}")
         self.num_points = num_points
@@ -163,7 +160,6 @@ class GraphFlowModel(nn.Module):
         self.sample_steps = sample_steps
         self.flow_mode = flow_mode
         self.encoder_output_type = encoder_output_type
-        self.complete_pos_weight = float(complete_pos_weight)
         self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
@@ -177,7 +173,7 @@ class GraphFlowModel(nn.Module):
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
         )
-        self.complete_head = nn.Sequential(
+        self.progress_head = nn.Sequential(
             nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
@@ -240,11 +236,10 @@ class GraphFlowModel(nn.Module):
         )
         loss_flow = F.mse_loss(velocity, target_velocity)
 
-        complete_logits = self.complete_head(relation_local.flatten(1))
-        loss_complete = F.binary_cross_entropy_with_logits(
-            complete_logits,
-            target["is_complete"].to(dtype=complete_logits.dtype),
-            pos_weight=complete_logits.new_tensor([self.complete_pos_weight]),
+        progress = torch.sigmoid(self.progress_head(relation_local.flatten(1)))
+        loss_progress = F.smooth_l1_loss(
+            progress,
+            target["subtask_progress"].to(dtype=progress.dtype),
         )
         contact_logits = self._contact_logits(relation_local)
         loss_contact = F.binary_cross_entropy_with_logits(
@@ -254,7 +249,7 @@ class GraphFlowModel(nn.Module):
         )
         losses = {
             "loss_flow": loss_flow,
-            "loss_complete": loss_complete,
+            "loss_progress": loss_progress,
             "loss_contact": loss_contact,
         }
         total = sum(value * float(self.weights.get(name, 1.0)) for name, value in losses.items())
@@ -297,6 +292,6 @@ class GraphFlowModel(nn.Module):
                 point_plan.shape[:-1], dtype=torch.bool, device=point_plan.device,
             ),
             "gripper_plan": state[..., -1],
-            "is_complete": torch.sigmoid(self.complete_head(relation_local.flatten(1))),
+            "subtask_progress": torch.sigmoid(self.progress_head(relation_local.flatten(1))),
             "is_contact": torch.sigmoid(self._contact_logits(relation_local)),
         }

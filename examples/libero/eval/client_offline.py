@@ -218,11 +218,11 @@ def _draw_response_points(
 
     right_label = None
     if mode == "tracking":
-        completion = response.get("is_complete")
-        if completion is None:
+        progress = response.get("subtask_progress")
+        if progress is None:
             right_label = "-"
         else:
-            scores = np.asarray(completion, dtype=np.float32).reshape(-1)
+            scores = np.asarray(progress, dtype=np.float32).reshape(-1)
             scores = scores[np.isfinite(scores)]
             right_label = "-" if scores.size == 0 else f"{scores.max():.2f}"
     _draw_label(image, label, right_label)
@@ -394,8 +394,8 @@ async def _evaluate_samples(
                     taskstructures[task_texts[task_index]][_scalar(frame_sample["subtask_id"]) - 1]["subtask"]
                 ),
                 "gt_subtask_id": _scalar(frame_sample["subtask_id"]),
-                "gt_is_complete": bool(
-                    _to_numpy(frame_sample["is_complete"]).item()
+                "gt_subtask_progress": float(
+                    _to_numpy(frame_sample["subtask_progress"]).item()
                 ),
                 "gt_action": _to_numpy(frame_sample["actions"]).tolist(),
                 "history_grids": history_paths,
