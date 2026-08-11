@@ -174,7 +174,7 @@ class InferenceClient:
         return json.loads(message)
 
 
-def _server_ckpt_path(*, host: str, port: int) -> str:
+def _server_info(*, host: str, port: int) -> tuple[str, float]:
     uri = f"ws://{host}:{port}"
     response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
     if "error" in response:
@@ -182,7 +182,14 @@ def _server_ckpt_path(*, host: str, port: int) -> str:
     ckpt_path = response.get("ckpt_path")
     if not isinstance(ckpt_path, str) or not ckpt_path:
         raise ValueError(f"server returned invalid ckpt_path: {ckpt_path!r}")
-    return ckpt_path
+    progress_threshold = response.get("progress_threshold")
+    if (
+        isinstance(progress_threshold, bool)
+        or not isinstance(progress_threshold, int | float)
+        or not np.isfinite(progress_threshold)
+    ):
+        raise ValueError(f"server returned invalid progress_threshold: {progress_threshold!r}")
+    return ckpt_path, float(progress_threshold)
 
 
 def _ckpt_dir_name(ckpt_path: str) -> str:
@@ -344,10 +351,15 @@ def _draw_response_scores(
     image: np.ndarray,
     response: dict[str, Any],
     frame_id: int | None,
+    progress_threshold: float,
 ) -> None:
     progress = _current_score(response, "subtask_progress")
     progress_text = "-" if progress is None else f"{progress:.2f}"
-    progress_color = (80, 255, 80) if progress is not None and progress >= 0.85 else (255, 255, 255)
+    progress_color = (
+        (80, 255, 80)
+        if progress is not None and progress >= progress_threshold
+        else (255, 255, 255)
+    )
     _draw_text_rgb_right(image, progress_text, 18, color=progress_color)
 
     contact = _future_score(response, "is_contact", frame_id)
@@ -362,6 +374,7 @@ def _draw_response_points(
     frame_id: int | None,
     *,
     mode: str,
+    progress_threshold: float,
     intrinsic: np.ndarray | None = None,
 ) -> np.ndarray:
     image = np.ascontiguousarray(image_rgb.copy())
@@ -474,7 +487,7 @@ def _draw_response_points(
 
     if frame_id is not None:
         _draw_text_rgb(image, f"f={frame_id}", (8, 18))
-    _draw_response_scores(image, response, frame_id)
+    _draw_response_scores(image, response, frame_id, progress_threshold)
     return image
 
 
@@ -631,7 +644,8 @@ def main() -> None:
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
     timestamp = datetime.now().strftime("%m%d-%H%M")
-    ckpt_dir_name = _ckpt_dir_name(_server_ckpt_path(host=args.host, port=args.port))
+    ckpt_path, progress_threshold = _server_info(host=args.host, port=args.port)
+    ckpt_dir_name = _ckpt_dir_name(ckpt_path)
     suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
@@ -745,6 +759,7 @@ def main() -> None:
                             client.last_response,
                             client.last_action_frame_id,
                             mode="prediction",
+                            progress_threshold=progress_threshold,
                             intrinsic=client.intrinsic,
                         )
                         tracking_frame = _draw_response_points(
@@ -752,6 +767,7 @@ def main() -> None:
                             client.last_response,
                             client.last_action_frame_id,
                             mode="tracking",
+                            progress_threshold=progress_threshold,
                         )
                         combined_frames.append(np.hstack([prediction_frame, tracking_frame]))
                         controller_action = _to_libero_action(

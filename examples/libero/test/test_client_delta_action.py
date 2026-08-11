@@ -66,6 +66,23 @@ def test_future_score_selects_action_aligned_contact_frame() -> None:
     assert _future_score(response, "is_contact", 4) is None
 
 
+def test_progress_visualization_uses_server_threshold() -> None:
+    image = np.zeros((60, 120, 3), dtype=np.uint8)
+    response = {"subtask_progress": [[0.87]]}
+
+    green = _draw_response_points(
+        image, response, None, mode="prediction", progress_threshold=0.85,
+    )
+    white = _draw_response_points(
+        image, response, None, mode="prediction", progress_threshold=0.9,
+    )
+
+    green_pixels = (green[..., 1] > green[..., 0]) & (green[..., 1] > green[..., 2])
+    white_green_pixels = (white[..., 1] > white[..., 0]) & (white[..., 1] > white[..., 2])
+    assert np.any(green_pixels)
+    assert not np.any(white_green_pixels)
+
+
 def test_prediction_visualization_projects_only_valid_point_plan() -> None:
     image = np.zeros((100, 100, 3), dtype=np.uint8)
     response = {
@@ -84,7 +101,7 @@ def test_prediction_visualization_projects_only_valid_point_plan() -> None:
     ])
 
     rendered = _draw_response_points(
-        image, response, 1, mode="prediction", intrinsic=intrinsic,
+        image, response, 1, mode="prediction", progress_threshold=0.85, intrinsic=intrinsic,
     )
 
     np.testing.assert_array_equal(rendered[50, 50], np.asarray([255, 80, 40]))
@@ -100,7 +117,9 @@ def test_tracking_visualization_distinguishes_inactive_and_invisible_points() ->
         "tracking_point_active": [True, True, False],
     }
 
-    rendered = _draw_response_points(image, response, 1, mode="tracking")
+    rendered = _draw_response_points(
+        image, response, 1, mode="tracking", progress_threshold=0.85,
+    )
 
     np.testing.assert_array_equal(rendered[10, 10], np.asarray([255, 80, 40]))
     np.testing.assert_array_equal(rendered[10, 20], np.asarray([255, 194, 180]))

@@ -1241,7 +1241,10 @@ class InferenceServer:
                 if not isinstance(request, Mapping):
                     raise TypeError("request message must be a JSON object")
                 if request.get("type") == "server_info":
-                    response = {"ckpt_path": self.ckpt_path}
+                    response = {
+                        "ckpt_path": self.ckpt_path,
+                        "progress_threshold": self.planner.progress_threshold,
+                    }
                 else:
                     response = self.infer_from_observation(request)
             except Exception as exc:
