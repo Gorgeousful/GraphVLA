@@ -1,6 +1,6 @@
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0810-contact-basetcpfinger-cls4-rolechain-current-progress-sam-7/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0811-contact-basetcpfinger-cls4-rolechain-current-progress-sam-7/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --progress-window 3 \
 --progress-threshold 0.85 \
