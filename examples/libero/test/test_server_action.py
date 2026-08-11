@@ -88,6 +88,21 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     np.testing.assert_allclose(closedness, expected_closedness, atol=1e-6)
 
 
+def test_sparse_history_window_selects_configured_offsets_and_pads_start() -> None:
+    preprocessor = object.__new__(InputPreprocessor)
+    preprocessor.history_frames = (-5, -2, -1)
+    preprocessor.history_horizon = len(preprocessor.history_frames)
+    session = SimpleNamespace(feature_history=[])
+
+    for frame_index in range(7):
+        preprocessor._append_feature_history(session, {"frame_index": frame_index})
+
+    assert [frame["frame_index"] for frame in preprocessor._feature_window(session)] == [1, 4, 5, 6]
+
+    session.feature_history = [{"frame_index": 0}, {"frame_index": 1}]
+    assert [frame["frame_index"] for frame in preprocessor._feature_window(session)] == [0, 0, 0, 1]
+
+
 def test_object_names_are_deduplicated_and_sampled_masks_expand() -> None:
     preprocessor = object.__new__(InputPreprocessor)
     preprocessor.segmenter = "sam3"

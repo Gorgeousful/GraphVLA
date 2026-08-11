@@ -96,22 +96,24 @@ LIBERO_REPACK = {
     "action": LIBERO_ACTION_FIELD,
 }
 
+LIBERO_HISTORY_FRAMES = list(LIBERO_MODEL_CONFIG.history_frames)
 LIBERO_HISTORY_HORIZON = LIBERO_MODEL_CONFIG.history_horizon
 LIBERO_FUTURE_HORIZON = LIBERO_MODEL_CONFIG.future_horizon
+LIBERO_FRAME_OFFSETS = LIBERO_HISTORY_FRAMES + list(range(LIBERO_FUTURE_HORIZON + 1))
 LIBERO_HORIZON = {
     # "observation.images.image": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     # "observation.images.wrist_image": list(range(-15, 1)),
     # "action": list(range(16)),
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "subtask_id": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "subtask_progress": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "is_contact": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "node_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "valid_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "subtask_node_mask": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    "gripper_points_xyz": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
-    LIBERO_ACTION_FIELD: list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+    "subtask_id": list(LIBERO_FRAME_OFFSETS),
+    "subtask_progress": list(LIBERO_FRAME_OFFSETS),
+    "is_contact": list(LIBERO_FRAME_OFFSETS),
+    "node_points_xyz": list(LIBERO_FRAME_OFFSETS),
+    "valid_node_mask": list(LIBERO_FRAME_OFFSETS),
+    "subtask_node_mask": list(LIBERO_FRAME_OFFSETS),
+    "gripper_points_xyz": list(LIBERO_FRAME_OFFSETS),
+    LIBERO_ACTION_FIELD: list(LIBERO_FRAME_OFFSETS),
 }
 
 if LIBERO_USE_SOFT:
@@ -119,13 +121,17 @@ if LIBERO_USE_SOFT:
         "is_contact_soft": "is_contact_soft",
     })
     LIBERO_HORIZON.update({
-        "is_contact_soft": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
+        "is_contact_soft": list(LIBERO_FRAME_OFFSETS),
     })
 
 LIBERO_TRANSFORM = (
     RepackTransform(structure=LIBERO_REPACK),
     PromptFromTask(tasks=load_lerobot_tasks(LIBERO_DATASET_DIR)),
-    AddHorizon(history_horizon=LIBERO_HISTORY_HORIZON, future_horizon=LIBERO_FUTURE_HORIZON),
+    AddHorizon(
+        history_horizon=LIBERO_HISTORY_HORIZON,
+        future_horizon=LIBERO_FUTURE_HORIZON,
+        history_frames=LIBERO_HISTORY_FRAMES,
+    ),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
 
     Normalize(

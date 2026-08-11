@@ -399,9 +399,16 @@ class Unnormalize(Normalize):
 class AddHorizon(TransformFn):
     history_horizon: int
     future_horizon: int
+    history_frames: Sequence[int] | None = None
 
     def __call__(self, data: DataDict) -> DataDict:
-        data["history_horizon"] = self.history_horizon
+        history_frames = (
+            list(range(-self.history_horizon, 0))
+            if self.history_frames is None
+            else list(self.history_frames)
+        )
+        data["history_frames"] = history_frames
+        data["history_horizon"] = len(history_frames)
         data["future_horizon"] = self.future_horizon
         return data
 
@@ -487,6 +494,7 @@ class CustomTransform(TransformFn):
         actor_num_points = len(actor_point_indices)
         actor_points = gripper_points_xyz[:, actor_point_indices]
         history_horizon = int(data["history_horizon"])
+        history_frames = list(data.get("history_frames", range(-history_horizon, 0)))
         future_horizon = int(data["future_horizon"])
         num_frames = gripper_points_xyz.shape[0]
         valid_node_mask = torch.as_tensor(
@@ -535,9 +543,8 @@ class CustomTransform(TransformFn):
                 )[:, None]
 
         input_horizon = history_horizon + 1
-        frame_offsets = torch.arange(
-            -history_horizon,
-            future_horizon + 1,
+        frame_offsets = torch.as_tensor(
+            history_frames + list(range(future_horizon + 1)),
             dtype=torch.long,
             device=entity_points.device,
         )

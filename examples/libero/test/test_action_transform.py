@@ -102,6 +102,24 @@ def test_model_config_validates_encoder_output_type() -> None:
         ModelConfig(encoder_output_type="invalid")
 
 
+def test_model_config_validates_gripper_flow_weight() -> None:
+    with pytest.raises(ValueError, match="gripper_flow_weight"):
+        ModelConfig(gripper_flow_weight=0.0)
+
+
+def test_model_config_derives_history_horizon_from_frames() -> None:
+    config = ModelConfig(history_frames=[-20, -10, -5, -2, -1], history_horizon=99)
+
+    assert config.history_horizon == 5
+    assert "history_frames" not in config.to_kwargs()
+
+
+@pytest.mark.parametrize("history_frames", [[-1, -2], [-2, -2], [-2, 0], [-2, 1]])
+def test_model_config_rejects_invalid_history_frames(history_frames: list[int]) -> None:
+    with pytest.raises(ValueError, match="history_frames"):
+        ModelConfig(history_frames=history_frames)
+
+
 @pytest.mark.parametrize(
     ("encoder_output_type", "memory_tokens", "expected_positions"),
     [

@@ -294,7 +294,15 @@ async def _evaluate_samples(
             )
     max_sample = sample_indices[-1]
     target_samples = set(sample_indices)
-    history_length = int(LIBERO_MODEL_CONFIG.history_horizon) + 1
+    history_offsets = tuple(
+        getattr(
+            LIBERO_MODEL_CONFIG,
+            "history_frames",
+            range(-int(LIBERO_MODEL_CONFIG.history_horizon), 0),
+        )
+    )
+    history_length = len(history_offsets) + 1
+    max_history_length = 1 - min(history_offsets, default=0)
     future_horizon = int(LIBERO_MODEL_CONFIG.future_horizon)
 
     session_id = (
@@ -340,7 +348,7 @@ async def _evaluate_samples(
             history_frames.append(
                 _draw_response_points(image, response, frame_index, mode="tracking")
             )
-            history_frames = history_frames[-history_length:]
+            history_frames = history_frames[-max_history_length:]
             cs.print(
                 f"task={suite_task_id} episode={episode_id} "
                 f"warmup={frame_index}/{max_sample}"
@@ -348,10 +356,11 @@ async def _evaluate_samples(
             if frame_index not in target_samples:
                 continue
 
-            sample_history = (
-                [history_frames[0]] * (history_length - len(history_frames))
-                + history_frames
-            )
+            current_history_index = len(history_frames) - 1
+            sample_history = [
+                history_frames[max(0, current_history_index + offset)]
+                for offset in (*history_offsets, 0)
+            ]
             future_frames = []
             for future_id in range(1, future_horizon + 1):
                 future_sample = dataset.iloc[min(frame_index + future_id, len(dataset) - 1)]

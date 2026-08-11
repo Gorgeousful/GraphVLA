@@ -7,6 +7,7 @@ from src.model.model import GraphFlowModel
 
 def _model(
     *, encoder_output_type: str = "current", cls_token_num: int = 1,
+    gripper_flow_weight: float = 1.0,
 ) -> GraphFlowModel:
     return GraphFlowModel(
         actor_point_indices=(0, 1),
@@ -25,6 +26,7 @@ def _model(
         dropout=0.0,
         sample_steps=2,
         flow_mode="point_only",
+        gripper_flow_weight=gripper_flow_weight,
     )
 
 
@@ -53,7 +55,10 @@ def test_progress_head_forward_backward_and_sample() -> None:
     loss.backward()
 
     assert torch.isfinite(loss)
-    assert set(losses) == {"loss", "loss_flow", "loss_progress", "loss_contact"}
+    assert set(losses) == {
+        "loss", "loss_flow", "loss_flow_points", "loss_flow_gripper",
+        "loss_progress", "loss_contact",
+    }
     assert model.progress_head[0].in_features == 2 * model.cls_token_num * 32
     assert any(parameter.grad is not None for parameter in model.progress_head.parameters())
 
@@ -68,6 +73,18 @@ def test_progress_head_forward_backward_and_sample() -> None:
     assert outputs["subtask_progress"].shape == (2, 1)
     assert outputs["is_contact"].shape == (2, 2)
     assert torch.all((outputs["subtask_progress"] >= 0.0) & (outputs["subtask_progress"] <= 1.0))
+
+
+def test_gripper_flow_weight_reweights_only_the_last_trajectory_dimension() -> None:
+    point_dimensions = 2 * 3
+    for gripper_flow_weight in (1.0, 4.0):
+        _, losses = _model(gripper_flow_weight=gripper_flow_weight)(_batch())
+        expected = (
+            point_dimensions * losses["loss_flow_points"]
+            + gripper_flow_weight * losses["loss_flow_gripper"]
+        ) / (point_dimensions + gripper_flow_weight)
+
+        torch.testing.assert_close(losses["loss_flow"], expected)
 
 
 def test_all_history_contact_head_uses_one_query_per_cls() -> None:

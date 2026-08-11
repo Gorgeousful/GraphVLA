@@ -284,6 +284,7 @@ class InputPreprocessor:
         self,
         *,
         history_horizon: int,
+        history_frames: Sequence[int] | None = None,
         future_horizon: int,
         num_points: int,
         actor_point_indices: tuple[int, ...],
@@ -296,7 +297,10 @@ class InputPreprocessor:
         sam_only: bool = False,
         devices: Mapping[str, str] | None = None,
     ) -> None:
-        self.history_horizon = history_horizon
+        self.history_frames = tuple(
+            range(-history_horizon, 0) if history_frames is None else history_frames
+        )
+        self.history_horizon = len(self.history_frames)
         self.future_horizon = future_horizon
         self.num_points = num_points
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
@@ -635,16 +639,18 @@ class InputPreprocessor:
 
     def _append_feature_history(self, session: InferenceSession, features: dict[str, np.ndarray]) -> None:
         session.feature_history.append(features)
-        max_history = self.history_horizon + 1
+        max_history = 1 - min(self.history_frames, default=0)
         if len(session.feature_history) > max_history:
             del session.feature_history[: len(session.feature_history) - max_history]
 
     def _feature_window(self, session: InferenceSession) -> list[dict[str, np.ndarray]]:
         if not session.feature_history:
             raise RuntimeError("feature history is empty")
-        target_len = self.history_horizon + 1
-        pad_count = max(0, target_len - len(session.feature_history))
-        return [session.feature_history[0]] * pad_count + session.feature_history[-target_len:]
+        current_index = len(session.feature_history) - 1
+        return [
+            session.feature_history[max(0, current_index + offset)]
+            for offset in (*self.history_frames, 0)
+        ]
 
     def _locate_node_points(
         self,
@@ -1557,6 +1563,7 @@ def main() -> None:
         model_kwargs = model_config.to_kwargs()
         data_kwargs = data_config.to_kwargs()
         history_horizon = int(model_config.history_horizon)
+        history_frames = getattr(model_config, "history_frames", None)
         future_horizon = int(model_config.future_horizon)
         actor_point_indices = validate_actor_point_indices(model_config.actor_point_indices)
     else:
@@ -1574,6 +1581,7 @@ def main() -> None:
         ),
         preprocessor=InputPreprocessor(
             history_horizon=history_horizon,
+            history_frames=history_frames,
             future_horizon=future_horizon,
             num_points=model_kwargs["num_points"],
             actor_point_indices=actor_point_indices,

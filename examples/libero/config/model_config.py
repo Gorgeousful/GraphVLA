@@ -13,7 +13,8 @@ class ModelConfig:
     actor_point_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
     num_points: int = 32
     cls_token_num: int = 4
-    history_horizon: int = 9
+    history_frames: tuple[int, ...] = (-9, -8, -7, -6, -5, -4, -3, -2, -1)
+    history_horizon: int | None = None
     future_horizon: int = 10
     condition_dim: int = 384
     hidden_dim: int = 512 # 512
@@ -32,6 +33,7 @@ class ModelConfig:
     sample_steps: int = 10
     flow_mode: str = "point_only"
     action_delta: bool = False
+    gripper_flow_weight: float = 1.0
     contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
@@ -40,6 +42,16 @@ class ModelConfig:
     })
 
     def __post_init__(self) -> None:
+        self.history_frames = tuple(self.history_frames)
+        if any(type(frame) is not int or frame >= 0 for frame in self.history_frames):
+            raise ValueError(
+                f"history_frames must contain only negative integers, got {self.history_frames}"
+            )
+        if any(left >= right for left, right in zip(self.history_frames, self.history_frames[1:])):
+            raise ValueError(
+                f"history_frames must be strictly increasing, got {self.history_frames}"
+            )
+        self.history_horizon = len(self.history_frames)
         self.actor_point_indices = validate_actor_point_indices(self.actor_point_indices)
         if self.num_points < len(self.actor_point_indices):
             raise ValueError(
@@ -66,10 +78,15 @@ class ModelConfig:
                 "encoder_output_type must be 'current' or 'all', "
                 f"got {self.encoder_output_type!r}"
             )
+        if self.gripper_flow_weight <= 0:
+            raise ValueError(
+                f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
+            )
 
     def to_kwargs(self) -> dict[str, Any]:
         kwargs = asdict(self)
         kwargs.pop("action_delta")
+        kwargs.pop("history_frames")
         return kwargs
 
 

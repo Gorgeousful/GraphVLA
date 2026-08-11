@@ -134,6 +134,7 @@ class GraphFlowModel(nn.Module):
         dropout: float = 0.1,
         sample_steps: int = 10,
         flow_mode: str = "point_only",
+        gripper_flow_weight: float = 1.0,
         contact_pos_weight: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
@@ -152,6 +153,8 @@ class GraphFlowModel(nn.Module):
             )
         if contact_pos_weight <= 0:
             raise ValueError(f"contact_pos_weight must be positive, got {contact_pos_weight}")
+        if gripper_flow_weight <= 0:
+            raise ValueError(f"gripper_flow_weight must be positive, got {gripper_flow_weight}")
         self.num_points = num_points
         self.cls_token_num = cls_token_num
         self.history_horizon = history_horizon
@@ -160,6 +163,7 @@ class GraphFlowModel(nn.Module):
         self.sample_steps = sample_steps
         self.flow_mode = flow_mode
         self.encoder_output_type = encoder_output_type
+        self.gripper_flow_weight = float(gripper_flow_weight)
         self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
@@ -283,7 +287,18 @@ class GraphFlowModel(nn.Module):
         velocity = self.flow(
             state, time, memory, self._actor_history(batch), self._memory_positions(memory),
         )
-        loss_flow = F.mse_loss(velocity, target_velocity)
+        squared_error = (velocity - target_velocity).square()
+        point_squared_error = squared_error[..., :-1]
+        gripper_squared_error = squared_error[..., -1:]
+        loss_flow_points = point_squared_error.mean()
+        loss_flow_gripper = gripper_squared_error.mean()
+        loss_flow = (
+            point_squared_error.sum()
+            + self.gripper_flow_weight * gripper_squared_error.sum()
+        ) / (
+            point_squared_error.numel()
+            + self.gripper_flow_weight * gripper_squared_error.numel()
+        )
 
         progress = torch.sigmoid(self.progress_head(relation_local.flatten(1)))
         loss_progress = F.smooth_l1_loss(
@@ -308,7 +323,12 @@ class GraphFlowModel(nn.Module):
             "loss_contact": loss_contact,
         }
         total = sum(value * float(self.weights.get(name, 1.0)) for name, value in losses.items())
-        return total, {"loss": total.detach(), **{name: value.detach() for name, value in losses.items()}}
+        return total, {
+            "loss": total.detach(),
+            **{name: value.detach() for name, value in losses.items()},
+            "loss_flow_points": loss_flow_points.detach(),
+            "loss_flow_gripper": loss_flow_gripper.detach(),
+        }
 
     @torch.no_grad()
     def sample(
