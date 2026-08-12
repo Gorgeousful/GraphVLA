@@ -292,11 +292,23 @@ def merge_datasets(sources: list[Path], output: Path, workers: int = 8) -> None:
             if not source_path.is_file():
                 raise FileNotFoundError(f"Missing episode parquet: {source_path}")
             table = pq.read_table(source_path)
-            if not table.schema.equals(reference_schema, check_metadata=False):
+            if set(table.column_names) != set(reference_schema.names):
                 raise ValueError(
                     f"Incompatible parquet schema in {source_path}:\n"
                     f"expected:\n{reference_schema}\nactual:\n{table.schema}"
                 )
+            incompatible_fields = [
+                name
+                for name in reference_schema.names
+                if not table.schema.field(name).equals(
+                    reference_schema.field(name), check_metadata=False
+                )
+            ]
+            if incompatible_fields:
+                raise ValueError(
+                    f"Incompatible parquet field types in {source_path}: {incompatible_fields}"
+                )
+            table = table.select(reference_schema.names)
             length = table.num_rows
             if length != int(episode["length"]):
                 raise ValueError(
