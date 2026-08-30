@@ -32,6 +32,7 @@ class ModelConfig:
     dropout: float = 0.1
     sample_steps: int = 10
     flow_mode: str = "point_only"
+    semantic_injection_mode: str = "flow_adarms_only"
     action_delta: bool = False
     point_coordinate_frame: str = "tcp_relative"
     gripper_flow_weight: float = 1.0
@@ -82,6 +83,14 @@ class ModelConfig:
         if self.gripper_flow_weight <= 0:
             raise ValueError(
                 f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
+            )
+        if self.semantic_injection_mode not in (
+            "encoder_only", "flow_adarms", "flow_adarms_only",
+        ):
+            raise ValueError(
+                "semantic_injection_mode must be 'encoder_only', 'flow_adarms', "
+                "or 'flow_adarms_only', "
+                f"got {self.semantic_injection_mode!r}"
             )
         if self.point_coordinate_frame not in ("camera", "tcp_absolute", "tcp_relative"):
             raise ValueError(

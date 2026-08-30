@@ -16,6 +16,7 @@ from src.model.temporal import AdaRMSNorm, RotaryAttention, RotaryFlowBlock
 
 
 FLOW_MODES = {"joint", "point_then_action", "action_only", "point_only"}
+SEMANTIC_INJECTION_MODES = {"encoder_only", "flow_adarms", "flow_adarms_only"}
 
 
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
@@ -40,18 +41,41 @@ class JointTrajectoryFlow(nn.Module):
         heads: int,
         mlp_ratio: float,
         dropout: float,
+        condition_dim: int,
+        semantic_injection_mode: str,
     ) -> None:
         super().__init__()
+        if semantic_injection_mode not in SEMANTIC_INJECTION_MODES:
+            raise ValueError(
+                f"semantic_injection_mode must be one of {sorted(SEMANTIC_INJECTION_MODES)}, "
+                f"got {semantic_injection_mode!r}"
+            )
         self.horizon = horizon
         self.history_steps = history_steps
         self.trajectory_dim = trajectory_dim
+        self.condition_dim = condition_dim
+        self.semantic_injection_mode = semantic_injection_mode
         self.input_projection = nn.Linear(trajectory_dim, hidden_dim)
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
         )
+        semantic_injection = semantic_injection_mode != "encoder_only"
+        self.action_projection = (
+            nn.Linear(condition_dim, hidden_dim) if semantic_injection else None
+        )
+        self.degree_projection = (
+            nn.Linear(condition_dim, hidden_dim) if semantic_injection else None
+        )
+        self.null_degree_condition = (
+            nn.Parameter(torch.zeros(1, hidden_dim)) if semantic_injection else None
+        )
         self.blocks = nn.ModuleList([
-            RotaryFlowBlock(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
+            RotaryFlowBlock(
+                hidden_dim, heads, mlp_ratio, dropout,
+                semantic_injection=semantic_injection,
+            )
+            for _ in range(layers)
         ])
         self.norm = AdaRMSNorm(hidden_dim)
         self.output_projection = nn.Linear(hidden_dim, trajectory_dim)
@@ -70,6 +94,7 @@ class JointTrajectoryFlow(nn.Module):
         memory: torch.Tensor,
         history_state: torch.Tensor,
         memory_positions: torch.Tensor,
+        scene_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if state.ndim != 3 or state.shape[1:] != (self.horizon, self.trajectory_dim):
             raise ValueError(
@@ -99,17 +124,49 @@ class JointTrajectoryFlow(nn.Module):
         memory_positions = memory_positions.to(
             device=memory.device, dtype=token_positions.dtype,
         )
+        action_condition, degree_condition = self._semantic_conditions(
+            scene_condition, batch_size=state.shape[0],
+        )
         for block in self.blocks:
             token = checkpoint(
                 block, token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
+                self.self_attention_mask, action_condition, degree_condition,
                 use_reentrant=False, preserve_rng_state=True,
             ) if self.gradient_checkpointing and self.training else block(
                 token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
+                self.self_attention_mask, action_condition, degree_condition,
             )
         hidden, _ = self.norm(token, condition)
         return self.output_projection(hidden[:, self.history_steps:])
+
+    def _semantic_conditions(
+        self,
+        scene_condition: torch.Tensor | None,
+        *,
+        batch_size: int,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        if self.semantic_injection_mode == "encoder_only":
+            return None, None
+        if scene_condition is None:
+            raise ValueError("flow_adarms semantic injection requires scene_condition")
+        if scene_condition.shape != (batch_size, 2, self.condition_dim):
+            raise ValueError(
+                "Expected scene_condition "
+                f"[{batch_size},2,{self.condition_dim}], got "
+                f"{tuple(scene_condition.shape)}"
+            )
+        assert self.action_projection is not None
+        assert self.degree_projection is not None
+        assert self.null_degree_condition is not None
+        action_condition = self.action_projection(scene_condition[:, 0])
+        projected_degree = self.degree_projection(scene_condition[:, 1])
+        has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
+        degree_condition = torch.where(
+            has_degree,
+            projected_degree,
+            self.null_degree_condition.expand(batch_size, -1),
+        )
+        return action_condition, degree_condition
 
 
 class GraphFlowModel(nn.Module):
@@ -134,6 +191,7 @@ class GraphFlowModel(nn.Module):
         dropout: float = 0.1,
         sample_steps: int = 10,
         flow_mode: str = "point_only",
+        semantic_injection_mode: str = "encoder_only",
         gripper_flow_weight: float = 1.0,
         contact_pos_weight: float = 1.0,
         weights: dict[str, float] | None = None,
@@ -162,6 +220,7 @@ class GraphFlowModel(nn.Module):
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
         self.flow_mode = flow_mode
+        self.semantic_injection_mode = semantic_injection_mode
         self.encoder_output_type = encoder_output_type
         self.gripper_flow_weight = float(gripper_flow_weight)
         self.contact_pos_weight = float(contact_pos_weight)
@@ -172,10 +231,12 @@ class GraphFlowModel(nn.Module):
             global_layer_types=global_layer_types,
             node_attention_mode=node_attention_mode,
             encoder_output_type=encoder_output_type,
+            include_scene_condition=semantic_injection_mode != "flow_adarms_only",
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
+            condition_dim, semantic_injection_mode,
         )
         self.progress_head = nn.Sequential(
             nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
@@ -212,7 +273,11 @@ class GraphFlowModel(nn.Module):
         return self.encoder(
             points,
             batch["entity_point_mask"],
-            batch["scene_condition"],
+            (
+                None
+                if self.semantic_injection_mode == "flow_adarms_only"
+                else batch["scene_condition"]
+            ),
         )
 
     def _actor_history(self, batch: dict[str, Any]) -> torch.Tensor:
@@ -230,7 +295,10 @@ class GraphFlowModel(nn.Module):
         history_positions = torch.arange(
             1 - self.history_steps, 1, device=memory.device,
         ).repeat_interleave(NUM_ENTITIES * self.cls_token_num)
-        return torch.cat([history_positions, history_positions.new_zeros(2)])
+        return torch.cat([
+            history_positions,
+            history_positions.new_zeros(self.encoder.scene_token_count),
+        ])
 
     def _contact_logits(
         self,
@@ -241,9 +309,10 @@ class GraphFlowModel(nn.Module):
             patient_cls = relation_local[:, :self.cls_token_num]
         else:
             entity_tokens = self.history_steps * NUM_ENTITIES * self.cls_token_num
-            if memory.shape[1] != entity_tokens + 2:
+            expected_tokens = entity_tokens + self.encoder.scene_token_count
+            if memory.shape[1] != expected_tokens:
                 raise ValueError(
-                    f"Expected all-history memory with {entity_tokens + 2} tokens, "
+                    f"Expected all-history memory with {expected_tokens} tokens, "
                     f"got {memory.shape[1]}"
                 )
             patient_history = memory[:, :entity_tokens].view(
@@ -286,6 +355,7 @@ class GraphFlowModel(nn.Module):
         state, target_velocity, _ = training_path(trajectory, time)
         velocity = self.flow(
             state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+            batch["scene_condition"],
         )
         squared_error = (velocity - target_velocity).square()
         point_squared_error = squared_error[..., :-1]
@@ -355,6 +425,7 @@ class GraphFlowModel(nn.Module):
             time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
             velocity = self.flow(
                 state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+                batch["scene_condition"],
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
 

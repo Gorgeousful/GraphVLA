@@ -39,6 +39,7 @@ class EntityEncoder(nn.Module):
         global_layer_types: tuple[int, ...] | list[int] | None = None,
         node_attention_mode: str = "full",
         encoder_output_type: str = "current",
+        include_scene_condition: bool = True,
     ) -> None:
         super().__init__()
         if actor_num_points < 1:
@@ -72,6 +73,8 @@ class EntityEncoder(nn.Module):
         self.cls_token_num = cls_token_num
         self.node_attention_mode = node_attention_mode
         self.encoder_output_type = encoder_output_type
+        self.include_scene_condition = include_scene_condition
+        self.scene_token_count = 2 if include_scene_condition else 0
         self.point_stem = nn.Sequential(
             nn.Linear(POINT_FEATURE_DIM, hidden_dim),
             nn.GELU(),
@@ -80,10 +83,18 @@ class EntityEncoder(nn.Module):
         self.max_history = max_history
         self.actor_keypoint_embedding = nn.Embedding(actor_num_points, hidden_dim)
         self.role_type_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
-        self.action_projection = nn.Linear(condition_dim, hidden_dim)
-        self.degree_projection = nn.Linear(condition_dim, hidden_dim)
-        self.scene_type_embedding = nn.Embedding(2, hidden_dim)
-        self.null_degree_token = nn.Parameter(torch.zeros(1, hidden_dim))
+        self.action_projection = (
+            nn.Linear(condition_dim, hidden_dim) if include_scene_condition else None
+        )
+        self.degree_projection = (
+            nn.Linear(condition_dim, hidden_dim) if include_scene_condition else None
+        )
+        self.scene_type_embedding = (
+            nn.Embedding(2, hidden_dim) if include_scene_condition else None
+        )
+        self.null_degree_token = (
+            nn.Parameter(torch.zeros(1, hidden_dim)) if include_scene_condition else None
+        )
         self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, cls_token_num, hidden_dim))
         self.local_blocks = nn.ModuleList([
             _encoder_block(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
@@ -99,7 +110,7 @@ class EntityEncoder(nn.Module):
         self,
         points: torch.Tensor,
         point_mask: torch.Tensor,
-        scene_condition: torch.Tensor,
+        scene_condition: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
             raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
@@ -108,8 +119,12 @@ class EntityEncoder(nn.Module):
             raise ValueError(f"Expected at most {self.max_history} history steps, got {steps}")
         if point_mask.shape != points.shape[:-1]:
             raise ValueError(f"point mask {point_mask.shape} does not match points {points.shape}")
-        if scene_condition.shape[:2] != (batch, 2):
-            raise ValueError(f"Expected scene_condition [B,2,C], got {scene_condition.shape}")
+        if self.include_scene_condition:
+            if scene_condition is None or scene_condition.shape[:2] != (batch, 2):
+                shape = None if scene_condition is None else tuple(scene_condition.shape)
+                raise ValueError(f"Expected scene_condition [B,2,C], got {shape}")
+        elif scene_condition is not None:
+            raise ValueError("scene_condition must be None when encoder scene tokens are disabled")
 
         tokens = self.point_stem(points)
         actor_ids = torch.arange(self.actor_num_points, device=points.device)
@@ -119,27 +134,45 @@ class EntityEncoder(nn.Module):
         role_tokens = self.role_type_embedding(
             torch.arange(entities, device=points.device)
         )[None, None, :, None].expand(batch, steps, -1, -1, -1)
-        scene_types = self.scene_type_embedding(torch.arange(2, device=points.device))[None]
-        action_token = self.action_projection(scene_condition[:, 0])
-        projected_degree = self.degree_projection(scene_condition[:, 1])
-        has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
-        degree_token = torch.where(
-            has_degree,
-            projected_degree,
-            self.null_degree_token.expand(batch, -1),
-        )
-        scene_tokens = torch.stack([action_token, degree_token], dim=1) + scene_types
+        if self.include_scene_condition:
+            assert scene_condition is not None
+            assert self.scene_type_embedding is not None
+            assert self.action_projection is not None
+            assert self.degree_projection is not None
+            assert self.null_degree_token is not None
+            scene_types = self.scene_type_embedding(
+                torch.arange(self.scene_token_count, device=points.device)
+            )[None]
+            action_token = self.action_projection(scene_condition[:, 0])
+            projected_degree = self.degree_projection(scene_condition[:, 1])
+            has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
+            degree_token = torch.where(
+                has_degree,
+                projected_degree,
+                self.null_degree_token.expand(batch, -1),
+            )
+            scene_tokens = torch.stack([action_token, degree_token], dim=1) + scene_types
+        else:
+            scene_tokens = tokens.new_empty(batch, 0, tokens.shape[-1])
         history_positions = torch.arange(1 - steps, 1, device=points.device)
         global_positions = torch.cat([
             history_positions.repeat_interleave(entities * self.cls_token_num),
-            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
+            torch.zeros(
+                self.scene_token_count,
+                device=points.device,
+                dtype=history_positions.dtype,
+            ),
         ])
         global_entity_tokens = steps * entities * self.cls_token_num
         dense_positions = torch.cat([
             history_positions.repeat_interleave(
                 entities * (self.cls_token_num + num_points)
             ),
-            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
+            torch.zeros(
+                self.scene_token_count,
+                device=points.device,
+                dtype=history_positions.dtype,
+            ),
         ])
         dense_entity_tokens = steps * entities * (self.cls_token_num + num_points)
         dense_key_mask = torch.cat([
@@ -150,7 +183,10 @@ class EntityEncoder(nn.Module):
                 ),
                 point_mask.bool(),
             ], dim=3).reshape(batch, dense_entity_tokens),
-            torch.ones(batch, 2, dtype=torch.bool, device=points.device),
+            torch.ones(
+                batch, self.scene_token_count,
+                dtype=torch.bool, device=points.device,
+            ),
         ], dim=1)
         register_attention_mask = None
         dense_attention_mask = None
@@ -159,7 +195,10 @@ class EntityEncoder(nn.Module):
                 role_ids = torch.arange(entities, device=points.device).repeat_interleave(
                     tokens_per_entity
                 ).repeat(steps)
-                role_ids = torch.cat([role_ids, role_ids.new_full((2,), -1)])
+                role_ids = torch.cat([
+                    role_ids,
+                    role_ids.new_full((self.scene_token_count,), -1),
+                ])
                 is_entity_query = role_ids >= 0
                 is_entity_key = role_ids >= 0
                 blocks_actor_target = (role_ids[:, None] - role_ids[None, :]).abs() > 1

@@ -178,6 +178,16 @@ def test_model_config_validates_encoder_output_type() -> None:
         ModelConfig(encoder_output_type="invalid")
 
 
+@pytest.mark.parametrize("mode", ["encoder_only", "flow_adarms", "flow_adarms_only"])
+def test_model_config_accepts_semantic_injection_modes(mode: str) -> None:
+    assert ModelConfig(semantic_injection_mode=mode).semantic_injection_mode == mode
+
+
+def test_model_config_rejects_invalid_semantic_injection_mode() -> None:
+    with pytest.raises(ValueError, match="semantic_injection_mode"):
+        ModelConfig(semantic_injection_mode="invalid")
+
+
 @pytest.mark.parametrize("point_coordinate_frame", ["tcp_relative", "tcp_absolute", "camera"])
 def test_model_config_accepts_point_coordinate_frames(point_coordinate_frame: str) -> None:
     assert ModelConfig(point_coordinate_frame=point_coordinate_frame).point_coordinate_frame == point_coordinate_frame

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from src.model.model import GraphFlowModel
+from src.model.temporal import AdaRMSNorm
 
 
 def _model(
     *, encoder_output_type: str = "current", cls_token_num: int = 1,
     gripper_flow_weight: float = 1.0,
+    semantic_injection_mode: str = "encoder_only",
 ) -> GraphFlowModel:
     return GraphFlowModel(
         actor_point_indices=(0, 1),
@@ -27,6 +30,7 @@ def _model(
         sample_steps=2,
         flow_mode="point_only",
         gripper_flow_weight=gripper_flow_weight,
+        semantic_injection_mode=semantic_injection_mode,
     )
 
 
@@ -87,8 +91,15 @@ def test_gripper_flow_weight_reweights_only_the_last_trajectory_dimension() -> N
         torch.testing.assert_close(losses["loss_flow"], expected)
 
 
-def test_all_history_contact_head_uses_one_query_per_cls() -> None:
-    model = _model(encoder_output_type="all", cls_token_num=4)
+@pytest.mark.parametrize("semantic_injection_mode", ["encoder_only", "flow_adarms_only"])
+def test_all_history_contact_head_uses_one_query_per_cls(
+    semantic_injection_mode: str,
+) -> None:
+    model = _model(
+        encoder_output_type="all",
+        cls_token_num=4,
+        semantic_injection_mode=semantic_injection_mode,
+    )
     batch = _batch()
 
     loss, _ = model(batch)
@@ -101,3 +112,102 @@ def test_all_history_contact_head_uses_one_query_per_cls() -> None:
     assert logits.shape == (2, 2)
     assert model.contact_query.grad is not None
     assert model.contact_head[0].in_features == 4 * 32
+
+
+def _direct_flow_output(
+    model: GraphFlowModel,
+    scene_condition: torch.Tensor,
+) -> torch.Tensor:
+    batch_size = scene_condition.shape[0]
+    trajectory_dim = model.flow.trajectory_dim
+    memory = torch.randn(1, 5, 32).expand(batch_size, -1, -1).clone()
+    return model.flow(
+        state=torch.zeros(batch_size, 2, trajectory_dim),
+        time=torch.full((batch_size,), 0.5),
+        memory=memory,
+        history_state=torch.zeros(batch_size, 2, trajectory_dim),
+        memory_positions=torch.zeros(5, dtype=torch.long),
+        scene_condition=scene_condition,
+    )
+
+
+def test_encoder_only_flow_has_no_direct_semantic_parameters_or_effect() -> None:
+    torch.manual_seed(0)
+    model = _model(semantic_injection_mode="encoder_only").eval()
+    on_condition = torch.ones(1, 2, 8)
+    right_condition = on_condition.clone()
+    right_condition[:, 1] = -1.0
+    memory = torch.randn(1, 5, 32)
+    trajectory_dim = model.flow.trajectory_dim
+
+    def output(scene_condition: torch.Tensor) -> torch.Tensor:
+        return model.flow(
+            torch.zeros(1, 2, trajectory_dim),
+            torch.full((1,), 0.5),
+            memory,
+            torch.zeros(1, 2, trajectory_dim),
+            torch.zeros(5, dtype=torch.long),
+            scene_condition,
+        )
+
+    torch.testing.assert_close(output(on_condition), output(right_condition))
+    assert model.flow.action_projection is None
+    assert model.flow.degree_projection is None
+    assert all(block.action_adapter is None for block in model.flow.blocks)
+    assert all(block.degree_adapter is None for block in model.flow.blocks)
+
+
+@pytest.mark.parametrize("mode", ["flow_adarms", "flow_adarms_only"])
+def test_flow_adarms_direct_degree_injection_changes_velocity_and_receives_gradients(
+    mode: str,
+) -> None:
+    torch.manual_seed(0)
+    model = _model(semantic_injection_mode=mode).eval()
+    for module in model.flow.modules():
+        if isinstance(module, AdaRMSNorm):
+            torch.nn.init.normal_(module.modulation.weight, std=0.02)
+
+    scene_condition = torch.ones(2, 2, 8)
+    scene_condition[1, 1] = -1.0
+    output = _direct_flow_output(model, scene_condition)
+
+    assert not torch.allclose(output[0], output[1])
+    output.sum().backward()
+    assert model.flow.degree_projection is not None
+    assert model.flow.degree_projection.weight.grad is not None
+    assert model.flow.blocks[0].degree_adapter is not None
+    assert model.flow.blocks[0].degree_adapter.weight.grad is not None
+
+
+def test_flow_adarms_uses_learned_null_degree_condition() -> None:
+    model = _model(semantic_injection_mode="flow_adarms")
+    scene_condition = torch.randn(2, 2, 8)
+    scene_condition[:, 1] = 0.0
+
+    _, degree_condition = model.flow._semantic_conditions(scene_condition, batch_size=2)
+
+    assert degree_condition is not None
+    assert model.flow.null_degree_condition is not None
+    torch.testing.assert_close(
+        degree_condition,
+        model.flow.null_degree_condition.expand(2, -1),
+    )
+
+
+def test_flow_adarms_only_removes_encoder_scene_tokens_and_semantic_parameters() -> None:
+    torch.manual_seed(0)
+    model = _model(semantic_injection_mode="flow_adarms_only").eval()
+    batch = _batch()
+    changed_condition_batch = dict(batch)
+    changed_condition_batch["scene_condition"] = -batch["scene_condition"]
+
+    memory, relation_local = model._encode(batch)
+    changed_memory, changed_relation_local = model._encode(changed_condition_batch)
+
+    assert model.encoder.scene_token_count == 0
+    assert model.encoder.action_projection is None
+    assert model.encoder.degree_projection is None
+    assert memory.shape == (2, 3, 32)
+    assert relation_local.shape == (2, 2, 32)
+    torch.testing.assert_close(memory, changed_memory)
+    torch.testing.assert_close(relation_local, changed_relation_local)

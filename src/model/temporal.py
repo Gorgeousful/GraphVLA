@@ -158,8 +158,22 @@ class AdaRMSNorm(nn.Module):
 class RotaryFlowBlock(nn.Module):
     """Decoder block with temporal RoPE and flow-time AdaRMS conditioning."""
 
-    def __init__(self, hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> None:
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+        semantic_injection: bool = False,
+    ) -> None:
         super().__init__()
+        self.semantic_injection = semantic_injection
+        self.action_adapter = (
+            nn.Linear(hidden_dim, hidden_dim) if semantic_injection else None
+        )
+        self.degree_adapter = (
+            nn.Linear(hidden_dim, hidden_dim) if semantic_injection else None
+        )
         self.self_norm = AdaRMSNorm(hidden_dim)
         self.self_attention = RotaryAttention(hidden_dim, num_heads, dropout)
         self.cross_norm = AdaRMSNorm(hidden_dim)
@@ -181,7 +195,29 @@ class RotaryFlowBlock(nn.Module):
         token_positions: torch.Tensor,
         memory_positions: torch.Tensor,
         self_attention_mask: torch.Tensor | None = None,
+        action_condition: torch.Tensor | None = None,
+        degree_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.semantic_injection:
+            if action_condition is None or degree_condition is None:
+                raise ValueError(
+                    "Semantic injection requires action_condition and degree_condition"
+                )
+            if (
+                action_condition.shape != condition.shape
+                or degree_condition.shape != condition.shape
+            ):
+                raise ValueError(
+                    "Semantic conditions must match flow-time condition shape "
+                    f"{tuple(condition.shape)}, got {tuple(action_condition.shape)} and "
+                    f"{tuple(degree_condition.shape)}"
+                )
+            assert self.action_adapter is not None and self.degree_adapter is not None
+            condition = (
+                condition
+                + self.action_adapter(action_condition)
+                + self.degree_adapter(degree_condition)
+            )
         normalized, gate = self.self_norm(token, condition)
         update = self.self_attention(
             normalized, normalized, token_positions, token_positions, self_attention_mask
