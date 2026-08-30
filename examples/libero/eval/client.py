@@ -574,19 +574,13 @@ def _quat2axisangle(quat: np.ndarray) -> np.ndarray:
     return (quat[:3] * 2.0 * np.arccos(quat[3]) / den).astype(np.float32)
 
 
-def _parse_tasks(value: str | None) -> list[int] | None:
-    if value is None or value.strip() == "":
-        return None
-    return [int(item) for item in value.split(",") if item.strip()]
-
-
 def parse_args() -> Args:
     parser = argparse.ArgumentParser(description="Evaluate GraphVLA through the observation-driven inference server on LIBERO.")
     parser.add_argument("--host", default=Args.host)
     parser.add_argument("--port", type=int, default=Args.port)
     parser.add_argument("--control-freq", type=int, default=Args.control_freq)
     parser.add_argument("--task-suite-name", default=Args.task_suite_name)
-    parser.add_argument("--tasks", type=_parse_tasks, default=Args.tasks)
+    parser.add_argument("--tasks", type=int, nargs="+", default=Args.tasks)
     parser.add_argument("--num-steps-wait", type=int, default=Args.num_steps_wait)
     parser.add_argument("--num-trials-per-task", type=int, default=Args.num_trials_per_task)
     parser.add_argument("--trials-init-state", type=int, nargs="+", default=Args.trials_init_state)

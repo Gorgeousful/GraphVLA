@@ -8,7 +8,7 @@ WEIGHTS=(
 )
 
 # Format: "suite_name|task_ids|episodes_per_task".
-# task_ids follows --tasks syntax, e.g. 1,4,6.
+# task_ids follows --tasks syntax, e.g. 1 4 6.
 EVAL_CONFIGS=(
   "libero_swap_test|3|10"
 )
@@ -79,10 +79,11 @@ for weight in "${WEIGHTS[@]}"; do
 
   for config in "${EVAL_CONFIGS[@]}"; do
     IFS='|' read -r suite tasks episodes <<< "$config"
+    read -ra task_args <<< "$tasks"
     echo "===== Evaluating: weight=$weight suite=$suite tasks=$tasks episodes=$episodes ====="
     if ! python -m examples.libero.eval.client \
       --task-suite-name "$suite" \
-      --tasks "$tasks" \
+      --tasks "${task_args[@]}" \
       --num-trials-per-task "$episodes" \
       --max-steps 1000 \
       --control-freq 10 \

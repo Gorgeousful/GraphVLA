@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -8,8 +10,22 @@ from examples.libero.eval.client import (
     _draw_response_points,
     _dummy_action,
     _future_score,
+    parse_args,
     _to_libero_action,
 )
+
+
+def test_tasks_cli_uses_space_separated_integers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["client", "--tasks", "1", "6", "4"])
+
+    assert parse_args().tasks == [1, 6, 4]
+
+
+def test_tasks_cli_rejects_comma_separated_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["client", "--tasks", "1,6,4"])
+
+    with pytest.raises(SystemExit):
+        parse_args()
 
 
 def test_wait_action_is_zero_delta_with_open_gripper() -> None:
