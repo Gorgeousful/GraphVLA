@@ -39,7 +39,7 @@ class ModelConfig:
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_progress": 0.5,
-        "loss_contact": 0.5,
+        "loss_contact": 0.0,
     })
 
     def __post_init__(self) -> None:

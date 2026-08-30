@@ -1,7 +1,7 @@
 CUDA_VISIBLE_DEVICES=0 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0811-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-7-normtest/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0830-pointdrop-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --progress-window 2 \
 --progress-threshold 0.85 \
@@ -11,6 +11,10 @@ python -m script.server \
 --sam-only \
 --locator-mode box
 
+
+# examples/libero/result/0830-pointdrop-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt 
+# examples/libero/result/0830-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt
+# examples/libero/result/0812-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt \
 # --sam-only
 # --locator-mode box 
 # --trials-init-state 0 1 2 3 4 5 6 8 10 11
@@ -28,24 +32,23 @@ python -m examples.libero.eval.client \
 # libero_swap_test # 2 3 4
 python -m examples.libero.eval.client \
 --task-suite-name libero_swap_test \
---tasks 2 \
+--tasks 4 \
 --num-trials-per-task 10 \
 --trials-init-state 0 1 2 3 4 5 6 8 10 11 \
 --max-steps 1000 \
 --control-freq 10 \
---port 8001
-
-
-
+--port 8002
 
 
 # libero_custom
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom \
---tasks 1 \
---num-trials-per-task 3 \ 
---max-steps 750 \
---control-freq 10
+--tasks 3 \
+--num-trials-per-task 10 \
+--trials-init-state 0 1 2 3 4 5 6 8 10 11 \
+--max-steps 1000 \
+--control-freq 10 \
+--port 8002
  
 
 # libero_custom 任务列表（任务序号从 0 开始）  
@@ -92,9 +95,3 @@ python -m examples.libero.eval.client \
 # 2: butter -> cream cheese box
 # 3: chocolate pudding right -> white mug on plate
 # 4: yellow-white mug right plate -> white mug left plate
-# python -m examples.libero.eval.client \
-# --task-suite-name libero_swap_test \
-# --tasks 0,1,2,3,4 \
-# --num-trials-per-task 3 \
-# --max-steps 750 \
-# --control-freq 10
