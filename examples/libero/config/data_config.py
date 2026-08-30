@@ -11,6 +11,7 @@ from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
 from src.dataset.transform import (
     PromptFromTask,
     AddHorizon,
+    CenterOnCurrentTCP,
     RepackTransform,
     Normalize,
     CustomTransform,
@@ -29,17 +30,6 @@ def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
             row = json.loads(line)
             tasks[int(row["task_index"])] = str(row["task"])
     return tasks
-
-def load_norm_stats(dataset_dir: str | Path, level: str = "suite") -> dict[str, Any]:
-    path = Path(dataset_dir) / "meta" / f"norm_stats_{level}.json"
-    with path.open("r", encoding="utf-8") as f:
-        norm_stats = json.load(f)
-
-    file_level = norm_stats.get("level", "suite")
-    if file_level != level:
-        raise ValueError(f"Norm stats level mismatch: expected {level!r}, got {file_level!r} from {path}")
-    return norm_stats
-
 
 @dataclass
 class DataConfig:
@@ -67,8 +57,9 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_7_action_0807_normtest", # libero_with_depth_7_action_0807
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8_0807_rel",
 )
+LIBERO_NORM_STATS_PATH = Path(LIBERO_DATASET_DIR) / "meta" / "norm_stats_suite.json"
 LIBERO_USE_SOFT = False
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
 LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
@@ -133,12 +124,13 @@ LIBERO_TRANSFORM = (
         history_frames=LIBERO_HISTORY_FRAMES,
     ),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
+    CenterOnCurrentTCP(),
 
     Normalize(
-        norm_stats=load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+        norm_stats=LIBERO_NORM_STATS_PATH,
         field_map={
-            "node_points_xyz": "camera_xyz",
-            "gripper_points_xyz": "camera_xyz",
+            "node_points_xyz": "tcp_relative_xyz",
+            "gripper_points_xyz": "tcp_relative_xyz",
             "action": LIBERO_ACTION_STATS_FIELD,
         },
         use_quantiles=True,
@@ -152,7 +144,8 @@ LIBERO_TRANSFORM = (
         extra={
             "use_soft": LIBERO_USE_SOFT,
             "actor_point_indices": LIBERO_MODEL_CONFIG.actor_point_indices,
-            "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+            "norm_stats_path": LIBERO_NORM_STATS_PATH,
+            "point_stats_field": "tcp_relative_xyz",
         },
     ),
 )
@@ -161,10 +154,12 @@ LIBERO_OUT_TRANSFORM = (
     CustomTransform(
         mode="build_model_output",
         extra={
-            "norm_stats": load_norm_stats(LIBERO_DATASET_DIR, level="suite"),
+            "norm_stats_path": LIBERO_NORM_STATS_PATH,
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
             "action_field": LIBERO_ACTION_STATS_FIELD,
+            "point_stats_field": "tcp_relative_xyz",
+            "point_coordinate_frame": LIBERO_MODEL_CONFIG.point_coordinate_frame,
         },
     ),
 )

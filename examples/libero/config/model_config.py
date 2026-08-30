@@ -33,6 +33,7 @@ class ModelConfig:
     sample_steps: int = 10
     flow_mode: str = "point_only"
     action_delta: bool = False
+    point_coordinate_frame: str = "tcp_relative"
     gripper_flow_weight: float = 1.0
     contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
@@ -82,11 +83,17 @@ class ModelConfig:
             raise ValueError(
                 f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
             )
+        if self.point_coordinate_frame not in ("camera", "tcp_relative"):
+            raise ValueError(
+                "point_coordinate_frame must be 'camera' or 'tcp_relative', "
+                f"got {self.point_coordinate_frame!r}"
+            )
 
     def to_kwargs(self) -> dict[str, Any]:
         kwargs = asdict(self)
         kwargs.pop("action_delta")
         kwargs.pop("history_frames")
+        kwargs.pop("point_coordinate_frame")
         return kwargs
 
 

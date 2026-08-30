@@ -32,7 +32,7 @@ class TrainingConfig:
     
     # ckpt
     ckpt_path: str | Path | None = None    
-    save_dir: str | Path | None = "examples/libero/result"
+    save_dir: str | Path | None = "examples/libero/result/0812-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel"
     log_interval: int = 100
     save_interval: int = 1_000
     keep_period: int = 0 # 10_000
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0811-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-7-normtest"
+    wandb_name: str | None = "0812-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel"
 
 
     def to_kwargs(self) -> dict[str, Any]:

@@ -32,9 +32,11 @@ from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
 from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
+from src.dataset.transform import load_norm_stats
 from src.common.schema import (
     ACTION_DIM,
     GRIPPER_NUM_POINTS,
+    GRIPPER_TCP_POINT_INDEX,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     taskstructure_to_json,
@@ -290,6 +292,7 @@ class InputPreprocessor:
         actor_point_indices: tuple[int, ...],
         robot_cls: type[Any],
         dataset_dir: str | Path,
+        point_coordinate_frame: str = "camera",
         locator: str = "locateanything",
         locator_mode: str = "point",
         locator_scale: float = 1.0,
@@ -305,6 +308,9 @@ class InputPreprocessor:
         self.num_points = num_points
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
+        if point_coordinate_frame not in ("camera", "tcp_relative"):
+            raise ValueError(f"Unsupported point_coordinate_frame: {point_coordinate_frame!r}")
+        self.point_coordinate_frame = point_coordinate_frame
         if self.num_points < self.actor_num_points:
             raise ValueError(
                 f"num_points must be at least {self.actor_num_points}, got {self.num_points}"
@@ -316,7 +322,9 @@ class InputPreprocessor:
         self.segmenter = segmenter
         self.sam_only = sam_only
         self.devices = dict(devices or {})
-        self.norm_stats = self._load_norm_stats(Path(dataset_dir))
+        norm_stats_path = Path(dataset_dir) / "meta" / "norm_stats_suite.json"
+        payload = load_norm_stats(norm_stats_path)
+        self.norm_stats = dict(payload.get("norm_stats", payload))
         self.node_segmenter_model = None
         self.robot: Any = None
 
@@ -507,7 +515,7 @@ class InputPreprocessor:
         height, width = frames[-1]["metric_depth"].shape
         session.active_object_indices = self._subtask_object_indices(session, subtaskstructure)
         active_roles = [str(node.get("role", "")) for node in self._object_nodes(subtaskstructure)][:2]
-        object_points = np.stack(
+        object_points_camera = np.stack(
             [
                 self._object_feats(
                     self._active_tracks(item["tracks"], session.active_object_indices),
@@ -519,15 +527,25 @@ class InputPreprocessor:
             ],
             axis=0,
         )
-        actor_xyz = np.stack([
-            self._normalize_field(item["gripper_points_xyz"], "camera_xyz")[
-                list(self.actor_point_indices)
-            ]
-            for item in frames
-        ], axis=0)
         full_gripper_xyz = np.stack(
             [item["gripper_points_xyz"] for item in frames], axis=0,
         )
+        object_valid = np.any(object_points_camera != 0, axis=(-1, -2))
+        point_stats_field = "camera_xyz"
+        tcp_origin = None
+        if getattr(self, "point_coordinate_frame", "camera") == "tcp_relative":
+            tcp_origin = full_gripper_xyz[-1, GRIPPER_TCP_POINT_INDEX].copy()
+            gripper_model_xyz = full_gripper_xyz - tcp_origin
+            object_model_xyz = object_points_camera - tcp_origin
+            point_stats_field = "tcp_relative_xyz"
+        else:
+            gripper_model_xyz = full_gripper_xyz
+            object_model_xyz = object_points_camera
+        actor_xyz = self._normalize_field(
+            gripper_model_xyz[:, list(self.actor_point_indices)], point_stats_field,
+        )
+        object_points = self._normalize_field(object_model_xyz, point_stats_field)
+        object_points[~object_valid] = 0.0
         entity_points = np.zeros(
             (len(frames), 3, self.num_points, POINT_FEATURE_DIM), dtype=np.float32
         )
@@ -535,7 +553,6 @@ class InputPreprocessor:
         entity_points[:, 0, :self.actor_num_points] = actor_xyz
         entity_mask[:, 0, :self.actor_num_points] = True
         entity_points[:, 1:3] = object_points
-        object_valid = np.any(object_points != 0, axis=(-1, -2))
         for object_index in range(2):
             entity_mask[:, object_index + 1] = object_valid[:, object_index, None]
         action_type = str(subtaskstructure.get("action_type", ""))
@@ -546,12 +563,15 @@ class InputPreprocessor:
         )
         openness = np.clip(gripper_width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0)
         closedness = (1.0 - 2.0 * openness)[:, None].astype(np.float32)
-        return {
+        model_input = {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
             "gripper_closedness_history": closedness[None].tolist(),
             "scene_condition_texts": scene_condition_texts,
         }
+        if tcp_origin is not None:
+            model_input["tcp_origin"] = tcp_origin[None].tolist()
+        return model_input
 
     def _frames_from_request(
         self,
@@ -685,13 +705,6 @@ class InputPreprocessor:
             raise RuntimeError(f"Node locator found no boxes for node={node_name!r}")
         return self._locator_boxes_to_pixels(boxes, image.shape[:2])[0]
 
-    @staticmethod
-    def _load_norm_stats(dataset_dir: Path) -> dict[str, Any]:
-        path = dataset_dir / "meta" / "norm_stats_suite.json"
-        with path.open("r", encoding="utf-8") as f:
-            payload = json.load(f)
-        return dict(payload.get("norm_stats", payload))
-
     def _normalize_field(self, value: np.ndarray, field: str) -> np.ndarray:
         if field not in self.norm_stats:
             raise KeyError(f"Missing norm stats for field={field!r}")
@@ -791,7 +804,7 @@ class InputPreprocessor:
                 (selected_uv[:, 1] - intrinsic[1, 2]) / intrinsic[1, 1] * z,
                 z,
             ], axis=-1)
-            points[target_index] = self._normalize_field(xyz, "camera_xyz")
+            points[target_index] = xyz
         return points
 
     @staticmethod
@@ -1135,6 +1148,8 @@ class InferenceModel:
             infer_inputs["gripper_closedness_history"] = tensor(
                 "gripper_closedness_history", torch.float32,
             )
+        if "tcp_origin" in input_data:
+            infer_inputs["tcp_origin"] = tensor("tcp_origin", torch.float32)
         outputs = self.model.sample(infer_inputs)
         output_data = {"outputs": outputs, "batch": infer_inputs}
         for transform in self.out_transforms:
@@ -1585,6 +1600,7 @@ def main() -> None:
             future_horizon=future_horizon,
             num_points=model_kwargs["num_points"],
             actor_point_indices=actor_point_indices,
+            point_coordinate_frame=str(getattr(model_config, "point_coordinate_frame", "camera")),
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
             locator=args.locator,

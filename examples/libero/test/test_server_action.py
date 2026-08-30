@@ -88,6 +88,45 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     np.testing.assert_allclose(closedness, expected_closedness, atol=1e-6)
 
 
+def test_online_model_input_centers_entire_history_on_current_tcp() -> None:
+    preprocessor = object.__new__(InputPreprocessor)
+    preprocessor.num_points = 6
+    preprocessor.actor_point_indices = (0, 1, 2, 3, 4, 5)
+    preprocessor.actor_num_points = 6
+    preprocessor.point_coordinate_frame = "tcp_relative"
+    preprocessor.norm_stats = {
+        "tcp_relative_xyz": {
+            "q01": [-1.0, -1.0, -1.0],
+            "q99": [1.0, 1.0, 1.0],
+        },
+    }
+    first_gripper = np.zeros((6, 3), dtype=np.float32)
+    current_gripper = np.zeros((6, 3), dtype=np.float32)
+    first_gripper[:, 0] = np.arange(6, dtype=np.float32) + 8.0
+    current_gripper[:, 0] = np.arange(6, dtype=np.float32) + 10.0
+    frames = [
+        {
+            "tracks": np.zeros((0, 6, 3), dtype=np.float32),
+            "metric_depth": np.ones((2, 2), dtype=np.float32),
+            "gripper_points_xyz": gripper,
+            "intrinsic": np.eye(3, dtype=np.float32),
+        }
+        for gripper in (first_gripper, current_gripper)
+    ]
+    subtask = {"nodes": [], "action_type": "lift", "action_degree": None}
+    session = SimpleNamespace(
+        taskstructure={"subtasks": [subtask]}, subtask_index=0, active_object_indices=[],
+    )
+
+    model_input = preprocessor._build_model_input(session, frames, subtask)
+
+    origin = current_gripper[5]
+    np.testing.assert_allclose(model_input["tcp_origin"], origin[None], atol=1e-6)
+    actor = np.asarray(model_input["entity_points"], dtype=np.float32)[0, :, 0]
+    np.testing.assert_allclose(actor[0], first_gripper - origin, atol=5e-6)
+    np.testing.assert_allclose(actor[1, 5], np.zeros(3), atol=1e-6)
+
+
 def test_sparse_history_window_selects_configured_offsets_and_pads_start() -> None:
     preprocessor = object.__new__(InputPreprocessor)
     preprocessor.history_frames = (-5, -2, -1)

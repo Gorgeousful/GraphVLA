@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import torch
 
 from examples.libero.config.model_config import ModelConfig
-from src.common.schema import ACTION_DIM
+from src.common.schema import ACTION_DIM, GRIPPER_TCP_POINT_INDEX
 from src.model.model import GraphFlowModel
-from src.dataset.transform import CustomTransform, SubtaskBoundryPadding
+from src.dataset.transform import CenterOnCurrentTCP, CustomTransform, Normalize, SubtaskBoundryPadding
 
 
 def test_subtask_boundary_padding_clamps_contact_targets() -> None:
@@ -21,6 +23,52 @@ def test_subtask_boundary_padding_clamps_contact_targets() -> None:
 
     torch.testing.assert_close(result["is_contact"], torch.tensor([0.0, 1.0, 1.0, 1.0]))
     torch.testing.assert_close(result["is_contact_soft"], torch.tensor([0.1, 0.9, 0.9, 0.9]))
+
+
+def test_center_on_current_tcp_uses_one_origin_for_the_entire_window() -> None:
+    gripper = torch.arange(4 * 6 * 3, dtype=torch.float32).reshape(4, 6, 3)
+    node_points = torch.arange(4 * 2 * 2 * 3, dtype=torch.float32).reshape(4, 2, 2, 3)
+    valid_node_mask = torch.ones(4, 2, dtype=torch.bool)
+    valid_node_mask[0, 1] = False
+    origin = gripper[1, GRIPPER_TCP_POINT_INDEX].clone()
+    original_gripper = gripper.clone()
+    original_nodes = node_points.clone()
+
+    result = CenterOnCurrentTCP()({
+        "history_horizon": 1,
+        "node_points_xyz": node_points,
+        "gripper_points_xyz": gripper,
+        "valid_node_mask": valid_node_mask,
+    })
+
+    torch.testing.assert_close(result["tcp_origin"], origin)
+    torch.testing.assert_close(result["gripper_points_xyz"], original_gripper - origin)
+    torch.testing.assert_close(
+        result["gripper_points_xyz"][1, GRIPPER_TCP_POINT_INDEX], torch.zeros(3),
+    )
+    torch.testing.assert_close(result["node_points_xyz"][2, 0], original_nodes[2, 0] - origin)
+    torch.testing.assert_close(result["node_points_xyz"][0, 1], torch.zeros(2, 3))
+
+
+def test_normalize_loads_stats_from_json_path(tmp_path) -> None:
+    path = tmp_path / "norm_stats_suite.json"
+    path.write_text(json.dumps({
+        "level": "suite",
+        "norm_stats": {
+            "tcp_relative_xyz": {
+                "q01": [-1.0, -2.0, -3.0],
+                "q99": [1.0, 2.0, 3.0],
+            },
+        },
+    }))
+    transform = Normalize(
+        norm_stats=path,
+        field_map={"points": "tcp_relative_xyz"},
+    )
+
+    result = transform({"points": torch.zeros(2, 3)})
+
+    torch.testing.assert_close(result["points"], torch.zeros(2, 3))
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
@@ -95,6 +143,7 @@ def test_model_config_controls_actor_dimensions(actor_point_indices: tuple[int, 
     assert model.encoder.actor_keypoint_embedding.num_embeddings == len(actor_point_indices)
     assert model.flow.input_projection.in_features == trajectory_dim
     assert model.flow.output_projection.out_features == trajectory_dim
+    assert "point_coordinate_frame" not in config.to_kwargs()
 
 
 def test_model_config_validates_encoder_output_type() -> None:
@@ -195,6 +244,36 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
         result["outputs"]["point_plan"][0, 0, 0], torch.tensor([1.0, 3.0, 5.0]),
     )
     torch.testing.assert_close(result["outputs"]["gripper_plan"], torch.full((1, 2), 7.0))
+
+
+def test_build_model_output_restores_tcp_relative_points_to_camera_coordinates() -> None:
+    transform = CustomTransform(
+        mode="build_model_output",
+        extra={
+            "norm_stats": {
+                "level": "suite",
+                "norm_stats": {
+                    "tcp_relative_xyz": {
+                        "q01": [-1.0, -2.0, -3.0],
+                        "q99": [1.0, 2.0, 3.0],
+                    },
+                },
+            },
+            "point_stats_field": "tcp_relative_xyz",
+            "point_coordinate_frame": "tcp_relative",
+        },
+    )
+    data = {
+        "outputs": {"point_plan": torch.zeros(1, 2, 3, 3)},
+        "batch": {"tcp_origin": torch.tensor([[0.1, 0.2, 0.3]])},
+    }
+
+    result = transform.build_model_output(data)
+
+    torch.testing.assert_close(
+        result["outputs"]["point_plan"],
+        torch.tensor([0.1, 0.2, 0.3]).expand(1, 2, 3, 3),
+    )
 
 
 def test_build_model_output_uses_configured_absolute_action_stats() -> None:

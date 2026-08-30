@@ -15,6 +15,9 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
+from src.common.schema import GRIPPER_TCP_POINT_INDEX
+from src.dataset.dataset import make_lerobot_dataset
+
 
 @dataclass
 class NormStats:
@@ -166,6 +169,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=256, help="CPU batch size for stats computation.")
     parser.add_argument("--num-workers", type=int, default=4, help="CPU DataLoader workers.")
     parser.add_argument("--num-quantile-bins", type=int, default=5000)
+    parser.add_argument(
+        "--history-frames",
+        type=int,
+        nargs="+",
+        default=list(range(-9, 0)),
+        help="History offsets used when computing tcp_relative_xyz.",
+    )
+    parser.add_argument(
+        "--future-horizon",
+        type=int,
+        default=10,
+        help="Future horizon used when computing tcp_relative_xyz.",
+    )
     parser.add_argument("--output", type=Path, default=None, help="Defaults to <dataset_dir>/meta/norm_stats_<level>.json.")
     return parser.parse_args()
 
@@ -230,7 +246,15 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarray | None:
+def _extract_special_field_values(
+    field: str,
+    batch: dict[str, Any],
+    *,
+    current_index: int | None = None,
+) -> np.ndarray | None:
+    if field == "tcp_relative_xyz":
+        values = _extract_tcp_relative_xyz_by_sample(batch, current_index=current_index)
+        return np.concatenate(values, axis=0)
     if field == "camera_xyz":
         required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
         missing = required.difference(batch)
@@ -249,7 +273,14 @@ def _extract_special_field_values(field: str, batch: dict[str, Any]) -> np.ndarr
     return None
 
 
-def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -> list[np.ndarray] | None:
+def _extract_special_field_values_by_sample(
+    field: str,
+    batch: dict[str, Any],
+    *,
+    current_index: int | None = None,
+) -> list[np.ndarray] | None:
+    if field == "tcp_relative_xyz":
+        return _extract_tcp_relative_xyz_by_sample(batch, current_index=current_index)
     if field == "camera_xyz":
         required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
         missing = required.difference(batch)
@@ -269,9 +300,81 @@ def _extract_special_field_values_by_sample(field: str, batch: dict[str, Any]) -
     return None
 
 
+def _extract_tcp_relative_xyz_by_sample(
+    batch: dict[str, Any],
+    *,
+    current_index: int | None,
+) -> list[np.ndarray]:
+    required = {
+        "node_points_xyz", "valid_node_mask", "subtask_node_mask",
+        "gripper_points_xyz", "subtask_id",
+    }
+    missing = required.difference(batch)
+    if missing:
+        raise KeyError(f"tcp_relative_xyz stats require fields: {sorted(missing)}")
+    if current_index is None:
+        raise ValueError("tcp_relative_xyz stats require current_index")
+
+    node_xyz = _to_numpy(batch["node_points_xyz"]).astype(np.float64, copy=False)
+    node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
+    subtask_node_mask = _to_numpy(batch["subtask_node_mask"]).astype(bool, copy=False)
+    gripper_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
+    subtask_ids = _to_numpy(batch["subtask_id"])
+    if node_xyz.ndim != 5 or node_xyz.shape[:3] != node_mask.shape or node_xyz.shape[-1] != 3:
+        raise ValueError(f"node_points_xyz {node_xyz.shape} and mask {node_mask.shape} mismatch")
+    if subtask_node_mask.shape != node_mask.shape:
+        raise ValueError(
+            f"subtask_node_mask {subtask_node_mask.shape} does not match node mask {node_mask.shape}"
+        )
+    if gripper_xyz.ndim != 4 or gripper_xyz.shape[0:2] != node_xyz.shape[0:2] or gripper_xyz.shape[-1] != 3:
+        raise ValueError(
+            f"gripper_points_xyz {gripper_xyz.shape} does not match node window {node_xyz.shape[:2]}"
+        )
+    if subtask_ids.shape[:2] != node_xyz.shape[:2]:
+        raise ValueError(
+            f"subtask_id {subtask_ids.shape} does not match node window {node_xyz.shape[:2]}"
+        )
+    if not 0 <= current_index < gripper_xyz.shape[1]:
+        raise ValueError(f"current_index {current_index} is outside {gripper_xyz.shape[1]} frames")
+    if GRIPPER_TCP_POINT_INDEX >= gripper_xyz.shape[2]:
+        raise ValueError(
+            f"TCP point index {GRIPPER_TCP_POINT_INDEX} is outside {gripper_xyz.shape[2]} gripper points"
+        )
+
+    origins = gripper_xyz[:, current_index, GRIPPER_TCP_POINT_INDEX]
+    relative_nodes = node_xyz - origins[:, None, None, None, :]
+    relative_gripper = gripper_xyz - origins[:, None, None, :]
+    values = []
+    for points, mask, active_mask, gripper, subtask in zip(
+        relative_nodes, node_mask, subtask_node_mask, relative_gripper, subtask_ids, strict=True,
+    ):
+        frame_indices = np.arange(len(subtask))
+        same_indices = np.flatnonzero(subtask == subtask[current_index])
+        padded_indices = same_indices[
+            np.abs(frame_indices[:, None] - same_indices[None]).argmin(axis=1)
+        ]
+        padded_points = points[padded_indices][: current_index + 1]
+        padded_mask = mask[padded_indices][: current_index + 1]
+        padded_active_mask = active_mask[padded_indices][: current_index + 1]
+        padded_gripper = gripper[padded_indices]
+        valid = (
+            np.broadcast_to((padded_mask & padded_active_mask)[..., None], padded_points.shape[:-1])
+            & np.isfinite(padded_points).all(-1)
+        )
+        gripper_valid = np.isfinite(padded_gripper).all(-1)
+        values.append(
+            np.concatenate([padded_points[valid], padded_gripper[gripper_valid]], axis=0)
+        )
+    return values
+
+
 def _numeric_columns(feature_map: dict[str, str], level: str) -> list[str]:
     dependencies = {
         "camera_xyz": {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"},
+        "tcp_relative_xyz": {
+            "node_points_xyz", "valid_node_mask", "subtask_node_mask",
+            "gripper_points_xyz", "subtask_id",
+        },
     }
     columns = set()
     for field in feature_map.values():
@@ -297,18 +400,63 @@ def _select_numeric_dataset(dataset: LeRobotDataset | Subset, columns: list[str]
     return hf_dataset.with_format("numpy", columns=columns)
 
 
+def _relative_delta_timestamps(
+    dataset_dir: Path,
+    feature_map: dict[str, str],
+    *,
+    history_frames: list[int],
+    future_horizon: int,
+) -> dict[str, list[float]] | None:
+    if "tcp_relative_xyz" not in feature_map.values():
+        return None
+    if any(frame >= 0 for frame in history_frames):
+        raise ValueError(f"history_frames must be negative, got {history_frames}")
+    if any(left >= right for left, right in zip(history_frames, history_frames[1:])):
+        raise ValueError(f"history_frames must be strictly increasing, got {history_frames}")
+    if future_horizon <= 0:
+        raise ValueError(f"future_horizon must be positive, got {future_horizon}")
+
+    info = json.loads((dataset_dir / "meta" / "info.json").read_text(encoding="utf-8"))
+    fps = float(info["fps"])
+    offsets = history_frames + list(range(future_horizon + 1))
+    delta_timestamps = {
+        field: [offset / fps for offset in offsets]
+        for field in (
+            "node_points_xyz", "valid_node_mask", "subtask_node_mask",
+            "gripper_points_xyz", "subtask_id",
+        )
+    }
+    for field in feature_map.values():
+        if field != "tcp_relative_xyz":
+            delta_timestamps.setdefault(field, [0.0])
+    return delta_timestamps
+
+
 def main() -> None:
     args = parse_args()
     dataset_dir = args.dataset_dir.resolve()
     output_path = args.output or dataset_dir / "meta" / f"norm_stats_{args.level}.json"
     feature_map = parse_feature_map(args.feature_map)
-
-    dataset = _make_lerobot_dataset(
+    delta_timestamps = _relative_delta_timestamps(
         dataset_dir,
-        video_backend=args.video_backend,
+        feature_map,
+        history_frames=args.history_frames,
+        future_horizon=args.future_horizon,
+    )
+
+    dataset = (
+        make_lerobot_dataset(
+            dataset_dir,
+            load_videos=False,
+            video_backend=args.video_backend,
+            delta_timestamps=delta_timestamps,
+        )
+        if delta_timestamps is not None
+        else _make_lerobot_dataset(dataset_dir, video_backend=args.video_backend)
     )
     dataset = _filter_dataset_by_tasks(dataset, args.task_indices)
-    dataset = _select_numeric_dataset(dataset, _numeric_columns(feature_map, args.level))
+    if delta_timestamps is None:
+        dataset = _select_numeric_dataset(dataset, _numeric_columns(feature_map, args.level))
     if args.max_frames is not None:
         dataset = Subset(dataset, range(min(len(dataset), args.max_frames)))
 
@@ -327,12 +475,15 @@ def main() -> None:
         }
     else:
         stats = {output_name: {} for output_name in feature_map}
+    current_index = len(args.history_frames) if delta_timestamps is not None else None
 
     for batch in tqdm(data_loader, desc="Computing norm stats", unit="batch"):
         if args.level == "suite":
             for output_name, running_stats in stats.items():
                 field = feature_map[output_name]
-                special_values = _extract_special_field_values(field, batch)
+                special_values = _extract_special_field_values(
+                    field, batch, current_index=current_index,
+                )
                 if special_values is not None:
                     running_stats.update(special_values)
                     continue
@@ -346,7 +497,9 @@ def main() -> None:
             group_indices = _to_numpy(batch[index_field]).reshape(-1)
             for output_name, field_stats in stats.items():
                 field = feature_map[output_name]
-                special_values_by_sample = _extract_special_field_values_by_sample(field, batch)
+                special_values_by_sample = _extract_special_field_values_by_sample(
+                    field, batch, current_index=current_index,
+                )
                 if special_values_by_sample is not None:
                     if len(special_values_by_sample) != group_indices.shape[0]:
                         raise ValueError(

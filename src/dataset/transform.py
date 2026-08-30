@@ -11,12 +11,25 @@ from src.common.geom_utils import uv_to_normalized_ray_torch
 from src.common.schema import (
     ACTION_DIM,
     GRIPPER_NUM_POINTS,
+    GRIPPER_TCP_POINT_INDEX,
     LIBERO_GRIPPER_MAX_WIDTH,
     POINT_FEATURE_DIM,
     validate_actor_point_indices,
 )
 cs = Console()
 DataDict = dict[str, Any]
+
+
+def load_norm_stats(source: Mapping[str, Any] | str | Path) -> Mapping[str, Any]:
+    """Load normalization statistics from JSON, while accepting legacy embedded mappings."""
+    if isinstance(source, Mapping):
+        return source
+    path = Path(source)
+    with path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, Mapping):
+        raise TypeError(f"Norm stats must be a JSON object: {path}")
+    return payload
 
 class TransformFn:
     def __call__(self, data: DataDict) -> DataDict:
@@ -29,6 +42,63 @@ class Compose(TransformFn):
     def __call__(self, data: DataDict) -> DataDict:
         for transform in self.transforms:
             data = transform(data)
+        return data
+
+
+@dataclass
+class CenterOnCurrentTCP(TransformFn):
+    tcp_point_index: int = GRIPPER_TCP_POINT_INDEX
+    origin_key: str = "tcp_origin"
+
+    def __call__(self, data: DataDict) -> DataDict:
+        node_points = data["node_points_xyz"]
+        gripper_points = data["gripper_points_xyz"]
+        history_horizon = int(data["history_horizon"])
+
+        if node_points.ndim != 4 or node_points.shape[-1] != POINT_FEATURE_DIM:
+            raise ValueError(
+                f"Expected node_points_xyz [T,N,P,{POINT_FEATURE_DIM}], got {tuple(node_points.shape)}"
+            )
+        if gripper_points.ndim != 3 or gripper_points.shape[-1] != POINT_FEATURE_DIM:
+            raise ValueError(
+                f"Expected gripper_points_xyz [T,P,{POINT_FEATURE_DIM}], got {tuple(gripper_points.shape)}"
+            )
+        if not 0 <= history_horizon < gripper_points.shape[0]:
+            raise ValueError(
+                f"history_horizon {history_horizon} is outside {gripper_points.shape[0]} frames"
+            )
+        if not 0 <= self.tcp_point_index < gripper_points.shape[1]:
+            raise ValueError(
+                f"tcp_point_index {self.tcp_point_index} is outside {gripper_points.shape[1]} gripper points"
+            )
+
+        origin = gripper_points[history_horizon, self.tcp_point_index]
+        origin = origin.clone() if isinstance(origin, torch.Tensor) else np.asarray(origin).copy()
+        centered_nodes = node_points - origin
+        if "valid_node_mask" in data:
+            valid_node_mask = data["valid_node_mask"]
+            if tuple(valid_node_mask.shape) != tuple(node_points.shape[:2]):
+                raise ValueError(
+                    f"valid_node_mask {tuple(valid_node_mask.shape)} does not match "
+                    f"node_points_xyz {tuple(node_points.shape[:2])}"
+                )
+            if isinstance(centered_nodes, torch.Tensor):
+                mask = torch.as_tensor(
+                    valid_node_mask, dtype=torch.bool, device=centered_nodes.device,
+                )
+                centered_nodes = torch.where(
+                    mask[..., None, None], centered_nodes, torch.zeros_like(centered_nodes),
+                )
+            else:
+                centered_nodes = np.where(
+                    np.asarray(valid_node_mask, dtype=bool)[..., None, None],
+                    centered_nodes,
+                    np.zeros_like(centered_nodes),
+                )
+
+        data["node_points_xyz"] = centered_nodes
+        data["gripper_points_xyz"] = gripper_points - origin
+        data[self.origin_key] = origin
         return data
 
 
@@ -239,7 +309,7 @@ class ResizeImages(TransformFn):
 
 @dataclass
 class Normalize(TransformFn):
-    norm_stats: Mapping[str, Any] | None
+    norm_stats: Mapping[str, Any] | str | Path | None
     field_map: Mapping[str, str] | None = None
     use_quantiles: bool = True
     quantile_to_neg_one_one: bool = True
@@ -248,8 +318,9 @@ class Normalize(TransformFn):
     episode_index_path: tuple[str, ...] = ("episode_index",)
 
     def __call__(self, data: DataDict) -> DataDict:
-        level = self._stats_level(self.norm_stats)
-        stats = self._unwrap_stats(self.norm_stats)
+        norm_stats = self._resolved_norm_stats()
+        level = self._stats_level(norm_stats)
+        stats = self._unwrap_stats(norm_stats)
         if stats is None:
             return data
 
@@ -276,6 +347,15 @@ class Normalize(TransformFn):
                     value = np.where(np.asarray(mask, dtype=bool)[..., None, None], value, 0.0)
             data[key] = value
         return data
+
+    def _resolved_norm_stats(self) -> Mapping[str, Any] | None:
+        if self.norm_stats is None:
+            return None
+        cached = getattr(self, "_norm_stats_cache", None)
+        if cached is None:
+            cached = load_norm_stats(self.norm_stats)
+            self._norm_stats_cache = cached
+        return cached
 
     def _normalize(self, value: Any, stats: Mapping[str, Any]) -> Any:
         mean = self._stats_like(stats["mean"], value)
@@ -435,6 +515,8 @@ class CustomTransform(TransformFn):
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
         action_field = str(self._extra_value("action_field", "camera_action"))
+        point_stats_field = str(self._extra_value("point_stats_field", "camera_xyz"))
+        point_coordinate_frame = str(self._extra_value("point_coordinate_frame", "camera"))
         if "gripper_plan" in outputs:
             gripper_plan = outputs["gripper_plan"].clone()
             action_plan = gripper_plan.new_zeros((*gripper_plan.shape, ACTION_DIM))
@@ -449,9 +531,27 @@ class CustomTransform(TransformFn):
                 context=data,
             )
         if "point_plan" in outputs:
-            outputs["point_plan"] = self._unnormalize_output_field(
-                outputs["point_plan"].clone(), field="camera_xyz", context=data,
+            point_plan = self._unnormalize_output_field(
+                outputs["point_plan"].clone(), field=point_stats_field, context=data,
             )
+            if point_coordinate_frame == "tcp_relative":
+                context = data.get("batch", data)
+                if "tcp_origin" not in context:
+                    raise KeyError("tcp_relative point output requires batch['tcp_origin']")
+                origin = torch.as_tensor(
+                    context["tcp_origin"], dtype=point_plan.dtype, device=point_plan.device,
+                )
+                if origin.ndim == 1:
+                    origin = origin.unsqueeze(0)
+                if origin.shape != (point_plan.shape[0], POINT_FEATURE_DIM):
+                    raise ValueError(
+                        f"Expected tcp_origin [{point_plan.shape[0]},{POINT_FEATURE_DIM}], "
+                        f"got {tuple(origin.shape)}"
+                    )
+                point_plan = point_plan + origin[:, None, None, :]
+            elif point_coordinate_frame != "camera":
+                raise ValueError(f"Unsupported point_coordinate_frame: {point_coordinate_frame!r}")
+            outputs["point_plan"] = point_plan
         return data
 
     def _extra_value(self, key: str, default: Any) -> Any:
@@ -460,17 +560,26 @@ class CustomTransform(TransformFn):
         return self.extra.get(key, default)
 
     def _unnormalize_output_field(self, value: Any, *, field: str, context: DataDict) -> Any:
-        if self.extra is None or "norm_stats" not in self.extra:
-            raise ValueError("build_model_output requires extra['norm_stats']")
+        if self.extra is None:
+            raise ValueError("build_model_output requires normalization statistics")
+        norm_stats = self.extra.get("norm_stats_path", self.extra.get("norm_stats"))
+        if norm_stats is None:
+            raise ValueError("build_model_output requires extra['norm_stats_path']")
+        resolved_norm_stats = getattr(self, "_norm_stats_cache", None)
+        if resolved_norm_stats is None:
+            resolved_norm_stats = load_norm_stats(norm_stats)
+            self._norm_stats_cache = resolved_norm_stats
         transform = Unnormalize(
-            norm_stats=self.extra["norm_stats"],
+            norm_stats=resolved_norm_stats,
             use_quantiles=bool(self._extra_value("use_quantiles", True)),
             quantile_to_neg_one_one=bool(self._extra_value("quantile_to_neg_one_one", True)),
         )
-        stats = transform._unwrap_stats(transform.norm_stats)
+        stats = transform._unwrap_stats(resolved_norm_stats)
         if stats is None or field not in stats:
             raise KeyError(f"Missing norm stats for output field: {field}")
-        field_stats = transform._select_field_stats(stats[field], transform._stats_level(transform.norm_stats), context)
+        field_stats = transform._select_field_stats(
+            stats[field], transform._stats_level(resolved_norm_stats), context,
+        )
         return (
             transform._normalize_quantile(value, field_stats)
             if transform.use_quantiles
@@ -555,8 +664,9 @@ class CustomTransform(TransformFn):
         scene_condition = self._build_scene_condition(
             data["subtaskstructure"], device=entity_points.device,
         )
+        point_stats_field = str(self._extra_value("point_stats_field", "camera_xyz"))
         metric_gripper_points = self._unnormalize_output_field(
-            gripper_points_xyz.clone(), field="camera_xyz", context=data,
+            gripper_points_xyz.clone(), field=point_stats_field, context=data,
         )
         gripper_width = torch.linalg.vector_norm(
             metric_gripper_points[:, 3] - metric_gripper_points[:, 4], dim=-1,
@@ -587,6 +697,10 @@ class CustomTransform(TransformFn):
                 )[input_horizon:input_horizon + future_horizon],
             },
         }
+        if "tcp_origin" in data:
+            result["tcp_origin"] = torch.as_tensor(
+                data["tcp_origin"], device=entity_points.device, dtype=entity_points.dtype,
+            )
         for key in ("images", "state", "metadata"):
             if key in data:
                 result[key] = data[key]

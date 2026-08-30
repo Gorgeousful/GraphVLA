@@ -7,8 +7,9 @@ import json
 import os
 
 
-POINT_FEATURE_DIM = 3  # camera XYZ in meters, normalized per axis
+POINT_FEATURE_DIM = 3  # XYZ in meters before per-axis normalization
 GRIPPER_NUM_POINTS = 6
+GRIPPER_TCP_POINT_INDEX = 5
 ACTION_DIM = 7
 ENTITY_ROLES = ("actor", "patient", "target")
 NUM_ENTITIES = len(ENTITY_ROLES)
