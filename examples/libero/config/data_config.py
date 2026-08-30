@@ -64,6 +64,13 @@ LIBERO_USE_SOFT = False
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
 LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
 LIBERO_ACTION_STATS_FIELD = "camera_action" if LIBERO_ACTION_DELTA else "absolute_camera_action"
+LIBERO_POINT_COORDINATE_FRAME = LIBERO_MODEL_CONFIG.point_coordinate_frame
+LIBERO_POINT_STATS_FIELD = (
+    "tcp_relative_xyz" if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else "camera_xyz"
+)
+LIBERO_POINT_TRANSFORMS = (
+    (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
+)
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -124,13 +131,13 @@ LIBERO_TRANSFORM = (
         history_frames=LIBERO_HISTORY_FRAMES,
     ),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
-    CenterOnCurrentTCP(),
+    *LIBERO_POINT_TRANSFORMS,
 
     Normalize(
         norm_stats=LIBERO_NORM_STATS_PATH,
         field_map={
-            "node_points_xyz": "tcp_relative_xyz",
-            "gripper_points_xyz": "tcp_relative_xyz",
+            "node_points_xyz": LIBERO_POINT_STATS_FIELD,
+            "gripper_points_xyz": LIBERO_POINT_STATS_FIELD,
             "action": LIBERO_ACTION_STATS_FIELD,
         },
         use_quantiles=True,
@@ -145,7 +152,7 @@ LIBERO_TRANSFORM = (
             "use_soft": LIBERO_USE_SOFT,
             "actor_point_indices": LIBERO_MODEL_CONFIG.actor_point_indices,
             "norm_stats_path": LIBERO_NORM_STATS_PATH,
-            "point_stats_field": "tcp_relative_xyz",
+            "point_stats_field": LIBERO_POINT_STATS_FIELD,
         },
     ),
 )
@@ -158,8 +165,8 @@ LIBERO_OUT_TRANSFORM = (
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
             "action_field": LIBERO_ACTION_STATS_FIELD,
-            "point_stats_field": "tcp_relative_xyz",
-            "point_coordinate_frame": LIBERO_MODEL_CONFIG.point_coordinate_frame,
+            "point_stats_field": LIBERO_POINT_STATS_FIELD,
+            "point_coordinate_frame": LIBERO_POINT_COORDINATE_FRAME,
         },
     ),
 )

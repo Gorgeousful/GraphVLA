@@ -151,6 +151,16 @@ def test_model_config_validates_encoder_output_type() -> None:
         ModelConfig(encoder_output_type="invalid")
 
 
+@pytest.mark.parametrize("point_coordinate_frame", ["tcp_relative", "tcp_absolute", "camera"])
+def test_model_config_accepts_point_coordinate_frames(point_coordinate_frame: str) -> None:
+    assert ModelConfig(point_coordinate_frame=point_coordinate_frame).point_coordinate_frame == point_coordinate_frame
+
+
+def test_model_config_rejects_invalid_point_coordinate_frame() -> None:
+    with pytest.raises(ValueError, match="point_coordinate_frame"):
+        ModelConfig(point_coordinate_frame="invalid")
+
+
 def test_model_config_validates_gripper_flow_weight() -> None:
     with pytest.raises(ValueError, match="gripper_flow_weight"):
         ModelConfig(gripper_flow_weight=0.0)
@@ -273,6 +283,34 @@ def test_build_model_output_restores_tcp_relative_points_to_camera_coordinates()
     torch.testing.assert_close(
         result["outputs"]["point_plan"],
         torch.tensor([0.1, 0.2, 0.3]).expand(1, 2, 3, 3),
+    )
+
+
+def test_build_model_output_keeps_tcp_absolute_points_in_camera_coordinates() -> None:
+    transform = CustomTransform(
+        mode="build_model_output",
+        extra={
+            "norm_stats": {
+                "level": "suite",
+                "norm_stats": {
+                    "camera_xyz": {
+                        "q01": [0.0, 2.0, 4.0],
+                        "q99": [2.0, 4.0, 6.0],
+                    },
+                },
+            },
+            "point_stats_field": "camera_xyz",
+            "point_coordinate_frame": "tcp_absolute",
+        },
+    )
+
+    result = transform.build_model_output({
+        "outputs": {"point_plan": torch.zeros(1, 2, 3, 3)},
+    })
+
+    torch.testing.assert_close(
+        result["outputs"]["point_plan"],
+        torch.tensor([1.0, 3.0, 5.0]).expand(1, 2, 3, 3),
     )
 
 

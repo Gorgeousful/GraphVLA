@@ -549,7 +549,7 @@ class CustomTransform(TransformFn):
                         f"got {tuple(origin.shape)}"
                     )
                 point_plan = point_plan + origin[:, None, None, :]
-            elif point_coordinate_frame != "camera":
+            elif point_coordinate_frame not in ("camera", "tcp_absolute"):
                 raise ValueError(f"Unsupported point_coordinate_frame: {point_coordinate_frame!r}")
             outputs["point_plan"] = point_plan
         return data

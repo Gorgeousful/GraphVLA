@@ -55,6 +55,7 @@ def test_online_model_input_selects_configured_rigid_actor_points() -> None:
     preprocessor.num_points = 4
     preprocessor.actor_point_indices = ACTOR_POINT_INDICES
     preprocessor.actor_num_points = len(ACTOR_POINT_INDICES)
+    preprocessor.point_coordinate_frame = "tcp_absolute"
     preprocessor.norm_stats = {
         "camera_xyz": {
             "q01": [0.0, 0.0, 0.0],

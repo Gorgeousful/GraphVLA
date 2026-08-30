@@ -308,9 +308,11 @@ class InputPreprocessor:
         self.num_points = num_points
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
-        if point_coordinate_frame not in ("camera", "tcp_relative"):
+        if point_coordinate_frame not in ("camera", "tcp_absolute", "tcp_relative"):
             raise ValueError(f"Unsupported point_coordinate_frame: {point_coordinate_frame!r}")
-        self.point_coordinate_frame = point_coordinate_frame
+        self.point_coordinate_frame = (
+            "tcp_absolute" if point_coordinate_frame == "camera" else point_coordinate_frame
+        )
         if self.num_points < self.actor_num_points:
             raise ValueError(
                 f"num_points must be at least {self.actor_num_points}, got {self.num_points}"

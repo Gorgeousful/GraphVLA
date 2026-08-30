@@ -83,9 +83,10 @@ class ModelConfig:
             raise ValueError(
                 f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
             )
-        if self.point_coordinate_frame not in ("camera", "tcp_relative"):
+        if self.point_coordinate_frame not in ("camera", "tcp_absolute", "tcp_relative"):
             raise ValueError(
-                "point_coordinate_frame must be 'camera' or 'tcp_relative', "
+                "point_coordinate_frame must be 'tcp_absolute' or 'tcp_relative' "
+                "('camera' is kept as a legacy alias for 'tcp_absolute'), "
                 f"got {self.point_coordinate_frame!r}"
             )
 
