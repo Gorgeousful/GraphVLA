@@ -103,6 +103,66 @@ class CenterOnCurrentTCP(TransformFn):
 
 
 @dataclass
+class RandomCollapseNodePoints(TransformFn):
+    probability: float = 0.25
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError(
+                f"probability must be in [0, 1], got {self.probability}"
+            )
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if self.probability == 0.0:
+            return data
+        if self.probability < 1.0 and torch.rand(()).item() >= self.probability:
+            return data
+
+        node_points = data["node_points_xyz"]
+        subtask_node_mask = data["subtask_node_mask"]
+        history_horizon = int(data["history_horizon"])
+        if node_points.ndim != 4 or node_points.shape[-1] != POINT_FEATURE_DIM:
+            raise ValueError(
+                f"Expected node_points_xyz [T,N,P,{POINT_FEATURE_DIM}], got "
+                f"{tuple(node_points.shape)}"
+            )
+        if tuple(subtask_node_mask.shape) != tuple(node_points.shape[:2]):
+            raise ValueError(
+                f"subtask_node_mask {tuple(subtask_node_mask.shape)} does not match "
+                f"node_points_xyz {tuple(node_points.shape[:2])}"
+            )
+        if not 0 <= history_horizon < node_points.shape[0]:
+            raise ValueError(
+                f"history_horizon {history_horizon} is outside {node_points.shape[0]} frames"
+            )
+
+        if isinstance(node_points, torch.Tensor):
+            selected_nodes = torch.as_tensor(
+                subtask_node_mask[history_horizon], dtype=torch.bool,
+                device=node_points.device,
+            )
+            if not selected_nodes.any():
+                return data
+            collapsed = node_points.clone()
+            centers = node_points.mean(dim=2, keepdim=True)
+            collapsed[:, selected_nodes] = centers[:, selected_nodes].expand(
+                -1, -1, node_points.shape[2], -1
+            )
+        else:
+            selected_nodes = np.asarray(subtask_node_mask[history_horizon], dtype=bool)
+            if not selected_nodes.any():
+                return data
+            collapsed = np.asarray(node_points).copy()
+            centers = np.asarray(node_points).mean(axis=2, keepdims=True)
+            collapsed[:, selected_nodes] = np.broadcast_to(
+                centers[:, selected_nodes], collapsed[:, selected_nodes].shape
+            )
+
+        data["node_points_xyz"] = collapsed
+        return data
+
+
+@dataclass
 class FlattenTransform(TransformFn):
     fields: Sequence[str]
 

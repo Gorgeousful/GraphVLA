@@ -8,7 +8,13 @@ import torch
 from examples.libero.config.model_config import ModelConfig
 from src.common.schema import ACTION_DIM, GRIPPER_TCP_POINT_INDEX
 from src.model.model import GraphFlowModel
-from src.dataset.transform import CenterOnCurrentTCP, CustomTransform, Normalize, SubtaskBoundryPadding
+from src.dataset.transform import (
+    CenterOnCurrentTCP,
+    CustomTransform,
+    Normalize,
+    RandomCollapseNodePoints,
+    SubtaskBoundryPadding,
+)
 
 
 def test_subtask_boundary_padding_clamps_contact_targets() -> None:
@@ -48,6 +54,27 @@ def test_center_on_current_tcp_uses_one_origin_for_the_entire_window() -> None:
     )
     torch.testing.assert_close(result["node_points_xyz"][2, 0], original_nodes[2, 0] - origin)
     torch.testing.assert_close(result["node_points_xyz"][0, 1], torch.zeros(2, 3))
+
+
+def test_random_collapse_node_points_collapses_selected_nodes_across_window() -> None:
+    node_points = torch.arange(3 * 3 * 4 * 3, dtype=torch.float32).reshape(3, 3, 4, 3)
+    original = node_points.clone()
+    subtask_node_mask = torch.tensor([
+        [False, False, False],
+        [True, False, True],
+        [False, False, False],
+    ])
+
+    result = RandomCollapseNodePoints(probability=1.0)({
+        "history_horizon": 1,
+        "node_points_xyz": node_points,
+        "subtask_node_mask": subtask_node_mask,
+    })
+
+    expected_centers = original.mean(dim=2, keepdim=True).expand_as(original)
+    torch.testing.assert_close(result["node_points_xyz"][:, 0], expected_centers[:, 0])
+    torch.testing.assert_close(result["node_points_xyz"][:, 2], expected_centers[:, 2])
+    torch.testing.assert_close(result["node_points_xyz"][:, 1], original[:, 1])
 
 
 def test_normalize_loads_stats_from_json_path(tmp_path) -> None:

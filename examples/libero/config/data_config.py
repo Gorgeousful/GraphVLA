@@ -12,6 +12,7 @@ from src.dataset.transform import (
     PromptFromTask,
     AddHorizon,
     CenterOnCurrentTCP,
+    RandomCollapseNodePoints,
     RepackTransform,
     Normalize,
     CustomTransform,
@@ -71,6 +72,7 @@ LIBERO_POINT_STATS_FIELD = (
 LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
+LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.25 # baseline 0
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -132,6 +134,7 @@ LIBERO_TRANSFORM = (
     ),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
     *LIBERO_POINT_TRANSFORMS,
+    RandomCollapseNodePoints(probability=LIBERO_POINT_SHAPE_DROPOUT_PROB),
 
     Normalize(
         norm_stats=LIBERO_NORM_STATS_PATH,
