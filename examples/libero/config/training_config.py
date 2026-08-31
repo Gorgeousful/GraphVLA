@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0830-pointdrop-flowadarms_only-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel"
+    wandb_name: str | None = "0831-shape-flowadarms_only-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel"
 
 
     def to_kwargs(self) -> dict[str, Any]:

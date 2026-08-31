@@ -131,7 +131,6 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
         "future_horizon": 2,
         "action": action,
         "subtask_progress": torch.linspace(0.0, 1.0, num_frames),
-        "is_contact": torch.tensor([1.0, 1.0, 0.0, 1.0]),
     }
     result = transform.build_model_input(data)
     torch.testing.assert_close(
@@ -146,9 +145,6 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
     assert result["gripper_closedness_history"].shape == (2, 1)
     torch.testing.assert_close(result["target"]["subtask_progress"], torch.tensor([1.0 / 3.0]))
-    torch.testing.assert_close(
-        result["target"]["is_contact"], torch.tensor([0.0, 1.0]),
-    )
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
@@ -178,24 +174,26 @@ def test_model_config_validates_encoder_output_type() -> None:
         ModelConfig(encoder_output_type="invalid")
 
 
-@pytest.mark.parametrize("mode", ["encoder_only", "flow_adarms", "flow_adarms_only"])
+@pytest.mark.parametrize("mode", ["encoder_only", "flow_adarms_only"])
 def test_model_config_accepts_semantic_injection_modes(mode: str) -> None:
     assert ModelConfig(semantic_injection_mode=mode).semantic_injection_mode == mode
 
 
-def test_model_config_rejects_invalid_semantic_injection_mode() -> None:
+@pytest.mark.parametrize("mode", ["flow_adarms", "invalid"])
+def test_model_config_rejects_invalid_semantic_injection_mode(mode: str) -> None:
     with pytest.raises(ValueError, match="semantic_injection_mode"):
-        ModelConfig(semantic_injection_mode="invalid")
+        ModelConfig(semantic_injection_mode=mode)
 
 
-@pytest.mark.parametrize("point_coordinate_frame", ["tcp_relative", "tcp_absolute", "camera"])
+@pytest.mark.parametrize("point_coordinate_frame", ["tcp_relative", "tcp_absolute"])
 def test_model_config_accepts_point_coordinate_frames(point_coordinate_frame: str) -> None:
     assert ModelConfig(point_coordinate_frame=point_coordinate_frame).point_coordinate_frame == point_coordinate_frame
 
 
-def test_model_config_rejects_invalid_point_coordinate_frame() -> None:
+@pytest.mark.parametrize("point_coordinate_frame", ["camera", "invalid"])
+def test_model_config_rejects_invalid_point_coordinate_frame(point_coordinate_frame: str) -> None:
     with pytest.raises(ValueError, match="point_coordinate_frame"):
-        ModelConfig(point_coordinate_frame="invalid")
+        ModelConfig(point_coordinate_frame=point_coordinate_frame)
 
 
 def test_model_config_validates_gripper_flow_weight() -> None:
@@ -217,16 +215,21 @@ def test_model_config_rejects_invalid_history_frames(history_frames: list[int]) 
 
 
 @pytest.mark.parametrize(
-    ("encoder_output_type", "memory_tokens", "expected_positions"),
+    (
+        "encoder_output_type", "shape_tokens", "center_tokens",
+        "shape_positions", "center_positions",
+    ),
     [
-        ("current", 8, [0] * 8),
-        ("all", 14, [-1] * 6 + [0] * 8),
+        ("current", 8, 3, [0] * 8, [0] * 3),
+        ("all", 14, 6, [-1] * 6 + [0] * 8, [-1] * 3 + [0] * 3),
     ],
 )
 def test_encoder_output_type_controls_model_memory(
     encoder_output_type: str,
-    memory_tokens: int,
-    expected_positions: list[int],
+    shape_tokens: int,
+    center_tokens: int,
+    shape_positions: list[int],
+    center_positions: list[int],
 ) -> None:
     model = GraphFlowModel(
         actor_point_indices=(0, 1, 2, 3),
@@ -244,15 +247,18 @@ def test_encoder_output_type_controls_model_memory(
         mlp_ratio=2.0,
         dropout=0.0,
     ).eval()
-    memory, relation_local = model.encoder(
+    shape_memory, center_memory, relation_shape, relation_center = model.encoder(
         torch.randn(2, 2, 3, 4, 3),
         torch.ones(2, 2, 3, 4, dtype=torch.bool),
         torch.randn(2, 2, 8),
     )
 
-    assert memory.shape == (2, memory_tokens, 32)
-    assert relation_local.shape == (2, 4, 32)
-    assert model._memory_positions(memory).tolist() == expected_positions
+    assert shape_memory.shape == (2, shape_tokens, 32)
+    assert center_memory.shape == (2, center_tokens, 32)
+    assert relation_shape.shape == (2, 4, 32)
+    assert relation_center.shape == (2, 2, 32)
+    assert model._shape_memory_positions(shape_memory).tolist() == shape_positions
+    assert model._center_memory_positions(center_memory).tolist() == center_positions
 
 
 def test_build_model_output_unnormalizes_action_and_points() -> None:

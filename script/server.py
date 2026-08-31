@@ -25,7 +25,7 @@ from PIL import Image
 from rich.console import Console
 from scipy.spatial.transform import Rotation as R
 
-from src.model.model import FLOW_MODES, GraphFlowModel
+from src.model.model import GraphFlowModel
 from src.training.checkpoint import TrainingCheckpoint
 from src.module.task_analyzer import TaskAnalyzer
 from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
@@ -243,24 +243,6 @@ class TopLevelTaskPlanner:
     ) -> list[tuple[int, float]]:
         score = self._output_score(outputs, "subtask_progress")
         return [] if score is None else [(0, score)]
-
-    @staticmethod
-    def _contact_score_text(
-        outputs: Mapping[str, Any], frame_count: int | None = None,
-    ) -> str:
-        value = outputs.get("is_contact")
-        if value is None:
-            return "contact_score=-"
-        if isinstance(value, torch.Tensor):
-            value = value.detach().cpu().numpy()
-        scores = np.asarray(value, dtype=float)
-        if scores.ndim >= 2 and scores.shape[0] == 1:
-            scores = scores[0]
-        scores = scores.reshape(-1)
-        if frame_count is not None:
-            scores = scores[:frame_count]
-        text = ", ".join("-" if not np.isfinite(score) else f"{score:.3f}" for score in scores)
-        return "contact_score=-" if not text else f"contact_score[{len(scores)}]=[{text}]"
 
     @staticmethod
     def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
@@ -890,22 +872,18 @@ class EmbodimentAdapter:
         *,
         future_horizon: int,
         actor_point_indices: tuple[int, ...],
-        action_delta: bool = True,
-        flow_mode: str = "joint",
+        action_delta: bool = False,
         robot_cls: type[Any] | None = None,
         release_lift_height: float = 0.05,
     ) -> None:
-        if flow_mode not in FLOW_MODES:
-            raise ValueError(f"Unsupported flow mode: {flow_mode!r}")
-        if flow_mode == "point_only" and action_delta:
+        if action_delta:
             raise ValueError("point_only server execution requires action_delta=False")
-        if flow_mode == "point_only" and robot_cls is None:
+        if robot_cls is None:
             raise ValueError("point_only server execution requires robot_cls")
         self.future_horizon = future_horizon
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
         self.action_delta = bool(action_delta)
-        self.flow_mode = flow_mode
         self.robot_cls = robot_cls
         if release_lift_height < 0:
             raise ValueError("release_lift_height must be non-negative")
@@ -920,39 +898,7 @@ class EmbodimentAdapter:
     ) -> list[list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
-        if self.flow_mode == "point_only":
-            return self._point_plan_to_action(outputs, request, session)
-        if "action_plan" not in outputs:
-            raise KeyError("Model outputs are missing required head: action_plan")
-
-        camera_actions = np.asarray(outputs["action_plan"], dtype=np.float64)
-        expected_shape = (1, self.future_horizon, ACTION_DIM)
-        if camera_actions.shape != expected_shape:
-            raise ValueError(
-                f"action_plan must have shape {expected_shape}, got {camera_actions.shape}"
-            )
-        camera_actions = camera_actions[0]
-        if not np.isfinite(camera_actions).all():
-            raise ValueError("action_plan contains non-finite values")
-
-        extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
-        camera_to_world_rotation = extrinsic[:3, :3]
-        world_actions = camera_actions.copy()
-        if self.action_delta:
-            world_actions[:, :3] = camera_actions[:, :3] @ camera_to_world_rotation.T
-            world_actions[:, 3:6] = camera_actions[:, 3:6] @ camera_to_world_rotation.T
-            world_actions = np.clip(world_actions, -1.0, 1.0)
-        else:
-            world_actions[:, :3] = (
-                camera_actions[:, :3] @ camera_to_world_rotation.T + extrinsic[:3, 3]
-            )
-            for index, camera_rotvec in enumerate(camera_actions[:, 3:6]):
-                world_rotation = camera_to_world_rotation @ R.from_rotvec(camera_rotvec).as_matrix()
-                world_actions[index, 3:6] = R.from_matrix(world_rotation).as_rotvec()
-
-        for action in world_actions:
-            action[6] = self._gripper_command(float(action[6]))
-        return world_actions.astype(np.float32).tolist()
+        return self._point_plan_to_action(outputs, request, session)
 
     def _point_plan_to_action(
         self,
@@ -1314,11 +1260,6 @@ class InferenceServer:
         else:
             actions = self.embodiment.to_action(outputs, request, session)
             executed_actions = actions[:self.execute_chunk_len]
-            cs.print(
-                f"step={session.frame_index} "
-                f"{self.planner._contact_score_text(outputs, len(executed_actions))}",
-                markup=False,
-            )
         gripper_actions = [float(action[-1]) for action in executed_actions]
         gripper_text = ", ".join(f"{g:.3f}" for g in gripper_actions)
         cs.print(
@@ -1602,7 +1543,7 @@ def main() -> None:
             future_horizon=future_horizon,
             num_points=model_kwargs["num_points"],
             actor_point_indices=actor_point_indices,
-            point_coordinate_frame=str(getattr(model_config, "point_coordinate_frame", "camera")),
+            point_coordinate_frame=str(getattr(model_config, "point_coordinate_frame", "tcp_absolute")),
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
             locator=args.locator,
@@ -1622,8 +1563,7 @@ def main() -> None:
         embodiment=EmbodimentAdapter(
             future_horizon=future_horizon,
             actor_point_indices=actor_point_indices,
-            action_delta=bool(getattr(model_config, "action_delta", True)),
-            flow_mode=str(getattr(model_config, "flow_mode", "joint")),
+            action_delta=bool(getattr(model_config, "action_delta", False)),
             robot_cls=GeomRobot,
             release_lift_height=args.release_lift_height,
         ),

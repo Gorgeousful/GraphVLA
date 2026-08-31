@@ -9,7 +9,6 @@ from examples.libero.eval.client import (
     InferenceClient,
     _draw_response_points,
     _dummy_action,
-    _future_score,
     parse_args,
     _to_libero_action,
 )
@@ -72,14 +71,6 @@ def test_client_accepts_finite_seven_dimensional_action_chunk() -> None:
 
     with pytest.raises(ValueError, match="must be 7-D"):
         client._validated_action_chunk({"action": [[0.0] * 6]})
-
-
-def test_future_score_selects_action_aligned_contact_frame() -> None:
-    response = {"is_contact": [[0.1, 0.4, 0.8]]}
-
-    assert _future_score(response, "is_contact", 1) == pytest.approx(0.1)
-    assert _future_score(response, "is_contact", 3) == pytest.approx(0.8)
-    assert _future_score(response, "is_contact", 4) is None
 
 
 def test_progress_visualization_uses_server_threshold() -> None:

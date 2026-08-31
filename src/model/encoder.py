@@ -1,4 +1,4 @@
-"""Shared entity encoder with CLS-mediated cross-entity communication."""
+"""Entity encoder with separate translation-invariant shape and center memories."""
 
 from __future__ import annotations
 
@@ -80,6 +80,11 @@ class EntityEncoder(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
+        self.center_stem = nn.Sequential(
+            nn.Linear(3, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
         self.max_history = max_history
         self.actor_keypoint_embedding = nn.Embedding(actor_num_points, hidden_dim)
         self.role_type_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
@@ -103,6 +108,7 @@ class EntityEncoder(nn.Module):
             RotaryEncoderBlock(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
         ])
         self.norm = nn.LayerNorm(hidden_dim)
+        self.center_norm = nn.LayerNorm(hidden_dim)
         self.gradient_checkpointing = False
         nn.init.normal_(self.cls_token, std=0.02)
 
@@ -111,7 +117,7 @@ class EntityEncoder(nn.Module):
         points: torch.Tensor,
         point_mask: torch.Tensor,
         scene_condition: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
             raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
         batch, steps, entities, num_points, _ = points.shape
@@ -126,7 +132,11 @@ class EntityEncoder(nn.Module):
         elif scene_condition is not None:
             raise ValueError("scene_condition must be None when encoder scene tokens are disabled")
 
-        tokens = self.point_stem(points)
+        valid_points = point_mask.bool().unsqueeze(-1)
+        point_count = valid_points.sum(dim=3).clamp_min(1)
+        centers = (points * valid_points).sum(dim=3) / point_count
+        centered_points = (points - centers.unsqueeze(3)).masked_fill(~valid_points, 0.0)
+        tokens = self.point_stem(centered_points)
         actor_ids = torch.arange(self.actor_num_points, device=points.device)
         tokens[:, :, 0, :self.actor_num_points] += self.actor_keypoint_embedding(actor_ids)[None, None]
 
@@ -285,11 +295,28 @@ class EntityEncoder(nn.Module):
             scene_tokens = dense[:, dense_entity_tokens:]
 
         current_cls = cls[:, -1]
-        relation_local = current_cls[:, 1:3].flatten(1, 2)
-        entity_memory = (
+        relation_shape = current_cls[:, 1:3].flatten(1, 2)
+        shape_memory = (
             current_cls.flatten(1, 2)
             if self.encoder_output_type == "current"
             else cls.flatten(1, 3)
         )
-        memory = torch.cat([entity_memory, scene_tokens], dim=1)
-        return self.norm(memory), self.norm(relation_local)
+        shape_memory = torch.cat([shape_memory, scene_tokens], dim=1)
+
+        role_embedding = self.role_type_embedding(
+            torch.arange(entities, device=points.device)
+        )[None, None]
+        center_tokens = self.center_norm(self.center_stem(centers) + role_embedding)
+        current_center = center_tokens[:, -1]
+        center_memory = (
+            current_center
+            if self.encoder_output_type == "current"
+            else center_tokens.flatten(1, 2)
+        )
+        relation_center = current_center[:, 1:3]
+        return (
+            self.norm(shape_memory),
+            center_memory,
+            self.norm(relation_shape),
+            relation_center,
+        )

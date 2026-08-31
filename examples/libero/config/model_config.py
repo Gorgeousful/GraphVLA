@@ -31,16 +31,13 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     sample_steps: int = 10
-    flow_mode: str = "point_only"
     semantic_injection_mode: str = "flow_adarms_only"
     action_delta: bool = False
     point_coordinate_frame: str = "tcp_relative" # tcp_relative
     gripper_flow_weight: float = 1.0
-    contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_progress": 0.5,
-        "loss_contact": 0.0,
     })
 
     def __post_init__(self) -> None:
@@ -85,17 +82,15 @@ class ModelConfig:
                 f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
             )
         if self.semantic_injection_mode not in (
-            "encoder_only", "flow_adarms", "flow_adarms_only",
+            "encoder_only", "flow_adarms_only",
         ):
             raise ValueError(
-                "semantic_injection_mode must be 'encoder_only', 'flow_adarms', "
-                "or 'flow_adarms_only', "
+                "semantic_injection_mode must be 'encoder_only' or 'flow_adarms_only', "
                 f"got {self.semantic_injection_mode!r}"
             )
-        if self.point_coordinate_frame not in ("camera", "tcp_absolute", "tcp_relative"):
+        if self.point_coordinate_frame not in ("tcp_absolute", "tcp_relative"):
             raise ValueError(
-                "point_coordinate_frame must be 'tcp_absolute' or 'tcp_relative' "
-                "('camera' is kept as a legacy alias for 'tcp_absolute'), "
+                "point_coordinate_frame must be 'tcp_absolute' or 'tcp_relative', "
                 f"got {self.point_coordinate_frame!r}"
             )
 

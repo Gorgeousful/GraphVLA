@@ -10,17 +10,8 @@ from script.server import (
     EmbodimentAdapter,
     InputPreprocessor,
     ObservationFrame,
-    TopLevelTaskPlanner,
 )
 ACTOR_POINT_INDICES = (0, 1, 2, 5)
-
-
-def test_contact_score_text_uses_executed_contact_profile() -> None:
-    text = TopLevelTaskPlanner._contact_score_text(
-        {"is_contact": [[0.1, 0.4, 0.8]]}, frame_count=2,
-    )
-
-    assert text == "contact_score[2]=[0.100, 0.400]"
 
 
 def test_state_projection_passes_gripper_width_and_returns_six_points() -> None:
@@ -197,76 +188,6 @@ def test_tracker_update_expands_unique_tracks_to_duplicate_nodes() -> None:
     np.testing.assert_array_equal(session.tracked_points[1, 0], [3.0, 4.0, 1.0])
 
 
-def test_camera_action_is_rotated_to_world_frame() -> None:
-    rotation = np.asarray(
-        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
-        dtype=np.float64,
-    )
-    extrinsic = np.eye(4, dtype=np.float64)
-    extrinsic[:3, :3] = rotation
-    camera_action = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.25]
-    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1)
-    session = SimpleNamespace(benchmark="libero")
-
-    actions = adapter.to_action(
-        {"action_plan": [[camera_action]]},
-        {"camera.extrinsics": extrinsic.tolist()},
-        session,
-    )
-
-    np.testing.assert_allclose(actions[0][:3], [0.0, 1.0, 0.0], atol=1e-7)
-    np.testing.assert_allclose(actions[0][3:6], [-1.0, 0.0, 0.0], atol=1e-7)
-    assert actions[0][6] == pytest.approx(0.25)
-
-
-def test_continuous_delta_action_is_clipped() -> None:
-    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1)
-    session = SimpleNamespace(benchmark="libero")
-    predicted = [2.0, -2.0, 0.5, 1.5, -1.5, 0.0, 1.5]
-
-    action = adapter.to_action(
-        {"action_plan": [[predicted]]},
-        {"camera.extrinsics": np.eye(4).tolist()},
-        session,
-    )[0]
-
-    assert action == pytest.approx([1.0, -1.0, 0.5, 1.0, -1.0, 0.0, 1.0])
-
-
-def test_delta_release_opens_gripper_and_evenly_distributes_lift() -> None:
-    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=10)
-    session = SimpleNamespace()
-
-    actions = adapter.release_actions(session, chunk_len=3)
-
-    expected = np.zeros(7, dtype=np.float32)
-    expected[2] = 1.0 / 3.0
-    expected[6] = -1.0
-    np.testing.assert_allclose(actions, np.repeat(expected[None], 3, axis=0))
-
-
-def test_absolute_camera_pose_is_transformed_to_world_without_clipping() -> None:
-    camera_to_world = R.from_euler("z", 90, degrees=True).as_matrix()
-    extrinsic = np.eye(4, dtype=np.float64)
-    extrinsic[:3, :3] = camera_to_world
-    extrinsic[:3, 3] = [1.0, 2.0, 3.0]
-    camera_rotation = R.from_euler("x", 30, degrees=True)
-    camera_action = [2.0, 0.0, 0.0, *camera_rotation.as_rotvec(), 0.25]
-    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=1, action_delta=False)
-    session = SimpleNamespace(benchmark="libero")
-
-    action = np.asarray(adapter.to_action(
-        {"action_plan": [[camera_action]]},
-        {"camera.extrinsics": extrinsic.tolist()},
-        session,
-    )[0])
-
-    np.testing.assert_allclose(action[:3], [1.0, 4.0, 3.0], atol=1e-6)
-    expected_rotation = R.from_matrix(camera_to_world @ camera_rotation.as_matrix()).as_rotvec()
-    np.testing.assert_allclose(action[3:6], expected_rotation, atol=1e-6)
-    assert action[6] == pytest.approx(0.25)
-
-
 def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> None:
     captured = {"points": [], "widths": []}
 
@@ -307,7 +228,6 @@ def test_point_only_plan_recovers_absolute_actions_and_continuous_gripper() -> N
         actor_point_indices=ACTOR_POINT_INDICES,
         future_horizon=2,
         action_delta=False,
-        flow_mode="point_only",
         robot_cls=Robot,
     )
 
@@ -330,7 +250,7 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
         EmbodimentAdapter(
             actor_point_indices=ACTOR_POINT_INDICES,
             future_horizon=2,
-            flow_mode="point_only",
+            action_delta=True,
             robot_cls=Robot,
         )
     with pytest.raises(ValueError, match="requires robot_cls"):
@@ -338,12 +258,16 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
             actor_point_indices=ACTOR_POINT_INDICES,
             future_horizon=2,
             action_delta=False,
-            flow_mode="point_only",
         )
 
 
 def test_absolute_release_opens_gripper_and_linearly_lifts_tcp() -> None:
-    adapter = EmbodimentAdapter(actor_point_indices=ACTOR_POINT_INDICES, future_horizon=3, action_delta=False)
+    adapter = EmbodimentAdapter(
+        actor_point_indices=ACTOR_POINT_INDICES,
+        future_horizon=3,
+        action_delta=False,
+        robot_cls=object,
+    )
     session = SimpleNamespace()
     state = [0.4, -0.2, 1.3, 0.1, 0.2, 1.4, 0.02, -0.02]
 

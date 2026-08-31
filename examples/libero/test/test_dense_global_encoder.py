@@ -92,14 +92,22 @@ def test_encoder_output_type_controls_history_cls_memory() -> None:
     all_history.load_state_dict(current.state_dict())
     points, point_mask, scene_condition = _make_inputs()
 
-    current_memory, current_relation = current(points, point_mask, scene_condition)
-    all_memory, all_relation = all_history(points, point_mask, scene_condition)
+    current_memory, current_centers, current_relation, current_relation_centers = current(
+        points, point_mask, scene_condition
+    )
+    all_memory, all_centers, all_relation, all_relation_centers = all_history(
+        points, point_mask, scene_condition
+    )
 
     assert current_memory.shape == (2, 3 * 2 + 2, 32)
     assert all_memory.shape == (2, 2 * 3 * 2 + 2, 32)
     torch.testing.assert_close(current_memory[:, :-2], all_memory[:, -8:-2])
     torch.testing.assert_close(current_memory[:, -2:], all_memory[:, -2:])
+    assert current_centers.shape == (2, 3, 32)
+    assert all_centers.shape == (2, 6, 32)
+    torch.testing.assert_close(current_centers, all_centers[:, -3:])
     torch.testing.assert_close(current_relation, all_relation)
+    torch.testing.assert_close(current_relation_centers, all_relation_centers)
 
 
 def test_encoder_output_type_is_validated() -> None:

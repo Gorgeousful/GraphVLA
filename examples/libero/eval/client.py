@@ -332,21 +332,6 @@ def _current_score(response: dict[str, Any], name: str) -> float | None:
     return None if finite_scores.size == 0 else float(np.max(finite_scores))
 
 
-def _future_score(
-    response: dict[str, Any], name: str, frame_id: int | None,
-) -> float | None:
-    if frame_id is None or frame_id < 1:
-        return None
-    value = response.get(name)
-    if value is None:
-        return None
-    scores = _first_batch(value).astype(np.float32).reshape(-1)
-    index = frame_id - 1
-    if index >= len(scores) or not np.isfinite(scores[index]):
-        return None
-    return float(scores[index])
-
-
 def _draw_response_scores(
     image: np.ndarray,
     response: dict[str, Any],
@@ -361,11 +346,6 @@ def _draw_response_scores(
         else (255, 255, 255)
     )
     _draw_text_rgb_right(image, progress_text, 18, color=progress_color)
-
-    contact = _future_score(response, "is_contact", frame_id)
-    contact_text = "-" if contact is None else f"{contact:.2f}"
-    contact_color = (80, 255, 80) if contact is not None and contact >= 0.5 else (255, 255, 255)
-    _draw_text_rgb_right(image, contact_text, 38, color=contact_color)
 
 
 def _draw_response_points(

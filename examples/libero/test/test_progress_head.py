@@ -28,7 +28,6 @@ def _model(
         mlp_ratio=2.0,
         dropout=0.0,
         sample_steps=2,
-        flow_mode="point_only",
         gripper_flow_weight=gripper_flow_weight,
         semantic_injection_mode=semantic_injection_mode,
     )
@@ -46,7 +45,6 @@ def _batch() -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         "target": {
             "trajectory": torch.randn(batch_size, future_steps, num_points * 3 + 1),
             "subtask_progress": torch.tensor([[0.25], [0.75]]),
-            "is_contact": torch.tensor([[0.0, 1.0], [1.0, 0.0]]),
         },
     }
 
@@ -61,9 +59,9 @@ def test_progress_head_forward_backward_and_sample() -> None:
     assert torch.isfinite(loss)
     assert set(losses) == {
         "loss", "loss_flow", "loss_flow_points", "loss_flow_gripper",
-        "loss_progress", "loss_contact",
+        "loss_progress",
     }
-    assert model.progress_head[0].in_features == 2 * model.cls_token_num * 32
+    assert model.progress_head[0].in_features == (2 * model.cls_token_num + 4) * 32
     assert any(parameter.grad is not None for parameter in model.progress_head.parameters())
 
     outputs = model.eval().sample(
@@ -72,10 +70,9 @@ def test_progress_head_forward_backward_and_sample() -> None:
     )
     assert set(outputs) == {
         "point_plan", "point_plan_mask", "gripper_plan",
-        "subtask_progress", "is_contact",
+        "subtask_progress",
     }
     assert outputs["subtask_progress"].shape == (2, 1)
-    assert outputs["is_contact"].shape == (2, 2)
     assert torch.all((outputs["subtask_progress"] >= 0.0) & (outputs["subtask_progress"] <= 1.0))
 
 
@@ -91,42 +88,22 @@ def test_gripper_flow_weight_reweights_only_the_last_trajectory_dimension() -> N
         torch.testing.assert_close(losses["loss_flow"], expected)
 
 
-@pytest.mark.parametrize("semantic_injection_mode", ["encoder_only", "flow_adarms_only"])
-def test_all_history_contact_head_uses_one_query_per_cls(
-    semantic_injection_mode: str,
-) -> None:
-    model = _model(
-        encoder_output_type="all",
-        cls_token_num=4,
-        semantic_injection_mode=semantic_injection_mode,
-    )
-    batch = _batch()
-
-    loss, _ = model(batch)
-    loss.backward()
-    memory, relation_local = model._encode(batch)
-    logits = model._contact_logits(memory, relation_local)
-
-    assert model.contact_query is not None
-    assert model.contact_query.shape == (1, 4, 32)
-    assert logits.shape == (2, 2)
-    assert model.contact_query.grad is not None
-    assert model.contact_head[0].in_features == 4 * 32
-
-
 def _direct_flow_output(
     model: GraphFlowModel,
     scene_condition: torch.Tensor,
 ) -> torch.Tensor:
     batch_size = scene_condition.shape[0]
     trajectory_dim = model.flow.trajectory_dim
-    memory = torch.randn(1, 5, 32).expand(batch_size, -1, -1).clone()
+    shape_memory = torch.randn(1, 5, 32).expand(batch_size, -1, -1).clone()
+    center_memory = torch.randn(1, 3, 32).expand(batch_size, -1, -1).clone()
     return model.flow(
         state=torch.zeros(batch_size, 2, trajectory_dim),
         time=torch.full((batch_size,), 0.5),
-        memory=memory,
+        shape_memory=shape_memory,
+        center_memory=center_memory,
         history_state=torch.zeros(batch_size, 2, trajectory_dim),
-        memory_positions=torch.zeros(5, dtype=torch.long),
+        shape_positions=torch.zeros(5, dtype=torch.long),
+        center_positions=torch.zeros(3, dtype=torch.long),
         scene_condition=scene_condition,
     )
 
@@ -137,16 +114,19 @@ def test_encoder_only_flow_has_no_direct_semantic_parameters_or_effect() -> None
     on_condition = torch.ones(1, 2, 8)
     right_condition = on_condition.clone()
     right_condition[:, 1] = -1.0
-    memory = torch.randn(1, 5, 32)
+    shape_memory = torch.randn(1, 5, 32)
+    center_memory = torch.randn(1, 3, 32)
     trajectory_dim = model.flow.trajectory_dim
 
     def output(scene_condition: torch.Tensor) -> torch.Tensor:
         return model.flow(
             torch.zeros(1, 2, trajectory_dim),
             torch.full((1,), 0.5),
-            memory,
+            shape_memory,
+            center_memory,
             torch.zeros(1, 2, trajectory_dim),
             torch.zeros(5, dtype=torch.long),
+            torch.zeros(3, dtype=torch.long),
             scene_condition,
         )
 
@@ -157,12 +137,9 @@ def test_encoder_only_flow_has_no_direct_semantic_parameters_or_effect() -> None
     assert all(block.degree_adapter is None for block in model.flow.blocks)
 
 
-@pytest.mark.parametrize("mode", ["flow_adarms", "flow_adarms_only"])
-def test_flow_adarms_direct_degree_injection_changes_velocity_and_receives_gradients(
-    mode: str,
-) -> None:
+def test_flow_adarms_only_direct_degree_injection_changes_velocity_and_receives_gradients() -> None:
     torch.manual_seed(0)
-    model = _model(semantic_injection_mode=mode).eval()
+    model = _model(semantic_injection_mode="flow_adarms_only").eval()
     for module in model.flow.modules():
         if isinstance(module, AdaRMSNorm):
             torch.nn.init.normal_(module.modulation.weight, std=0.02)
@@ -179,8 +156,8 @@ def test_flow_adarms_direct_degree_injection_changes_velocity_and_receives_gradi
     assert model.flow.blocks[0].degree_adapter.weight.grad is not None
 
 
-def test_flow_adarms_uses_learned_null_degree_condition() -> None:
-    model = _model(semantic_injection_mode="flow_adarms")
+def test_flow_adarms_only_uses_learned_null_degree_condition() -> None:
+    model = _model(semantic_injection_mode="flow_adarms_only")
     scene_condition = torch.randn(2, 2, 8)
     scene_condition[:, 1] = 0.0
 
@@ -201,13 +178,74 @@ def test_flow_adarms_only_removes_encoder_scene_tokens_and_semantic_parameters()
     changed_condition_batch = dict(batch)
     changed_condition_batch["scene_condition"] = -batch["scene_condition"]
 
-    memory, relation_local = model._encode(batch)
-    changed_memory, changed_relation_local = model._encode(changed_condition_batch)
+    memory, centers, relation_shape, relation_center = model._encode(batch)
+    changed_memory, changed_centers, changed_relation_shape, changed_relation_center = (
+        model._encode(changed_condition_batch)
+    )
 
     assert model.encoder.scene_token_count == 0
     assert model.encoder.action_projection is None
     assert model.encoder.degree_projection is None
     assert memory.shape == (2, 3, 32)
-    assert relation_local.shape == (2, 2, 32)
+    assert centers.shape == (2, 3, 32)
+    assert relation_shape.shape == (2, 2, 32)
+    assert relation_center.shape == (2, 2, 32)
     torch.testing.assert_close(memory, changed_memory)
-    torch.testing.assert_close(relation_local, changed_relation_local)
+    torch.testing.assert_close(centers, changed_centers)
+    torch.testing.assert_close(relation_shape, changed_relation_shape)
+    torch.testing.assert_close(relation_center, changed_relation_center)
+
+
+def test_shape_memory_is_translation_invariant_while_center_memory_moves() -> None:
+    torch.manual_seed(0)
+    model = _model(semantic_injection_mode="flow_adarms_only").eval()
+    batch = _batch()
+    translated_batch = dict(batch)
+    translation = torch.tensor([0.7, -0.4, 0.2]).view(1, 1, 1, 1, 3)
+    translated_batch["entity_points"] = batch["entity_points"] + translation
+
+    shape, center, relation_shape, relation_center = model._encode(batch)
+    moved_shape, moved_center, moved_relation_shape, moved_relation_center = model._encode(
+        translated_batch
+    )
+
+    torch.testing.assert_close(shape, moved_shape, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(relation_shape, moved_relation_shape, atol=1e-5, rtol=1e-5)
+    assert not torch.allclose(center, moved_center)
+    assert not torch.allclose(relation_center, moved_relation_center)
+
+
+def test_progress_uses_action_and_degree_conditions() -> None:
+    torch.manual_seed(0)
+    model = _model(semantic_injection_mode="flow_adarms_only").eval()
+    batch = _batch()
+    _, _, relation_shape, relation_center = model._encode(batch)
+    changed_condition = batch["scene_condition"].clone()
+    changed_condition[:, 1] *= -1.0
+
+    progress = model._progress(relation_shape, relation_center, batch["scene_condition"])
+    changed_progress = model._progress(relation_shape, relation_center, changed_condition)
+
+    assert not torch.allclose(progress, changed_progress)
+
+
+def test_flow_reads_center_before_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = _model(semantic_injection_mode="flow_adarms_only").eval()
+    block = model.flow.blocks[0]
+    calls: list[str] = []
+    center_forward = block.center_cross_attention.forward
+    shape_forward = block.shape_cross_attention.forward
+
+    def capture_center(*args, **kwargs):
+        calls.append("center")
+        return center_forward(*args, **kwargs)
+
+    def capture_shape(*args, **kwargs):
+        calls.append("shape")
+        return shape_forward(*args, **kwargs)
+
+    monkeypatch.setattr(block.center_cross_attention, "forward", capture_center)
+    monkeypatch.setattr(block.shape_cross_attention, "forward", capture_shape)
+    _direct_flow_output(model, torch.randn(1, 2, 8))
+
+    assert calls == ["center", "shape"]

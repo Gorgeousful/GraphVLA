@@ -576,7 +576,7 @@ class CustomTransform(TransformFn):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
         action_field = str(self._extra_value("action_field", "camera_action"))
         point_stats_field = str(self._extra_value("point_stats_field", "camera_xyz"))
-        point_coordinate_frame = str(self._extra_value("point_coordinate_frame", "camera"))
+        point_coordinate_frame = str(self._extra_value("point_coordinate_frame", "tcp_absolute"))
         if "gripper_plan" in outputs:
             gripper_plan = outputs["gripper_plan"].clone()
             action_plan = gripper_plan.new_zeros((*gripper_plan.shape, ACTION_DIM))
@@ -609,7 +609,7 @@ class CustomTransform(TransformFn):
                         f"got {tuple(origin.shape)}"
                     )
                 point_plan = point_plan + origin[:, None, None, :]
-            elif point_coordinate_frame not in ("camera", "tcp_absolute"):
+            elif point_coordinate_frame != "tcp_absolute":
                 raise ValueError(f"Unsupported point_coordinate_frame: {point_coordinate_frame!r}")
             outputs["point_plan"] = point_plan
         return data
@@ -739,7 +739,6 @@ class CustomTransform(TransformFn):
         future_points = actor_points[input_horizon:input_horizon + future_horizon]
         future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
         trajectory = torch.cat([future_points.flatten(1), future_gripper], dim=-1)
-        target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
@@ -751,10 +750,6 @@ class CustomTransform(TransformFn):
                     data["subtask_progress"], device=entity_points.device,
                     dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
-                "is_contact": torch.as_tensor(
-                    data[f"is_contact{target_suffix}"], device=entity_points.device,
-                    dtype=entity_points.dtype,
-                )[input_horizon:input_horizon + future_horizon],
             },
         }
         if "tcp_origin" in data:

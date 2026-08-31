@@ -1,4 +1,4 @@
-"""Entity-centric camera-XYZ Flow Matching model for GraphVLA."""
+"""Entity-centric shape/center Flow Matching model for GraphVLA."""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ from torch.utils.checkpoint import checkpoint
 from src.common.schema import NUM_ENTITIES, validate_actor_point_indices
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import make_scheduler, sample_time, training_path
-from src.model.temporal import AdaRMSNorm, RotaryAttention, RotaryFlowBlock
+from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
 
 
-FLOW_MODES = {"joint", "point_then_action", "action_only", "point_only"}
-SEMANTIC_INJECTION_MODES = {"encoder_only", "flow_adarms", "flow_adarms_only"}
+SEMANTIC_INJECTION_MODES = {"encoder_only", "flow_adarms_only"}
 
 
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
@@ -60,7 +59,7 @@ class JointTrajectoryFlow(nn.Module):
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
         )
-        semantic_injection = semantic_injection_mode != "encoder_only"
+        semantic_injection = semantic_injection_mode == "flow_adarms_only"
         self.action_projection = (
             nn.Linear(condition_dim, hidden_dim) if semantic_injection else None
         )
@@ -91,9 +90,11 @@ class JointTrajectoryFlow(nn.Module):
         self,
         state: torch.Tensor,
         time: torch.Tensor,
-        memory: torch.Tensor,
+        shape_memory: torch.Tensor,
+        center_memory: torch.Tensor,
         history_state: torch.Tensor,
-        memory_positions: torch.Tensor,
+        shape_positions: torch.Tensor,
+        center_positions: torch.Tensor,
         scene_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if state.ndim != 3 or state.shape[1:] != (self.horizon, self.trajectory_dim):
@@ -107,9 +108,13 @@ class JointTrajectoryFlow(nn.Module):
                 f"Expected history state [B,{self.history_steps},{self.trajectory_dim}], "
                 f"got {history_state.shape}"
             )
-        if memory_positions.shape != (memory.shape[1],):
+        if shape_positions.shape != (shape_memory.shape[1],):
             raise ValueError(
-                f"Expected memory positions [{memory.shape[1]}], got {memory_positions.shape}"
+                f"Expected shape positions [{shape_memory.shape[1]}], got {shape_positions.shape}"
+            )
+        if center_positions.shape != (center_memory.shape[1],):
+            raise ValueError(
+                f"Expected center positions [{center_memory.shape[1]}], got {center_positions.shape}"
             )
 
         token = self.input_projection(torch.cat([history_state, state], dim=1))
@@ -121,19 +126,24 @@ class JointTrajectoryFlow(nn.Module):
             1, self.horizon + 1, device=state.device, dtype=history_positions.dtype
         )
         token_positions = torch.cat([history_positions, future_positions])
-        memory_positions = memory_positions.to(
-            device=memory.device, dtype=token_positions.dtype,
+        shape_positions = shape_positions.to(
+            device=shape_memory.device, dtype=token_positions.dtype,
+        )
+        center_positions = center_positions.to(
+            device=center_memory.device, dtype=token_positions.dtype,
         )
         action_condition, degree_condition = self._semantic_conditions(
             scene_condition, batch_size=state.shape[0],
         )
         for block in self.blocks:
             token = checkpoint(
-                block, token, memory, condition, token_positions, memory_positions,
+                block, token, center_memory, shape_memory, condition,
+                token_positions, center_positions, shape_positions,
                 self.self_attention_mask, action_condition, degree_condition,
                 use_reentrant=False, preserve_rng_state=True,
             ) if self.gradient_checkpointing and self.training else block(
-                token, memory, condition, token_positions, memory_positions,
+                token, center_memory, shape_memory, condition,
+                token_positions, center_positions, shape_positions,
                 self.self_attention_mask, action_condition, degree_condition,
             )
         hidden, _ = self.norm(token, condition)
@@ -148,7 +158,7 @@ class JointTrajectoryFlow(nn.Module):
         if self.semantic_injection_mode == "encoder_only":
             return None, None
         if scene_condition is None:
-            raise ValueError("flow_adarms semantic injection requires scene_condition")
+            raise ValueError("flow_adarms_only semantic injection requires scene_condition")
         if scene_condition.shape != (batch_size, 2, self.condition_dim):
             raise ValueError(
                 "Expected scene_condition "
@@ -170,7 +180,7 @@ class JointTrajectoryFlow(nn.Module):
 
 
 class GraphFlowModel(nn.Module):
-    """Single joint trajectory flow with progress and contact heads."""
+    """Joint trajectory flow over separate entity shape and center memories."""
 
     def __init__(
         self,
@@ -190,10 +200,8 @@ class GraphFlowModel(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         sample_steps: int = 10,
-        flow_mode: str = "point_only",
         semantic_injection_mode: str = "encoder_only",
         gripper_flow_weight: float = 1.0,
-        contact_pos_weight: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
@@ -202,15 +210,11 @@ class GraphFlowModel(nn.Module):
         self.trajectory_dim = self.actor_num_points * 3 + 1
         if num_points < self.actor_num_points:
             raise ValueError(f"num_points must be at least {self.actor_num_points}, got {num_points}")
-        if flow_mode != "point_only":
-            raise ValueError(f"Legacy trajectory model only supports flow_mode='point_only', got {flow_mode!r}")
         if encoder_output_type not in ("current", "all"):
             raise ValueError(
                 "encoder_output_type must be 'current' or 'all', "
                 f"got {encoder_output_type!r}"
             )
-        if contact_pos_weight <= 0:
-            raise ValueError(f"contact_pos_weight must be positive, got {contact_pos_weight}")
         if gripper_flow_weight <= 0:
             raise ValueError(f"gripper_flow_weight must be positive, got {gripper_flow_weight}")
         self.num_points = num_points
@@ -219,11 +223,9 @@ class GraphFlowModel(nn.Module):
         self.history_steps = history_horizon + 1
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
-        self.flow_mode = flow_mode
         self.semantic_injection_mode = semantic_injection_mode
         self.encoder_output_type = encoder_output_type
         self.gripper_flow_weight = float(gripper_flow_weight)
-        self.contact_pos_weight = float(contact_pos_weight)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
             hidden_dim, self.actor_num_points, encoder_layers, num_heads, mlp_ratio, condition_dim,
@@ -231,7 +233,7 @@ class GraphFlowModel(nn.Module):
             global_layer_types=global_layer_types,
             node_attention_mode=node_attention_mode,
             encoder_output_type=encoder_output_type,
-            include_scene_condition=semantic_injection_mode != "flow_adarms_only",
+            include_scene_condition=semantic_injection_mode == "encoder_only",
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
@@ -239,32 +241,21 @@ class GraphFlowModel(nn.Module):
             condition_dim, semantic_injection_mode,
         )
         self.progress_head = nn.Sequential(
-            nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
+            nn.Linear(hidden_dim * (2 * cls_token_num + 4), hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
-        if encoder_output_type == "all":
-            self.contact_query = nn.Parameter(
-                torch.zeros(1, cls_token_num, hidden_dim)
-            )
-            self.contact_pool_attn = RotaryAttention(
-                hidden_dim, num_heads=num_heads, dropout=0.0,
-            )
-            nn.init.normal_(self.contact_query, std=0.02)
-        else:
-            self.contact_query = None
-            self.contact_pool_attn = None
-        self.contact_head = nn.Sequential(
-            nn.Linear(hidden_dim * cls_token_num, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, future_horizon),
-        )
+        self.progress_action_projection = nn.Linear(condition_dim, hidden_dim)
+        self.progress_degree_projection = nn.Linear(condition_dim, hidden_dim)
+        self.progress_null_degree = nn.Parameter(torch.zeros(1, hidden_dim))
 
     def set_gradient_checkpointing(self, enabled: bool = True) -> None:
         self.encoder.gradient_checkpointing = enabled
         self.flow.gradient_checkpointing = enabled
 
-    def _encode(self, batch: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+    def _encode(
+        self, batch: dict[str, Any],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         points = batch["entity_points"]
         if points.shape[1] != self.history_steps or points.shape[3] != self.num_points:
             raise ValueError(
@@ -274,9 +265,9 @@ class GraphFlowModel(nn.Module):
             points,
             batch["entity_point_mask"],
             (
-                None
-                if self.semantic_injection_mode == "flow_adarms_only"
-                else batch["scene_condition"]
+                batch["scene_condition"]
+                if self.semantic_injection_mode == "encoder_only"
+                else None
             ),
         )
 
@@ -289,7 +280,7 @@ class GraphFlowModel(nn.Module):
             )
         return torch.cat([actor_xyz, closedness.to(actor_xyz.dtype)], dim=-1)
 
-    def _memory_positions(self, memory: torch.Tensor) -> torch.Tensor:
+    def _shape_memory_positions(self, memory: torch.Tensor) -> torch.Tensor:
         if self.encoder_output_type == "current":
             return torch.zeros(memory.shape[1], device=memory.device, dtype=torch.long)
         history_positions = torch.arange(
@@ -300,51 +291,44 @@ class GraphFlowModel(nn.Module):
             history_positions.new_zeros(self.encoder.scene_token_count),
         ])
 
-    def _contact_logits(
-        self,
-        memory: torch.Tensor,
-        relation_local: torch.Tensor,
-    ) -> torch.Tensor:
+    def _center_memory_positions(self, memory: torch.Tensor) -> torch.Tensor:
         if self.encoder_output_type == "current":
-            patient_cls = relation_local[:, :self.cls_token_num]
-        else:
-            entity_tokens = self.history_steps * NUM_ENTITIES * self.cls_token_num
-            expected_tokens = entity_tokens + self.encoder.scene_token_count
-            if memory.shape[1] != expected_tokens:
-                raise ValueError(
-                    f"Expected all-history memory with {expected_tokens} tokens, "
-                    f"got {memory.shape[1]}"
-                )
-            patient_history = memory[:, :entity_tokens].view(
-                memory.shape[0],
-                self.history_steps,
-                NUM_ENTITIES,
-                self.cls_token_num,
-                memory.shape[-1],
-            )[:, :, 1].flatten(1, 2)
-            key_positions = torch.arange(
-                1 - self.history_steps,
-                1,
-                device=memory.device,
-            ).repeat_interleave(self.cls_token_num)
-            query_positions = torch.zeros(
-                self.cls_token_num,
-                device=memory.device,
-                dtype=key_positions.dtype,
+            return torch.zeros(memory.shape[1], device=memory.device, dtype=torch.long)
+        return torch.arange(
+            1 - self.history_steps, 1, device=memory.device,
+        ).repeat_interleave(NUM_ENTITIES)
+
+    def _progress(
+        self,
+        relation_shape: torch.Tensor,
+        relation_center: torch.Tensor,
+        scene_condition: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size = relation_shape.shape[0]
+        if scene_condition.shape != (batch_size, 2, self.flow.condition_dim):
+            raise ValueError(
+                "Expected progress scene_condition "
+                f"[{batch_size},2,{self.flow.condition_dim}], got "
+                f"{tuple(scene_condition.shape)}"
             )
-            assert self.contact_query is not None
-            assert self.contact_pool_attn is not None
-            patient_cls = self.contact_pool_attn(
-                self.contact_query.expand(memory.shape[0], -1, -1),
-                patient_history,
-                query_positions=query_positions,
-                key_positions=key_positions,
-            )
-        patient_cls = patient_cls.flatten(1)
-        return self.contact_head(patient_cls)
+        action = self.progress_action_projection(scene_condition[:, 0])
+        projected_degree = self.progress_degree_projection(scene_condition[:, 1])
+        has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
+        degree = torch.where(
+            has_degree,
+            projected_degree,
+            self.progress_null_degree.expand(batch_size, -1),
+        )
+        features = torch.cat([
+            relation_shape.flatten(1),
+            relation_center.flatten(1),
+            action,
+            degree,
+        ], dim=-1)
+        return torch.sigmoid(self.progress_head(features))
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        memory, relation_local = self._encode(batch)
+        shape_memory, center_memory, relation_shape, relation_center = self._encode(batch)
         target = batch["target"]
         trajectory = target["trajectory"]
         if trajectory.shape[1:] != (self.future_horizon, self.trajectory_dim):
@@ -354,8 +338,9 @@ class GraphFlowModel(nn.Module):
         time = sample_time(trajectory.shape[0], trajectory.device)
         state, target_velocity, _ = training_path(trajectory, time)
         velocity = self.flow(
-            state, time, memory, self._actor_history(batch), self._memory_positions(memory),
-            batch["scene_condition"],
+            state, time, shape_memory, center_memory, self._actor_history(batch),
+            self._shape_memory_positions(shape_memory),
+            self._center_memory_positions(center_memory), batch["scene_condition"],
         )
         squared_error = (velocity - target_velocity).square()
         point_squared_error = squared_error[..., :-1]
@@ -370,27 +355,16 @@ class GraphFlowModel(nn.Module):
             + self.gripper_flow_weight * gripper_squared_error.numel()
         )
 
-        progress = torch.sigmoid(self.progress_head(relation_local.flatten(1)))
+        progress = self._progress(
+            relation_shape, relation_center, batch["scene_condition"],
+        )
         loss_progress = F.smooth_l1_loss(
             progress,
             target["subtask_progress"].to(dtype=progress.dtype),
         )
-        contact_logits = self._contact_logits(memory, relation_local)
-        target_contact = target["is_contact"].to(dtype=contact_logits.dtype)
-        if target_contact.shape != contact_logits.shape:
-            raise ValueError(
-                f"Expected contact target {tuple(contact_logits.shape)}, got "
-                f"{tuple(target_contact.shape)}"
-            )
-        loss_contact = F.binary_cross_entropy_with_logits(
-            contact_logits,
-            target_contact,
-            pos_weight=contact_logits.new_tensor([self.contact_pos_weight]),
-        )
         losses = {
             "loss_flow": loss_flow,
             "loss_progress": loss_progress,
-            "loss_contact": loss_contact,
         }
         total = sum(value * float(self.weights.get(name, 1.0)) for name, value in losses.items())
         return total, {
@@ -407,25 +381,28 @@ class GraphFlowModel(nn.Module):
         num_steps: int | None = None,
         noise: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
-        memory, relation_local = self._encode(batch)
+        shape_memory, center_memory, relation_shape, relation_center = self._encode(batch)
         batch_size = batch["entity_points"].shape[0]
         state = noise
         if state is None:
             state = torch.randn(
                 batch_size, self.future_horizon, self.trajectory_dim,
-                device=memory.device, dtype=memory.dtype,
+                device=shape_memory.device, dtype=shape_memory.dtype,
             )
         elif state.shape != (batch_size, self.future_horizon, self.trajectory_dim):
             raise ValueError(
                 f"Expected noise [B,{self.future_horizon},{self.trajectory_dim}], got {state.shape}"
             )
 
-        scheduler = make_scheduler(num_steps or self.sample_steps, memory.device)
+        scheduler = make_scheduler(num_steps or self.sample_steps, shape_memory.device)
         for timestep in scheduler.timesteps:
-            time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
+            time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(
+                shape_memory.dtype
+            )
             velocity = self.flow(
-                state, time, memory, self._actor_history(batch), self._memory_positions(memory),
-                batch["scene_condition"],
+                state, time, shape_memory, center_memory, self._actor_history(batch),
+                self._shape_memory_positions(shape_memory),
+                self._center_memory_positions(center_memory), batch["scene_condition"],
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
 
@@ -438,6 +415,7 @@ class GraphFlowModel(nn.Module):
                 point_plan.shape[:-1], dtype=torch.bool, device=point_plan.device,
             ),
             "gripper_plan": state[..., -1],
-            "subtask_progress": torch.sigmoid(self.progress_head(relation_local.flatten(1))),
-            "is_contact": torch.sigmoid(self._contact_logits(memory, relation_local)),
+            "subtask_progress": self._progress(
+                relation_shape, relation_center, batch["scene_condition"],
+            ),
         }

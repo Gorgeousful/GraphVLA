@@ -58,10 +58,9 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8_0807_rel",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8_0830_rel",
 )
 LIBERO_NORM_STATS_PATH = Path(LIBERO_DATASET_DIR) / "meta" / "norm_stats_suite.json"
-LIBERO_USE_SOFT = False
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
 LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
 LIBERO_ACTION_STATS_FIELD = "camera_action" if LIBERO_ACTION_DELTA else "absolute_camera_action"
@@ -72,7 +71,7 @@ LIBERO_POINT_STATS_FIELD = (
 LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
-LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.25 # baseline 0
+LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.0 # baseline 0
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -88,7 +87,6 @@ LIBERO_REPACK = {
     },
     "subtask_id": "subtask_id",
     "subtask_progress": "subtask_progress",
-    "is_contact": "is_contact",
     "node_points_xyz": "node_points_xyz",
     "valid_node_mask": "valid_node_mask",
     "subtask_node_mask": "subtask_node_mask",
@@ -108,21 +106,12 @@ LIBERO_HORIZON = {
     # "observation.state": list(range(-LIBERO_HISTORY_HORIZON, LIBERO_FUTURE_HORIZON+1)),
     "subtask_id": list(LIBERO_FRAME_OFFSETS),
     "subtask_progress": list(LIBERO_FRAME_OFFSETS),
-    "is_contact": list(LIBERO_FRAME_OFFSETS),
     "node_points_xyz": list(LIBERO_FRAME_OFFSETS),
     "valid_node_mask": list(LIBERO_FRAME_OFFSETS),
     "subtask_node_mask": list(LIBERO_FRAME_OFFSETS),
     "gripper_points_xyz": list(LIBERO_FRAME_OFFSETS),
     LIBERO_ACTION_FIELD: list(LIBERO_FRAME_OFFSETS),
 }
-
-if LIBERO_USE_SOFT:
-    LIBERO_REPACK.update({
-        "is_contact_soft": "is_contact_soft",
-    })
-    LIBERO_HORIZON.update({
-        "is_contact_soft": list(LIBERO_FRAME_OFFSETS),
-    })
 
 LIBERO_TRANSFORM = (
     RepackTransform(structure=LIBERO_REPACK),
@@ -152,7 +141,6 @@ LIBERO_TRANSFORM = (
         mode="build_model_input",
         dataset_dir=LIBERO_DATASET_DIR,
         extra={
-            "use_soft": LIBERO_USE_SOFT,
             "actor_point_indices": LIBERO_MODEL_CONFIG.actor_point_indices,
             "norm_stats_path": LIBERO_NORM_STATS_PATH,
             "point_stats_field": LIBERO_POINT_STATS_FIELD,

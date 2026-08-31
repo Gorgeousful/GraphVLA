@@ -156,7 +156,7 @@ class AdaRMSNorm(nn.Module):
 
 
 class RotaryFlowBlock(nn.Module):
-    """Decoder block with temporal RoPE and flow-time AdaRMS conditioning."""
+    """Decoder block with center-first and shape-second cross-attention."""
 
     def __init__(
         self,
@@ -176,8 +176,10 @@ class RotaryFlowBlock(nn.Module):
         )
         self.self_norm = AdaRMSNorm(hidden_dim)
         self.self_attention = RotaryAttention(hidden_dim, num_heads, dropout)
-        self.cross_norm = AdaRMSNorm(hidden_dim)
-        self.cross_attention = RotaryAttention(hidden_dim, num_heads, dropout)
+        self.center_cross_norm = AdaRMSNorm(hidden_dim)
+        self.center_cross_attention = RotaryAttention(hidden_dim, num_heads, dropout)
+        self.shape_cross_norm = AdaRMSNorm(hidden_dim)
+        self.shape_cross_attention = RotaryAttention(hidden_dim, num_heads, dropout)
         self.ffn_norm = AdaRMSNorm(hidden_dim)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
@@ -190,10 +192,12 @@ class RotaryFlowBlock(nn.Module):
     def forward(
         self,
         token: torch.Tensor,
-        memory: torch.Tensor,
+        center_memory: torch.Tensor,
+        shape_memory: torch.Tensor,
         condition: torch.Tensor,
         token_positions: torch.Tensor,
-        memory_positions: torch.Tensor,
+        center_positions: torch.Tensor,
+        shape_positions: torch.Tensor,
         self_attention_mask: torch.Tensor | None = None,
         action_condition: torch.Tensor | None = None,
         degree_condition: torch.Tensor | None = None,
@@ -223,8 +227,15 @@ class RotaryFlowBlock(nn.Module):
             normalized, normalized, token_positions, token_positions, self_attention_mask
         )
         token = token + self.residual_dropout(update) * gate
-        normalized, gate = self.cross_norm(token, condition)
-        update = self.cross_attention(normalized, memory, token_positions, memory_positions)
+        normalized, gate = self.center_cross_norm(token, condition)
+        update = self.center_cross_attention(
+            normalized, center_memory, token_positions, center_positions,
+        )
+        token = token + self.residual_dropout(update) * gate
+        normalized, gate = self.shape_cross_norm(token, condition)
+        update = self.shape_cross_attention(
+            normalized, shape_memory, token_positions, shape_positions,
+        )
         token = token + self.residual_dropout(update) * gate
         normalized, gate = self.ffn_norm(token, condition)
         return token + self.residual_dropout(self.ffn(normalized)) * gate
