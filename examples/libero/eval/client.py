@@ -649,6 +649,7 @@ def main() -> None:
     client = InferenceClient(host=args.host, port=args.port)
     total_episodes = 0
     total_successes = 0
+    total_server_successes = 0
     total_progress = 0.0
     task_results: list[dict[str, Any]] = []
 
@@ -680,6 +681,7 @@ def main() -> None:
             total_goals = len(env.env.parsed_problem["goal_state"])
             task_episodes = 0
             task_successes = 0
+            task_server_successes = 0
             task_progress = 0.0
             episode_results: list[dict[str, Any]] = []
 
@@ -793,6 +795,9 @@ def main() -> None:
                 if env_success:
                     task_successes += 1
                     total_successes += 1
+                if server_done:
+                    task_server_successes += 1
+                    total_server_successes += 1
 
                 (
                     completed_goals,
@@ -832,6 +837,7 @@ def main() -> None:
                     "episode_id": episode_idx,
                     "init_state_id": init_state_id,
                     "success": env_success,
+                    "server_success": server_done,
                     "interrupted": interrupted,
                     "progress": progress,
                     "completed_subtasks": completed_subtasks,
@@ -850,6 +856,7 @@ def main() -> None:
                 "task_desc": task_description,
                 "total_goals": total_goals,
                 "success_rate": float(task_successes) / float(task_episodes),
+                "server_success_rate": float(task_server_successes) / float(task_episodes),
                 "progress_rate": float(task_progress) / float(task_episodes),
                 "num_episodes": task_episodes,
                 "episodes": episode_results,
@@ -861,6 +868,9 @@ def main() -> None:
     result = {
         "task_suite": args.task_suite_name,
         "success_rate": float(total_successes) / float(total_episodes) if total_episodes else 0.0,
+        "server_success_rate": (
+            float(total_server_successes) / float(total_episodes) if total_episodes else 0.0
+        ),
         "progress_rate": float(total_progress) / float(total_episodes) if total_episodes else 0.0,
         "total_episodes": total_episodes,
         "tasks": task_results,
