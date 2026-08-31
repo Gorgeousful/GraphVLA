@@ -1,7 +1,7 @@
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=1 \
 python -m script.server \
 --example libero \
---ckpt-path examples/libero/result/0830-pointdrop-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt \
+--ckpt-path examples/libero/result/0830-pointdrop-flowadarms_only-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt \
 --execute-chunk-len 5 \
 --progress-window 2 \
 --progress-threshold 0.85 \
@@ -11,7 +11,8 @@ python -m script.server \
 --sam-only \
 --locator-mode box
 
-
+# examples/libero/result/0830-pointdrop-flowadarms-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt
+# examples/libero/result/0830-pointdrop-flowadarms_only-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt
 # examples/libero/result/0830-pointdrop-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt 
 # examples/libero/result/0830-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt
 # examples/libero/result/0812-contactprofile-basetcpfinger-cls4-rolechain-current-progress-sam-6_7_8-rel/checkpoints/step_30000.pt \
@@ -43,7 +44,7 @@ python -m examples.libero.eval.client \
 # libero_custom
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom \
---tasks 3 \
+--tasks 7 \
 --num-trials-per-task 10 \
 --trials-init-state 0 1 2 3 4 5 6 8 10 11 \
 --max-steps 1000 \

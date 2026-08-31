@@ -34,7 +34,7 @@ class ModelConfig:
     flow_mode: str = "point_only"
     semantic_injection_mode: str = "flow_adarms_only"
     action_delta: bool = False
-    point_coordinate_frame: str = "tcp_relative"
+    point_coordinate_frame: str = "tcp_relative" # tcp_relative
     gripper_flow_weight: float = 1.0
     contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {

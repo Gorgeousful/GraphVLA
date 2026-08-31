@@ -7,6 +7,6 @@ src/training/training.py \
 CUDA_VISIBLE_DEVICES=0,1 \
 WANDB_MODE=offline \
 torchrun --nproc_per_node 2 \
---master_port 29502 \
+--master_port 29501 \
 src/training/training.py \
 --example libero
