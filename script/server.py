@@ -245,24 +245,6 @@ class TopLevelTaskPlanner:
         return [] if score is None else [(0, score)]
 
     @staticmethod
-    def _contact_score_text(
-        outputs: Mapping[str, Any], frame_count: int | None = None,
-    ) -> str:
-        value = outputs.get("is_contact")
-        if value is None:
-            return "contact_score=-"
-        if isinstance(value, torch.Tensor):
-            value = value.detach().cpu().numpy()
-        scores = np.asarray(value, dtype=float)
-        if scores.ndim >= 2 and scores.shape[0] == 1:
-            scores = scores[0]
-        scores = scores.reshape(-1)
-        if frame_count is not None:
-            scores = scores[:frame_count]
-        text = ", ".join("-" if not np.isfinite(score) else f"{score:.3f}" for score in scores)
-        return "contact_score=-" if not text else f"contact_score[{len(scores)}]=[{text}]"
-
-    @staticmethod
     def _output_score(outputs: Mapping[str, Any], name: str) -> float | None:
         value = outputs.get(name)
         if value is None:
@@ -1314,11 +1296,6 @@ class InferenceServer:
         else:
             actions = self.embodiment.to_action(outputs, request, session)
             executed_actions = actions[:self.execute_chunk_len]
-            cs.print(
-                f"step={session.frame_index} "
-                f"{self.planner._contact_score_text(outputs, len(executed_actions))}",
-                markup=False,
-            )
         gripper_actions = [float(action[-1]) for action in executed_actions]
         gripper_text = ", ".join(f"{g:.3f}" for g in gripper_actions)
         cs.print(

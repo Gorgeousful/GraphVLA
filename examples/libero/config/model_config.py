@@ -35,11 +35,9 @@ class ModelConfig:
     action_delta: bool = False
     point_coordinate_frame: str = "tcp_relative"
     gripper_flow_weight: float = 1.0
-    contact_pos_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_progress": 0.5,
-        "loss_contact": 0.0,
     })
 
     def __post_init__(self) -> None:

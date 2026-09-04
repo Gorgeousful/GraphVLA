@@ -194,8 +194,6 @@ class SubtaskBoundryPadding(TransformFn):
         "gripper_points_xyz",
         "state",
         "action",
-        "is_contact",
-        "is_contact_soft",
     )
 
     def __call__(self, data: DataDict) -> DataDict:
@@ -739,7 +737,6 @@ class CustomTransform(TransformFn):
         future_points = actor_points[input_horizon:input_horizon + future_horizon]
         future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
         trajectory = torch.cat([future_points.flatten(1), future_gripper], dim=-1)
-        target_suffix = "_soft" if bool(self._extra_value("use_soft", False)) else ""
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
@@ -751,10 +748,6 @@ class CustomTransform(TransformFn):
                     data["subtask_progress"], device=entity_points.device,
                     dtype=entity_points.dtype,
                 )[history_horizon].reshape(1),
-                "is_contact": torch.as_tensor(
-                    data[f"is_contact{target_suffix}"], device=entity_points.device,
-                    dtype=entity_points.dtype,
-                )[input_horizon:input_horizon + future_horizon],
             },
         }
         if "tcp_origin" in data:

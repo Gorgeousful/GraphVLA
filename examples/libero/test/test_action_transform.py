@@ -13,22 +13,7 @@ from src.dataset.transform import (
     CustomTransform,
     Normalize,
     RandomCollapseNodePoints,
-    SubtaskBoundryPadding,
 )
-
-
-def test_subtask_boundary_padding_clamps_contact_targets() -> None:
-    data = {
-        "history_horizon": 1,
-        "subtask_id": torch.tensor([0, 0, 1, 1]),
-        "is_contact": torch.tensor([0.0, 1.0, 0.0, 0.0]),
-        "is_contact_soft": torch.tensor([0.1, 0.9, 0.2, 0.3]),
-    }
-
-    result = SubtaskBoundryPadding()(data)
-
-    torch.testing.assert_close(result["is_contact"], torch.tensor([0.0, 1.0, 1.0, 1.0]))
-    torch.testing.assert_close(result["is_contact_soft"], torch.tensor([0.1, 0.9, 0.9, 0.9]))
 
 
 def test_center_on_current_tcp_uses_one_origin_for_the_entire_window() -> None:
@@ -107,7 +92,6 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     transform = CustomTransform(
         mode="build_model_input",
         extra={
-            "use_soft": False,
             "actor_point_indices": actor_point_indices,
             "norm_stats": {
                 "level": "suite",
@@ -131,7 +115,6 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
         "future_horizon": 2,
         "action": action,
         "subtask_progress": torch.linspace(0.0, 1.0, num_frames),
-        "is_contact": torch.tensor([1.0, 1.0, 0.0, 1.0]),
     }
     result = transform.build_model_input(data)
     torch.testing.assert_close(
@@ -146,9 +129,6 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
     assert result["gripper_closedness_history"].shape == (2, 1)
     torch.testing.assert_close(result["target"]["subtask_progress"], torch.tensor([1.0 / 3.0]))
-    torch.testing.assert_close(
-        result["target"]["is_contact"], torch.tensor([0.0, 1.0]),
-    )
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
