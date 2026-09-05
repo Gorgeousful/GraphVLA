@@ -105,11 +105,26 @@ class RotaryAttention(nn.Module):
 
 
 class RotaryEncoderBlock(nn.Module):
-    def __init__(self, hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> None:
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+        condition_dim: int | None = None,
+    ) -> None:
         super().__init__()
-        self.attention_norm = nn.LayerNorm(hidden_dim)
+        self.attention_norm = (
+            nn.LayerNorm(hidden_dim)
+            if condition_dim is None
+            else AdaptiveLayerNorm(hidden_dim, condition_dim)
+        )
         self.attention = RotaryAttention(hidden_dim, num_heads, dropout)
-        self.ffn_norm = nn.LayerNorm(hidden_dim)
+        self.ffn_norm = (
+            nn.LayerNorm(hidden_dim)
+            if condition_dim is None
+            else AdaptiveLayerNorm(hidden_dim, condition_dim)
+        )
         self.ffn = nn.Sequential(
             nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
             nn.GELU(),
@@ -125,8 +140,14 @@ class RotaryEncoderBlock(nn.Module):
         key_mask: torch.Tensor | None = None,
         use_sdpa: bool = False,
         attention_mask: torch.Tensor | None = None,
+        condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        normalized = self.attention_norm(token)
+        if isinstance(self.attention_norm, AdaptiveLayerNorm):
+            if condition is None:
+                raise ValueError("condition is required for an adaptive RotaryEncoderBlock")
+            normalized = self.attention_norm(token, condition)
+        else:
+            normalized = self.attention_norm(token)
         token = token + self.residual_dropout(self.attention(
             normalized,
             normalized,
@@ -136,7 +157,35 @@ class RotaryEncoderBlock(nn.Module):
             key_mask=key_mask,
             use_sdpa=use_sdpa,
         ))
-        return token + self.residual_dropout(self.ffn(self.ffn_norm(token)))
+        if isinstance(self.ffn_norm, AdaptiveLayerNorm):
+            assert condition is not None
+            normalized = self.ffn_norm(token, condition)
+        else:
+            normalized = self.ffn_norm(token)
+        return token + self.residual_dropout(self.ffn(normalized))
+
+
+class AdaptiveLayerNorm(nn.Module):
+    """LayerNorm with identity-initialized, condition-dependent scale and shift."""
+
+    def __init__(self, hidden_dim: int, condition_dim: int) -> None:
+        super().__init__()
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(condition_dim, hidden_dim * 2),
+        )
+        nn.init.zeros_(self.modulation[-1].weight)
+        nn.init.zeros_(self.modulation[-1].bias)
+
+    def forward(self, token: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        if condition.shape != (token.shape[0], self.modulation[-1].in_features):
+            raise ValueError(
+                f"Expected condition [{token.shape[0]},{self.modulation[-1].in_features}], "
+                f"got {condition.shape}"
+            )
+        scale, shift = self.modulation(condition).unsqueeze(1).chunk(2, dim=-1)
+        return self.norm(token) * (1.0 + scale) + shift
 
 
 class AdaRMSNorm(nn.Module):

@@ -35,7 +35,7 @@ class TrainingConfig:
     save_dir: str | Path | None = "examples/libero/result"
     log_interval: int = 100
     save_interval: int = 1_000
-    keep_period: int = 0 # 10_000
+    keep_period: int = 15_000 # 10_000
 
     # others
     seed: int = 42
@@ -49,7 +49,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0903-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel"
+    wandb_name: str | None = "0904-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel"
 
 
     def to_kwargs(self) -> dict[str, Any]:

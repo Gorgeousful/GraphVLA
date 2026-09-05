@@ -7,23 +7,50 @@ import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
 from src.common.schema import NUM_ENTITIES, POINT_FEATURE_DIM
-from src.model.temporal import RotaryEncoderBlock
+from src.model.temporal import AdaptiveLayerNorm, RotaryEncoderBlock
 
 
-def _encoder_block(hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> nn.Module:
-    return nn.TransformerEncoderLayer(
-        hidden_dim,
-        num_heads,
-        int(hidden_dim * mlp_ratio),
-        dropout,
-        activation="gelu",
-        batch_first=True,
-        norm_first=True,
-    )
+class ConditionedEncoderBlock(nn.Module):
+    """Pre-norm transformer block with condition-dependent normalization."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+        condition_dim: int,
+    ) -> None:
+        super().__init__()
+        self.attention_norm = AdaptiveLayerNorm(hidden_dim, condition_dim)
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
+        self.ffn_norm = AdaptiveLayerNorm(hidden_dim, condition_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(int(hidden_dim * mlp_ratio), hidden_dim),
+        )
+        self.residual_dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        token: torch.Tensor,
+        condition: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        normalized = self.attention_norm(token, condition)
+        update = self.attention(
+            normalized, normalized, normalized,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )[0]
+        token = token + self.residual_dropout(update)
+        return token + self.residual_dropout(self.ffn(self.ffn_norm(token, condition)))
 
 
 class EntityEncoder(nn.Module):
-    """Alternate local CLS/role/point attention with register-only or dense global attention."""
+    """Alternate role-conditioned local attention with task-conditioned global attention."""
 
     def __init__(
         self,
@@ -79,17 +106,20 @@ class EntityEncoder(nn.Module):
         )
         self.max_history = max_history
         self.actor_keypoint_embedding = nn.Embedding(actor_num_points, hidden_dim)
-        self.role_type_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
+        self.role_condition_embedding = nn.Embedding(NUM_ENTITIES, hidden_dim)
         self.action_projection = nn.Linear(condition_dim, hidden_dim)
         self.degree_projection = nn.Linear(condition_dim, hidden_dim)
-        self.scene_type_embedding = nn.Embedding(2, hidden_dim)
         self.null_degree_token = nn.Parameter(torch.zeros(1, hidden_dim))
         self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, cls_token_num, hidden_dim))
         self.local_blocks = nn.ModuleList([
-            _encoder_block(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
+            ConditionedEncoderBlock(
+                hidden_dim, num_heads, mlp_ratio, dropout, condition_dim=hidden_dim,
+            ) for _ in range(num_layers)
         ])
         self.global_blocks = nn.ModuleList([
-            RotaryEncoderBlock(hidden_dim, num_heads, mlp_ratio, dropout) for _ in range(num_layers)
+            RotaryEncoderBlock(
+                hidden_dim, num_heads, mlp_ratio, dropout, condition_dim=hidden_dim * 2,
+            ) for _ in range(num_layers)
         ])
         self.norm = nn.LayerNorm(hidden_dim)
         self.gradient_checkpointing = False
@@ -116,10 +146,6 @@ class EntityEncoder(nn.Module):
         tokens[:, :, 0, :self.actor_num_points] += self.actor_keypoint_embedding(actor_ids)[None, None]
 
         cls = self.cls_token.expand(batch, steps, entities, -1, -1)
-        role_tokens = self.role_type_embedding(
-            torch.arange(entities, device=points.device)
-        )[None, None, :, None].expand(batch, steps, -1, -1, -1)
-        scene_types = self.scene_type_embedding(torch.arange(2, device=points.device))[None]
         action_token = self.action_projection(scene_condition[:, 0])
         projected_degree = self.degree_projection(scene_condition[:, 1])
         has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
@@ -128,30 +154,25 @@ class EntityEncoder(nn.Module):
             projected_degree,
             self.null_degree_token.expand(batch, -1),
         )
-        scene_tokens = torch.stack([action_token, degree_token], dim=1) + scene_types
+        semantic_memory = torch.stack([action_token, degree_token], dim=1)
+        task_condition = torch.cat([action_token, degree_token], dim=-1)
+        role_condition = self.role_condition_embedding(
+            torch.arange(entities, device=points.device)
+        )[None, None].expand(batch, steps, -1, -1).reshape(batch * steps * entities, -1)
         history_positions = torch.arange(1 - steps, 1, device=points.device)
-        global_positions = torch.cat([
-            history_positions.repeat_interleave(entities * self.cls_token_num),
-            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
-        ])
+        global_positions = history_positions.repeat_interleave(entities * self.cls_token_num)
         global_entity_tokens = steps * entities * self.cls_token_num
-        dense_positions = torch.cat([
-            history_positions.repeat_interleave(
-                entities * (self.cls_token_num + num_points)
-            ),
-            torch.zeros(2, device=points.device, dtype=history_positions.dtype),
-        ])
+        dense_positions = history_positions.repeat_interleave(
+            entities * (self.cls_token_num + num_points)
+        )
         dense_entity_tokens = steps * entities * (self.cls_token_num + num_points)
         dense_key_mask = torch.cat([
-            torch.cat([
-                torch.ones(
-                    batch, steps, entities, self.cls_token_num,
-                    dtype=torch.bool, device=points.device,
-                ),
-                point_mask.bool(),
-            ], dim=3).reshape(batch, dense_entity_tokens),
-            torch.ones(batch, 2, dtype=torch.bool, device=points.device),
-        ], dim=1)
+            torch.ones(
+                batch, steps, entities, self.cls_token_num,
+                dtype=torch.bool, device=points.device,
+            ),
+            point_mask.bool(),
+        ], dim=3).reshape(batch, dense_entity_tokens)
         register_attention_mask = None
         dense_attention_mask = None
         if self.node_attention_mode == "role_chain":
@@ -159,7 +180,6 @@ class EntityEncoder(nn.Module):
                 role_ids = torch.arange(entities, device=points.device).repeat_interleave(
                     tokens_per_entity
                 ).repeat(steps)
-                role_ids = torch.cat([role_ids, role_ids.new_full((2,), -1)])
                 is_entity_query = role_ids >= 0
                 is_entity_key = role_ids >= 0
                 blocks_actor_target = (role_ids[:, None] - role_ids[None, :]).abs() > 1
@@ -172,61 +192,55 @@ class EntityEncoder(nn.Module):
         for layer_index, (local_block, global_block) in enumerate(
             zip(self.local_blocks, self.global_blocks, strict=True)
         ):
-            local = torch.cat([cls, role_tokens, tokens], dim=3)
+            local = torch.cat([cls, tokens], dim=3)
             local = local.reshape(
-                batch * steps * entities, num_points + self.cls_token_num + 1, -1
+                batch * steps * entities, num_points + self.cls_token_num, -1
             )
             padding = torch.cat([
                 torch.zeros(
-                    batch, steps, entities, self.cls_token_num + 1,
+                    batch, steps, entities, self.cls_token_num,
                     dtype=torch.bool, device=points.device,
                 ),
                 ~point_mask.bool(),
             ], dim=3).reshape(
-                batch * steps * entities, num_points + self.cls_token_num + 1
+                batch * steps * entities, num_points + self.cls_token_num
             )
             if self.gradient_checkpointing and self.training:
                 local = checkpoint(
-                    local_block, local, src_key_padding_mask=padding,
+                    local_block, local, role_condition, padding,
                     use_reentrant=False, preserve_rng_state=True,
                 )
             else:
-                local = local_block(local, src_key_padding_mask=padding)
+                local = local_block(local, role_condition, padding)
             local = local.view(
-                batch, steps, entities, num_points + self.cls_token_num + 1, -1
+                batch, steps, entities, num_points + self.cls_token_num, -1
             )
             cls = local[:, :, :, :self.cls_token_num]
-            role_tokens = local[:, :, :, self.cls_token_num:self.cls_token_num + 1]
-            tokens = local[:, :, :, self.cls_token_num + 1:]
+            tokens = local[:, :, :, self.cls_token_num:]
             if self.global_layer_types[layer_index] == 0:
-                global_cls = torch.cat(
-                    [cls.reshape(batch, global_entity_tokens, -1), scene_tokens], dim=1
-                )
+                global_cls = cls.reshape(batch, global_entity_tokens, -1)
                 if self.gradient_checkpointing and self.training:
                     global_cls = checkpoint(
                         global_block, global_cls, global_positions, None, False,
-                        register_attention_mask,
+                        register_attention_mask, task_condition,
                         use_reentrant=False, preserve_rng_state=True,
                     )
                 else:
                     global_cls = global_block(
                         global_cls, global_positions,
                         attention_mask=register_attention_mask,
+                        condition=task_condition,
                     )
-                cls = global_cls[:, :global_entity_tokens].view(
+                cls = global_cls.view(
                     batch, steps, entities, self.cls_token_num, -1
                 )
-                scene_tokens = global_cls[:, global_entity_tokens:]
                 continue
 
-            dense = torch.cat([
-                torch.cat([cls, tokens], dim=3).reshape(batch, dense_entity_tokens, -1),
-                scene_tokens,
-            ], dim=1)
+            dense = torch.cat([cls, tokens], dim=3).reshape(batch, dense_entity_tokens, -1)
             if self.gradient_checkpointing and self.training:
                 dense = checkpoint(
                     global_block, dense, dense_positions, dense_key_mask,
-                    dense_attention_mask is None, dense_attention_mask,
+                    dense_attention_mask is None, dense_attention_mask, task_condition,
                     use_reentrant=False, preserve_rng_state=True,
                 )
             else:
@@ -236,14 +250,14 @@ class EntityEncoder(nn.Module):
                     key_mask=dense_key_mask,
                     use_sdpa=dense_attention_mask is None,
                     attention_mask=dense_attention_mask,
+                    condition=task_condition,
                 )
-            dense_entities = dense[:, :dense_entity_tokens].view(
+            dense_entities = dense.view(
                 batch, steps, entities, self.cls_token_num + num_points, -1
             )
             cls = dense_entities[:, :, :, :self.cls_token_num]
             tokens = dense_entities[:, :, :, self.cls_token_num:]
             tokens = tokens.masked_fill(~point_mask.bool().unsqueeze(-1), 0.0)
-            scene_tokens = dense[:, dense_entity_tokens:]
 
         current_cls = cls[:, -1]
         relation_local = current_cls[:, 1:3].flatten(1, 2)
@@ -255,5 +269,5 @@ class EntityEncoder(nn.Module):
         return (
             self.norm(entity_memory),
             self.norm(relation_local),
-            self.norm(scene_tokens),
+            self.norm(semantic_memory),
         )
