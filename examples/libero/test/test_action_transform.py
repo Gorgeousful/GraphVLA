@@ -189,8 +189,8 @@ def test_model_config_rejects_invalid_history_frames(history_frames: list[int]) 
 @pytest.mark.parametrize(
     ("encoder_output_type", "memory_tokens", "expected_positions"),
     [
-        ("current", 8, [0] * 8),
-        ("all", 14, [-1] * 6 + [0] * 8),
+        ("current", 6, [0] * 6),
+        ("all", 12, [-1] * 6 + [0] * 6),
     ],
 )
 def test_encoder_output_type_controls_model_memory(
@@ -214,7 +214,7 @@ def test_encoder_output_type_controls_model_memory(
         mlp_ratio=2.0,
         dropout=0.0,
     ).eval()
-    memory, relation_local = model.encoder(
+    memory, relation_local, semantic_memory = model.encoder(
         torch.randn(2, 2, 3, 4, 3),
         torch.ones(2, 2, 3, 4, dtype=torch.bool),
         torch.randn(2, 2, 8),
@@ -222,6 +222,7 @@ def test_encoder_output_type_controls_model_memory(
 
     assert memory.shape == (2, memory_tokens, 32)
     assert relation_local.shape == (2, 4, 32)
+    assert semantic_memory.shape == (2, 2, 32)
     assert model._memory_positions(memory).tolist() == expected_positions
 
 
@@ -261,6 +262,21 @@ def test_build_model_output_unnormalizes_action_and_points() -> None:
         result["outputs"]["point_plan"][0, 0, 0], torch.tensor([1.0, 3.0, 5.0]),
     )
     torch.testing.assert_close(result["outputs"]["gripper_plan"], torch.full((1, 2), 7.0))
+
+
+def test_build_model_output_keeps_raw_gripper_when_action_stats_are_disabled() -> None:
+    transform = CustomTransform(
+        mode="build_model_output",
+        extra={
+            "norm_stats": {"level": "suite", "norm_stats": {}},
+            "action_field": None,
+        },
+    )
+    gripper_plan = torch.tensor([[-1.0, 1.0]])
+
+    result = transform.build_model_output({"outputs": {"gripper_plan": gripper_plan.clone()}})
+
+    torch.testing.assert_close(result["outputs"]["gripper_plan"], gripper_plan)
 
 
 def test_build_model_output_restores_tcp_relative_points_to_camera_coordinates() -> None:

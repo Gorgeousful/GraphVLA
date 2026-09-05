@@ -32,6 +32,35 @@ def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
             tasks[int(row["task_index"])] = str(row["task"])
     return tasks
 
+
+def select_first_episodes_per_task(
+    dataset_dir: str | Path,
+    task_indices: list[int],
+    episodes_per_task: int,
+) -> list[int]:
+    tasks = load_lerobot_tasks(dataset_dir)
+    selected = {task_index: [] for task_index in task_indices}
+    task_by_name = {task: task_index for task_index, task in tasks.items()}
+    path = Path(dataset_dir) / "meta" / "episodes.jsonl"
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+            task_index = task_by_name[str(row["tasks"][0])]
+            if task_index in selected and len(selected[task_index]) < episodes_per_task:
+                selected[task_index].append(int(row["episode_index"]))
+
+    incomplete = {
+        task_index: len(episodes)
+        for task_index, episodes in selected.items()
+        if len(episodes) != episodes_per_task
+    }
+    if incomplete:
+        raise ValueError(
+            f"Expected {episodes_per_task} episodes per task, got {incomplete}"
+        )
+    return [episode for task_index in task_indices for episode in selected[task_index]]
+
+
 @dataclass
 class DataConfig:
     dataset_dir: Path
@@ -58,12 +87,12 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_with_depth_6_7_8_0807_rel",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
 )
 LIBERO_NORM_STATS_PATH = Path(LIBERO_DATASET_DIR) / "meta" / "norm_stats_suite.json"
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
-LIBERO_ACTION_FIELD = "actions_camera" if LIBERO_ACTION_DELTA else "absolute_actions_camera"
-LIBERO_ACTION_STATS_FIELD = "camera_action" if LIBERO_ACTION_DELTA else "absolute_camera_action"
+# Point-only training consumes only the unchanged gripper command in action[..., -1].
+LIBERO_ACTION_FIELD = "action"
 LIBERO_POINT_COORDINATE_FRAME = LIBERO_MODEL_CONFIG.point_coordinate_frame
 LIBERO_POINT_STATS_FIELD = (
     "tcp_relative_xyz" if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else "camera_xyz"
@@ -71,7 +100,7 @@ LIBERO_POINT_STATS_FIELD = (
 LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
-LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.25 # baseline 0
+LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.0 # baseline 0
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -130,7 +159,6 @@ LIBERO_TRANSFORM = (
         field_map={
             "node_points_xyz": LIBERO_POINT_STATS_FIELD,
             "gripper_points_xyz": LIBERO_POINT_STATS_FIELD,
-            "action": LIBERO_ACTION_STATS_FIELD,
         },
         use_quantiles=True,
         quantile_to_neg_one_one=True,
@@ -155,21 +183,27 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats_path": LIBERO_NORM_STATS_PATH,
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
-            "action_field": LIBERO_ACTION_STATS_FIELD,
+            "action_field": None,
             "point_stats_field": LIBERO_POINT_STATS_FIELD,
             "point_coordinate_frame": LIBERO_POINT_COORDINATE_FRAME,
         },
     ),
 )
 
-TASKS = None
+TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+EPISODES = select_first_episodes_per_task(
+    LIBERO_DATASET_DIR,
+    TASKS,
+    episodes_per_task=10,
+)
 
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=LIBERO_DATASET_DIR,
+    episodes=EPISODES,
     horizon=LIBERO_HORIZON,
     load_videos=False,
     transforms=LIBERO_TRANSFORM,
     out_transforms=LIBERO_OUT_TRANSFORM,
     action_delta=LIBERO_ACTION_DELTA,
-    tasks=TASKS
+    tasks=TASKS,
 )

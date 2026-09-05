@@ -572,17 +572,17 @@ class CustomTransform(TransformFn):
         outputs = data.get("outputs", data)
         if not isinstance(outputs, Mapping):
             raise TypeError("build_model_output expects data or data['outputs'] to be a mapping")
-        action_field = str(self._extra_value("action_field", "camera_action"))
+        action_field = self._extra_value("action_field", "camera_action")
         point_stats_field = str(self._extra_value("point_stats_field", "camera_xyz"))
         point_coordinate_frame = str(self._extra_value("point_coordinate_frame", "camera"))
-        if "gripper_plan" in outputs:
+        if "gripper_plan" in outputs and action_field is not None:
             gripper_plan = outputs["gripper_plan"].clone()
             action_plan = gripper_plan.new_zeros((*gripper_plan.shape, ACTION_DIM))
             action_plan[..., -1] = gripper_plan
             outputs["gripper_plan"] = self._unnormalize_output_field(
                 action_plan, field=action_field, context=data,
             )[..., -1]
-        if "action_plan" in outputs:
+        if "action_plan" in outputs and action_field is not None:
             outputs["action_plan"] = self._unnormalize_output_field(
                 outputs["action_plan"].clone(),
                 field=action_field,

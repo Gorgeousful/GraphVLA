@@ -23,6 +23,17 @@ class _FeatureOnlyLeRobotDataset(LeRobotDataset):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        if self.episodes:
+            compact_index = self.episode_data_index
+            index_size = max(self.meta.total_episodes, max(self.episodes) + 1)
+            expanded_index = {
+                key: torch.zeros(index_size, dtype=value.dtype)
+                for key, value in compact_index.items()
+            }
+            for subset_index, episode_index in enumerate(self.episodes):
+                for key in expanded_index:
+                    expanded_index[key][episode_index] = compact_index[key][subset_index]
+            self.episode_data_index = expanded_index
         requested = set(self.delta_indices or {})
         requested.update({"episode_index", "frame_index", "task_index", "timestamp", "index"})
         unused = [name for name in self.hf_dataset.column_names if name not in requested]
