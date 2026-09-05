@@ -31,7 +31,6 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     sample_steps: int = 10
-    flow_mode: str = "point_only"
     action_delta: bool = False
     point_coordinate_frame: str = "tcp_relative"
     gripper_flow_weight: float = 1.0

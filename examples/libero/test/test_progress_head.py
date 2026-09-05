@@ -24,7 +24,6 @@ def _model(
         mlp_ratio=2.0,
         dropout=0.0,
         sample_steps=2,
-        flow_mode="point_only",
         gripper_flow_weight=gripper_flow_weight,
     )
 
@@ -57,8 +56,13 @@ def test_progress_head_forward_backward_and_sample() -> None:
         "loss", "loss_flow", "loss_flow_points", "loss_flow_gripper",
         "loss_progress",
     }
-    assert model.progress_head[0].in_features == 2 * model.cls_token_num * 32
+    assert model.progress_head[0].in_features == (2 * model.cls_token_num + 2) * 32
     assert any(parameter.grad is not None for parameter in model.progress_head.parameters())
+    assert all(
+        block.semantic_norm.modulation.weight.grad is not None
+        and torch.count_nonzero(block.semantic_norm.modulation.weight.grad) > 0
+        for block in model.flow.blocks
+    )
 
     outputs = model.eval().sample(
         batch,

@@ -100,7 +100,7 @@ class EntityEncoder(nn.Module):
         points: torch.Tensor,
         point_mask: torch.Tensor,
         scene_condition: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
             raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
         batch, steps, entities, num_points, _ = points.shape
@@ -252,5 +252,8 @@ class EntityEncoder(nn.Module):
             if self.encoder_output_type == "current"
             else cls.flatten(1, 3)
         )
-        memory = torch.cat([entity_memory, scene_tokens], dim=1)
-        return self.norm(memory), self.norm(relation_local)
+        return (
+            self.norm(entity_memory),
+            self.norm(relation_local),
+            self.norm(scene_tokens),
+        )

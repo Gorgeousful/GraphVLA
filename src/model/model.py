@@ -15,9 +15,6 @@ from src.model.flow_matching import make_scheduler, sample_time, training_path
 from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
 
 
-FLOW_MODES = {"joint", "point_then_action", "action_only", "point_only"}
-
-
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
     if dim % 2:
         raise ValueError(f"Flow time embedding dimension must be even, got {dim}")
@@ -68,6 +65,7 @@ class JointTrajectoryFlow(nn.Module):
         state: torch.Tensor,
         time: torch.Tensor,
         memory: torch.Tensor,
+        semantic_memory: torch.Tensor,
         history_state: torch.Tensor,
         memory_positions: torch.Tensor,
     ) -> torch.Tensor:
@@ -86,6 +84,15 @@ class JointTrajectoryFlow(nn.Module):
             raise ValueError(
                 f"Expected memory positions [{memory.shape[1]}], got {memory_positions.shape}"
             )
+        if (
+            semantic_memory.ndim != 3
+            or semantic_memory.shape[:2] != (state.shape[0], 2)
+            or semantic_memory.shape[2] != memory.shape[2]
+        ):
+            raise ValueError(
+                f"Expected semantic memory [{state.shape[0]},2,{memory.shape[2]}], "
+                f"got {semantic_memory.shape}"
+            )
 
         token = self.input_projection(torch.cat([history_state, state], dim=1))
         condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
@@ -99,14 +106,18 @@ class JointTrajectoryFlow(nn.Module):
         memory_positions = memory_positions.to(
             device=memory.device, dtype=token_positions.dtype,
         )
+        semantic_positions = torch.zeros(
+            semantic_memory.shape[1], device=semantic_memory.device,
+            dtype=token_positions.dtype,
+        )
         for block in self.blocks:
             token = checkpoint(
-                block, token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
+                block, token, memory, semantic_memory, condition, token_positions,
+                memory_positions, semantic_positions, self.self_attention_mask,
                 use_reentrant=False, preserve_rng_state=True,
             ) if self.gradient_checkpointing and self.training else block(
-                token, memory, condition, token_positions, memory_positions,
-                self.self_attention_mask,
+                token, memory, semantic_memory, condition, token_positions,
+                memory_positions, semantic_positions, self.self_attention_mask,
             )
         hidden, _ = self.norm(token, condition)
         return self.output_projection(hidden[:, self.history_steps:])
@@ -133,7 +144,6 @@ class GraphFlowModel(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         sample_steps: int = 10,
-        flow_mode: str = "point_only",
         gripper_flow_weight: float = 1.0,
         weights: dict[str, float] | None = None,
     ) -> None:
@@ -143,8 +153,6 @@ class GraphFlowModel(nn.Module):
         self.trajectory_dim = self.actor_num_points * 3 + 1
         if num_points < self.actor_num_points:
             raise ValueError(f"num_points must be at least {self.actor_num_points}, got {num_points}")
-        if flow_mode != "point_only":
-            raise ValueError(f"Legacy trajectory model only supports flow_mode='point_only', got {flow_mode!r}")
         if encoder_output_type not in ("current", "all"):
             raise ValueError(
                 "encoder_output_type must be 'current' or 'all', "
@@ -158,7 +166,6 @@ class GraphFlowModel(nn.Module):
         self.history_steps = history_horizon + 1
         self.future_horizon = future_horizon
         self.sample_steps = sample_steps
-        self.flow_mode = flow_mode
         self.encoder_output_type = encoder_output_type
         self.gripper_flow_weight = float(gripper_flow_weight)
         self.weights = dict(weights or {})
@@ -174,7 +181,7 @@ class GraphFlowModel(nn.Module):
             flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.progress_head = nn.Sequential(
-            nn.Linear(hidden_dim * 2 * cls_token_num, hidden_dim),
+            nn.Linear(hidden_dim * (2 * cls_token_num + 2), hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
@@ -183,7 +190,9 @@ class GraphFlowModel(nn.Module):
         self.encoder.gradient_checkpointing = enabled
         self.flow.gradient_checkpointing = enabled
 
-    def _encode(self, batch: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+    def _encode(
+        self, batch: dict[str, Any],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         points = batch["entity_points"]
         if points.shape[1] != self.history_steps or points.shape[3] != self.num_points:
             raise ValueError(
@@ -210,10 +219,10 @@ class GraphFlowModel(nn.Module):
         history_positions = torch.arange(
             1 - self.history_steps, 1, device=memory.device,
         ).repeat_interleave(NUM_ENTITIES * self.cls_token_num)
-        return torch.cat([history_positions, history_positions.new_zeros(2)])
+        return history_positions
 
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        memory, relation_local = self._encode(batch)
+        memory, relation_local, semantic_memory = self._encode(batch)
         target = batch["target"]
         trajectory = target["trajectory"]
         if trajectory.shape[1:] != (self.future_horizon, self.trajectory_dim):
@@ -223,7 +232,8 @@ class GraphFlowModel(nn.Module):
         time = sample_time(trajectory.shape[0], trajectory.device)
         state, target_velocity, _ = training_path(trajectory, time)
         velocity = self.flow(
-            state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+            state, time, memory, semantic_memory, self._actor_history(batch),
+            self._memory_positions(memory),
         )
         squared_error = (velocity - target_velocity).square()
         point_squared_error = squared_error[..., :-1]
@@ -238,7 +248,8 @@ class GraphFlowModel(nn.Module):
             + self.gripper_flow_weight * gripper_squared_error.numel()
         )
 
-        progress = torch.sigmoid(self.progress_head(relation_local.flatten(1)))
+        progress_input = torch.cat([relation_local, semantic_memory], dim=1).flatten(1)
+        progress = torch.sigmoid(self.progress_head(progress_input))
         loss_progress = F.smooth_l1_loss(
             progress,
             target["subtask_progress"].to(dtype=progress.dtype),
@@ -262,7 +273,7 @@ class GraphFlowModel(nn.Module):
         num_steps: int | None = None,
         noise: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
-        memory, relation_local = self._encode(batch)
+        memory, relation_local, semantic_memory = self._encode(batch)
         batch_size = batch["entity_points"].shape[0]
         state = noise
         if state is None:
@@ -279,7 +290,8 @@ class GraphFlowModel(nn.Module):
         for timestep in scheduler.timesteps:
             time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
             velocity = self.flow(
-                state, time, memory, self._actor_history(batch), self._memory_positions(memory),
+                state, time, memory, semantic_memory, self._actor_history(batch),
+                self._memory_positions(memory),
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
 
@@ -292,5 +304,7 @@ class GraphFlowModel(nn.Module):
                 point_plan.shape[:-1], dtype=torch.bool, device=point_plan.device,
             ),
             "gripper_plan": state[..., -1],
-            "subtask_progress": torch.sigmoid(self.progress_head(relation_local.flatten(1))),
+            "subtask_progress": torch.sigmoid(self.progress_head(
+                torch.cat([relation_local, semantic_memory], dim=1).flatten(1)
+            )),
         }

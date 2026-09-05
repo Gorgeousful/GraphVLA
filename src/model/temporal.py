@@ -156,7 +156,7 @@ class AdaRMSNorm(nn.Module):
 
 
 class RotaryFlowBlock(nn.Module):
-    """Decoder block with temporal RoPE and flow-time AdaRMS conditioning."""
+    """Decoder block with separate geometry, semantics, and flow-time conditioning."""
 
     def __init__(self, hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> None:
         super().__init__()
@@ -164,6 +164,8 @@ class RotaryFlowBlock(nn.Module):
         self.self_attention = RotaryAttention(hidden_dim, num_heads, dropout)
         self.cross_norm = AdaRMSNorm(hidden_dim)
         self.cross_attention = RotaryAttention(hidden_dim, num_heads, dropout)
+        self.semantic_norm = AdaRMSNorm(hidden_dim)
+        self.semantic_attention = RotaryAttention(hidden_dim, num_heads, dropout)
         self.ffn_norm = AdaRMSNorm(hidden_dim)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
@@ -177,9 +179,11 @@ class RotaryFlowBlock(nn.Module):
         self,
         token: torch.Tensor,
         memory: torch.Tensor,
+        semantic_memory: torch.Tensor,
         condition: torch.Tensor,
         token_positions: torch.Tensor,
         memory_positions: torch.Tensor,
+        semantic_positions: torch.Tensor,
         self_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         normalized, gate = self.self_norm(token, condition)
@@ -189,6 +193,11 @@ class RotaryFlowBlock(nn.Module):
         token = token + self.residual_dropout(update) * gate
         normalized, gate = self.cross_norm(token, condition)
         update = self.cross_attention(normalized, memory, token_positions, memory_positions)
+        token = token + self.residual_dropout(update) * gate
+        normalized, gate = self.semantic_norm(token, condition)
+        update = self.semantic_attention(
+            normalized, semantic_memory, token_positions, semantic_positions,
+        )
         token = token + self.residual_dropout(update) * gate
         normalized, gate = self.ffn_norm(token, condition)
         return token + self.residual_dropout(self.ffn(normalized)) * gate
