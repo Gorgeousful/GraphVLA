@@ -189,33 +189,58 @@ class AdaptiveLayerNorm(nn.Module):
 
 
 class AdaRMSNorm(nn.Module):
-    """OpenPI-style RMS normalization with zero-initialized scale, shift and residual gate."""
+    """RMS normalization with additive time/task scale, shift, and residual gate."""
 
-    def __init__(self, hidden_dim: int) -> None:
+    def __init__(self, hidden_dim: int, task_condition_dim: int | None = None) -> None:
         super().__init__()
         self.modulation = nn.Linear(hidden_dim, hidden_dim * 3)
         nn.init.zeros_(self.modulation.weight)
         nn.init.zeros_(self.modulation.bias)
+        self.task_modulation = (
+            nn.Linear(task_condition_dim, hidden_dim * 3)
+            if task_condition_dim is not None
+            else None
+        )
+        if self.task_modulation is not None:
+            nn.init.zeros_(self.task_modulation.weight)
+            nn.init.zeros_(self.task_modulation.bias)
 
-    def forward(self, token: torch.Tensor, condition: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        token: torch.Tensor,
+        condition: torch.Tensor,
+        task_condition: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         variance = token.float().square().mean(dim=-1, keepdim=True)
         normalized = token * torch.rsqrt(variance + 1e-6).to(token.dtype)
-        scale, shift, gate = self.modulation(condition).unsqueeze(1).chunk(3, dim=-1)
+        modulation = self.modulation(condition)
+        if self.task_modulation is not None:
+            if task_condition is None:
+                raise ValueError("task_condition is required for task-conditioned AdaRMSNorm")
+            modulation = modulation + self.task_modulation(task_condition)
+        elif task_condition is not None:
+            raise ValueError("task_condition was provided to an unconditioned AdaRMSNorm")
+        scale, shift, gate = modulation.unsqueeze(1).chunk(3, dim=-1)
         return normalized * (1.0 + scale) + shift, gate
 
 
 class RotaryFlowBlock(nn.Module):
-    """Decoder block with separate geometry, semantics, and flow-time conditioning."""
+    """Decoder block with geometry attention and time/task adaptive normalization."""
 
-    def __init__(self, hidden_dim: int, num_heads: int, mlp_ratio: float, dropout: float) -> None:
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+        task_condition_dim: int,
+    ) -> None:
         super().__init__()
-        self.self_norm = AdaRMSNorm(hidden_dim)
+        self.self_norm = AdaRMSNorm(hidden_dim, task_condition_dim)
         self.self_attention = RotaryAttention(hidden_dim, num_heads, dropout)
-        self.cross_norm = AdaRMSNorm(hidden_dim)
+        self.cross_norm = AdaRMSNorm(hidden_dim, task_condition_dim)
         self.cross_attention = RotaryAttention(hidden_dim, num_heads, dropout)
-        self.semantic_norm = AdaRMSNorm(hidden_dim)
-        self.semantic_attention = RotaryAttention(hidden_dim, num_heads, dropout)
-        self.ffn_norm = AdaRMSNorm(hidden_dim)
+        self.ffn_norm = AdaRMSNorm(hidden_dim, task_condition_dim)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
             nn.GELU(),
@@ -228,25 +253,19 @@ class RotaryFlowBlock(nn.Module):
         self,
         token: torch.Tensor,
         memory: torch.Tensor,
-        semantic_memory: torch.Tensor,
-        condition: torch.Tensor,
+        time_condition: torch.Tensor,
+        task_condition: torch.Tensor,
         token_positions: torch.Tensor,
         memory_positions: torch.Tensor,
-        semantic_positions: torch.Tensor,
         self_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        normalized, gate = self.self_norm(token, condition)
+        normalized, gate = self.self_norm(token, time_condition, task_condition)
         update = self.self_attention(
             normalized, normalized, token_positions, token_positions, self_attention_mask
         )
         token = token + self.residual_dropout(update) * gate
-        normalized, gate = self.cross_norm(token, condition)
+        normalized, gate = self.cross_norm(token, time_condition, task_condition)
         update = self.cross_attention(normalized, memory, token_positions, memory_positions)
         token = token + self.residual_dropout(update) * gate
-        normalized, gate = self.semantic_norm(token, condition)
-        update = self.semantic_attention(
-            normalized, semantic_memory, token_positions, semantic_positions,
-        )
-        token = token + self.residual_dropout(update) * gate
-        normalized, gate = self.ffn_norm(token, condition)
+        normalized, gate = self.ffn_norm(token, time_condition, task_condition)
         return token + self.residual_dropout(self.ffn(normalized)) * gate

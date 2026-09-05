@@ -12,7 +12,7 @@ from torch.utils.checkpoint import checkpoint
 from src.common.schema import NUM_ENTITIES, validate_actor_point_indices
 from src.model.encoder import EntityEncoder
 from src.model.flow_matching import make_scheduler, sample_time, training_path
-from src.model.temporal import AdaRMSNorm, RotaryFlowBlock
+from src.model.temporal import AdaRMSNorm, AdaptiveLayerNorm, RotaryFlowBlock
 
 
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:
@@ -48,9 +48,12 @@ class JointTrajectoryFlow(nn.Module):
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
         )
         self.blocks = nn.ModuleList([
-            RotaryFlowBlock(hidden_dim, heads, mlp_ratio, dropout) for _ in range(layers)
+            RotaryFlowBlock(
+                hidden_dim, heads, mlp_ratio, dropout,
+                task_condition_dim=hidden_dim * 2,
+            ) for _ in range(layers)
         ])
-        self.norm = AdaRMSNorm(hidden_dim)
+        self.norm = AdaRMSNorm(hidden_dim, task_condition_dim=hidden_dim * 2)
         self.output_projection = nn.Linear(hidden_dim, trajectory_dim)
         self.gradient_checkpointing = False
 
@@ -65,7 +68,7 @@ class JointTrajectoryFlow(nn.Module):
         state: torch.Tensor,
         time: torch.Tensor,
         memory: torch.Tensor,
-        semantic_memory: torch.Tensor,
+        task_condition: torch.Tensor,
         history_state: torch.Tensor,
         memory_positions: torch.Tensor,
     ) -> torch.Tensor:
@@ -84,18 +87,14 @@ class JointTrajectoryFlow(nn.Module):
             raise ValueError(
                 f"Expected memory positions [{memory.shape[1]}], got {memory_positions.shape}"
             )
-        if (
-            semantic_memory.ndim != 3
-            or semantic_memory.shape[:2] != (state.shape[0], 2)
-            or semantic_memory.shape[2] != memory.shape[2]
-        ):
+        if task_condition.shape != (state.shape[0], memory.shape[2] * 2):
             raise ValueError(
-                f"Expected semantic memory [{state.shape[0]},2,{memory.shape[2]}], "
-                f"got {semantic_memory.shape}"
+                f"Expected task condition [{state.shape[0]},{memory.shape[2] * 2}], "
+                f"got {task_condition.shape}"
             )
 
         token = self.input_projection(torch.cat([history_state, state], dim=1))
-        condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
+        time_condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
         history_positions = torch.arange(
             1 - self.history_steps, 1, device=state.device
         )
@@ -106,21 +105,33 @@ class JointTrajectoryFlow(nn.Module):
         memory_positions = memory_positions.to(
             device=memory.device, dtype=token_positions.dtype,
         )
-        semantic_positions = torch.zeros(
-            semantic_memory.shape[1], device=semantic_memory.device,
-            dtype=token_positions.dtype,
-        )
         for block in self.blocks:
             token = checkpoint(
-                block, token, memory, semantic_memory, condition, token_positions,
-                memory_positions, semantic_positions, self.self_attention_mask,
+                block, token, memory, time_condition, task_condition, token_positions,
+                memory_positions, self.self_attention_mask,
                 use_reentrant=False, preserve_rng_state=True,
             ) if self.gradient_checkpointing and self.training else block(
-                token, memory, semantic_memory, condition, token_positions,
-                memory_positions, semantic_positions, self.self_attention_mask,
+                token, memory, time_condition, task_condition, token_positions,
+                memory_positions, self.self_attention_mask,
             )
-        hidden, _ = self.norm(token, condition)
+        hidden, _ = self.norm(token, time_condition, task_condition)
         return self.output_projection(hidden[:, self.history_steps:])
+
+
+class ConditionedProgressHead(nn.Module):
+    """Predict progress from relation features under type/degree FiLM control."""
+
+    def __init__(self, relation_dim: int, hidden_dim: int, task_condition_dim: int) -> None:
+        super().__init__()
+        self.input_projection = nn.Linear(relation_dim, hidden_dim)
+        self.norm = AdaptiveLayerNorm(hidden_dim, task_condition_dim)
+        self.activation = nn.GELU()
+        self.output_projection = nn.Linear(hidden_dim, 1)
+
+    def forward(self, relation: torch.Tensor, task_condition: torch.Tensor) -> torch.Tensor:
+        hidden = self.input_projection(relation).unsqueeze(1)
+        hidden = self.activation(self.norm(hidden, task_condition)).squeeze(1)
+        return self.output_projection(hidden)
 
 
 class GraphFlowModel(nn.Module):
@@ -180,10 +191,10 @@ class GraphFlowModel(nn.Module):
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
         )
-        self.progress_head = nn.Sequential(
-            nn.Linear(hidden_dim * (2 * cls_token_num + 2), hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, 1),
+        self.progress_head = ConditionedProgressHead(
+            relation_dim=hidden_dim * 2 * cls_token_num,
+            hidden_dim=hidden_dim,
+            task_condition_dim=hidden_dim * 2,
         )
 
     def set_gradient_checkpointing(self, enabled: bool = True) -> None:
@@ -221,6 +232,10 @@ class GraphFlowModel(nn.Module):
         ).repeat_interleave(NUM_ENTITIES * self.cls_token_num)
         return history_positions
 
+    @staticmethod
+    def _task_condition(semantic_memory: torch.Tensor) -> torch.Tensor:
+        return semantic_memory.flatten(1)
+
     def forward(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         memory, relation_local, semantic_memory = self._encode(batch)
         target = batch["target"]
@@ -232,7 +247,7 @@ class GraphFlowModel(nn.Module):
         time = sample_time(trajectory.shape[0], trajectory.device)
         state, target_velocity, _ = training_path(trajectory, time)
         velocity = self.flow(
-            state, time, memory, semantic_memory, self._actor_history(batch),
+            state, time, memory, self._task_condition(semantic_memory), self._actor_history(batch),
             self._memory_positions(memory),
         )
         squared_error = (velocity - target_velocity).square()
@@ -248,8 +263,10 @@ class GraphFlowModel(nn.Module):
             + self.gripper_flow_weight * gripper_squared_error.numel()
         )
 
-        progress_input = torch.cat([relation_local, semantic_memory], dim=1).flatten(1)
-        progress = torch.sigmoid(self.progress_head(progress_input))
+        task_condition = self._task_condition(semantic_memory)
+        progress = torch.sigmoid(
+            self.progress_head(relation_local.flatten(1), task_condition)
+        )
         loss_progress = F.smooth_l1_loss(
             progress,
             target["subtask_progress"].to(dtype=progress.dtype),
@@ -290,7 +307,7 @@ class GraphFlowModel(nn.Module):
         for timestep in scheduler.timesteps:
             time = (timestep / scheduler.config.num_train_timesteps).expand(batch_size).to(memory.dtype)
             velocity = self.flow(
-                state, time, memory, semantic_memory, self._actor_history(batch),
+                state, time, memory, self._task_condition(semantic_memory), self._actor_history(batch),
                 self._memory_positions(memory),
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
@@ -305,6 +322,6 @@ class GraphFlowModel(nn.Module):
             ),
             "gripper_plan": state[..., -1],
             "subtask_progress": torch.sigmoid(self.progress_head(
-                torch.cat([relation_local, semantic_memory], dim=1).flatten(1)
+                relation_local.flatten(1), self._task_condition(semantic_memory),
             )),
         }
