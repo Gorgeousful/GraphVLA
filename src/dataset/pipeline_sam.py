@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import multiprocessing as mp
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +19,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 from rich.console import Console
-from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
@@ -26,6 +27,36 @@ from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.task_analyzer import TaskAnalyzer
 
 cs = Console()
+
+
+def _run_worker(
+    config: "PipelineConfig",
+    episode_indices: Sequence[int],
+    worker_id: int,
+) -> None:
+    pipeline = OfflineSAMPipeline(config)
+    task_indices = sorted(
+        {
+            int(
+                pd.read_parquet(
+                    pipeline._episode_parquet_path(episode_index),
+                    columns=["task_index"],
+                )["task_index"].iloc[0]
+            )
+            for episode_index in episode_indices
+        }
+    )
+    taskstructures = pipeline.build_taskstructures(task_indices)
+    started = time.monotonic()
+    cs.print(
+        f"worker {worker_id} starting: device={config.sam_device}, "
+        f"episodes={len(episode_indices)}"
+    )
+    pipeline.process_episodes(episode_indices, taskstructures)
+    cs.print(
+        f"worker {worker_id} finished: device={config.sam_device}, "
+        f"episodes={len(episode_indices)}, elapsed={time.monotonic() - started:.1f}s"
+    )
 
 
 @dataclass
@@ -69,12 +100,9 @@ class OfflineSAMPipeline:
         overwrite_defaults = {
             "taskstructure": False,
             "node_points_xyz": True,
-            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
-            "actions_camera": False,
-            "absolute_actions_camera": False,
         }
         unknown_overwrite = set(config.overwrite or {}) - set(overwrite_defaults)
         if unknown_overwrite:
@@ -197,8 +225,6 @@ class OfflineSAMPipeline:
         need_node_tracking = (
             self.overwrite["node_points_xyz"]
             or "node_points_xyz" not in df.columns
-            or self.overwrite["node_points_vis"]
-            or "node_points_vis" not in df.columns
             or self.overwrite["valid_node_mask"]
             or "valid_node_mask" not in df.columns
         )
@@ -207,25 +233,21 @@ class OfflineSAMPipeline:
             or "subtask_node_mask" not in df.columns
         )
         need_gripper_points_xyz = self.overwrite["gripper_points_xyz"] or "gripper_points_xyz" not in df.columns
-        need_actions_camera = self.overwrite["actions_camera"] or "actions_camera" not in df.columns
-        need_absolute_actions_camera = (
-            self.overwrite["absolute_actions_camera"]
-            or "absolute_actions_camera" not in df.columns
-        )
         if "subtask_id" not in df.columns:
             raise KeyError(f"subtask_id is required in {parquet_path}")
         if (
             not need_node_tracking
             and not need_subtask_node_mask
             and not need_gripper_points_xyz
-            and not need_actions_camera
-            and not need_absolute_actions_camera
         ):
             return
 
         subtask_node_mask = self._build_subtask_node_mask(df, taskstructures[task_index])
         if need_node_tracking:
-            frames = self._read_parquet_frames(df)
+            frame_flipped = self._node_cache_frame_flipped(episode_index)
+            frames = self._read_episode_frames(
+                df, episode_index=episode_index, horizontal_flip=frame_flipped
+            )
             tracks = self._build_node_points_track(
                 frames,
                 taskstructures[task_index],
@@ -236,21 +258,16 @@ class OfflineSAMPipeline:
             intrinsic = np.asarray(
                 self._load_libero_cameras()[task_index]["agentview"]["intrinsic"], dtype=np.float64
             )
-            node_xyz, node_vis, valid_node_mask = self._build_node_points_xyz(
-                tracks, self._read_metric_depths(df), intrinsic,
+            node_xyz, _, valid_node_mask = self._build_node_points_xyz(
+                tracks, self._read_metric_depths(df, horizontal_flip=frame_flipped), intrinsic,
             )
             df["node_points_xyz"] = [points.tolist() for points in node_xyz]
-            df["node_points_vis"] = [visibility.tolist() for visibility in node_vis]
             df["valid_node_mask"] = [mask.tolist() for mask in valid_node_mask]
         if need_subtask_node_mask:
             df["subtask_node_mask"] = [mask.tolist() for mask in subtask_node_mask]
 
         if need_gripper_points_xyz:
             df["gripper_points_xyz"] = self._build_gripper_points_xyz(df, task_index)
-        if need_actions_camera:
-            df["actions_camera"] = self._build_actions_camera(df, task_index)
-        if need_absolute_actions_camera:
-            df["absolute_actions_camera"] = self._build_absolute_actions_camera(df, task_index)
 
         if self.config.debug:
             cs.print(f"[yellow]debug dry-run: skip writing parquet {parquet_path}[/yellow]")
@@ -263,12 +280,9 @@ class OfflineSAMPipeline:
         table = pa.Table.from_pandas(df, preserve_index=False)
         target_types = {
             "node_points_xyz": pa.list_(pa.list_(pa.list_(pa.float32()))),
-            "node_points_vis": pa.list_(pa.list_(pa.bool_())),
             "valid_node_mask": pa.list_(pa.bool_()),
             "subtask_node_mask": pa.list_(pa.bool_()),
             "gripper_points_xyz": pa.list_(pa.list_(pa.float32())),
-            "actions_camera": pa.list_(pa.float32()),
-            "absolute_actions_camera": pa.list_(pa.float32()),
         }
         for name, target_type in target_types.items():
             if name not in table.column_names:
@@ -437,8 +451,8 @@ class OfflineSAMPipeline:
                 f"Cache {path} nodes do not match taskstructure: "
                 f"{node_names} != {expected_names}"
             )
-        if metadata.get("frame_flipped") is not True:
-            raise ValueError(f"Cache {path} is not defined on horizontally flipped frames")
+        if not isinstance(metadata.get("frame_flipped"), bool):
+            raise ValueError(f"Cache {path} is missing the frame_flipped flag")
         if masks.shape != (len(nodes), height, width):
             raise ValueError(
                 f"Cache {path} masks have shape {masks.shape}; "
@@ -491,7 +505,39 @@ class OfflineSAMPipeline:
                 )
         return output, point_vis, valid_nodes
 
-    def _read_parquet_frames(self, df: pd.DataFrame) -> list[np.ndarray]:
+    def _node_cache_frame_flipped(self, episode_index: int) -> bool:
+        path = self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Missing node initialization cache: {path}. "
+                f"Run `python src/dataset/pipeline_init.py initialize "
+                f"--dataset-dir {self.dataset_dir}` first."
+            )
+        with np.load(path, allow_pickle=False) as cache:
+            metadata = json.loads(str(cache["metadata_json"].item()))
+        return bool(metadata.get("frame_flipped", True))
+
+    def _read_episode_frames(
+        self,
+        df: pd.DataFrame,
+        *,
+        episode_index: int,
+        horizontal_flip: bool = True,
+    ) -> list[np.ndarray]:
+        if self.image_key not in df.columns:
+            frames = self._read_video_frames(episode_index)
+            if len(frames) != len(df):
+                raise ValueError(
+                    f"Video episode={episode_index} has {len(frames)} frames; "
+                    f"expected {len(df)}"
+                )
+            return [
+                np.ascontiguousarray(np.fliplr(frame))
+                if horizontal_flip
+                else np.ascontiguousarray(frame)
+                for frame in frames
+            ]
+
         frames = []
         for item in df[self.image_key]:
             payload = item.get("bytes") if isinstance(item, Mapping) else None
@@ -499,28 +545,83 @@ class OfflineSAMPipeline:
                 raise ValueError(f"{self.image_key} must contain embedded image bytes")
             with Image.open(io.BytesIO(payload)) as image:
                 frame = np.asarray(image.convert("RGB"), dtype=np.uint8)
-            frames.append(np.ascontiguousarray(np.fliplr(frame)))
+            frames.append(
+                np.ascontiguousarray(np.fliplr(frame))
+                if horizontal_flip
+                else np.ascontiguousarray(frame)
+            )
+        return frames
+
+    def _read_video_frames(self, episode_index: int) -> list[np.ndarray]:
+        try:
+            import av
+        except ImportError as error:
+            raise RuntimeError("PyAV is required to decode episode videos") from error
+
+        episode_chunk = int(episode_index) // self.chunk_size
+        template = self.info.get(
+            "video_path",
+            "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+        )
+        video_path = self.dataset_dir / template.format(
+            episode_chunk=episode_chunk,
+            episode_index=int(episode_index),
+            video_key=self.image_key,
+        )
+        if not video_path.is_file():
+            raise FileNotFoundError(f"Missing episode video: {video_path}")
+
+        frames = []
+        try:
+            with av.open(str(video_path)) as container:
+                for frame in container.decode(video=0):
+                    frames.append(
+                        np.ascontiguousarray(frame.to_ndarray(format="rgb24"))
+                    )
+        except av.error.FFmpegError as error:
+            raise ValueError(f"Unable to decode episode video: {video_path}") from error
+        if not frames:
+            raise ValueError(f"No decodable frames in episode video: {video_path}")
         return frames
 
     @staticmethod
-    def _read_metric_depths(df: pd.DataFrame) -> np.ndarray:
-        field = "agentview_real_depth_images"
-        if field not in df:
-            raise KeyError(f"Dataset is missing required metric depth field: {field}")
-        flat = np.asarray(df[field].tolist(), dtype=np.float32)
-        if flat.ndim != 2:
-            raise ValueError(f"Expected flattened metric depth [T,HW], got {flat.shape}")
-        side = int(round(np.sqrt(flat.shape[1])))
-        if side * side != flat.shape[1]:
-            raise ValueError(f"Metric depth size {flat.shape[1]} is not a square image")
-        return np.ascontiguousarray(np.flip(flat.reshape(-1, side, side), axis=2))
+    def _read_metric_depths(df: pd.DataFrame, horizontal_flip: bool = True) -> np.ndarray:
+        field = next(
+            (
+                name
+                for name in ("observation.depth.agentview", "agentview_real_depth_images")
+                if name in df
+            ),
+            None,
+        )
+        if field is None:
+            raise KeyError("Dataset is missing agent-view metric depth")
+        depth = np.stack(
+            [np.stack(value.tolist()).astype(np.float32) for value in df[field]],
+            axis=0,
+        )
+        if depth.ndim == 4 and depth.shape[-1] == 1:
+            depth = depth[..., 0]
+        elif depth.ndim == 2:
+            side = int(round(np.sqrt(depth.shape[1])))
+            if side * side != depth.shape[1]:
+                raise ValueError(f"Metric depth size {depth.shape[1]} is not square")
+            depth = depth.reshape(-1, side, side)
+        if depth.ndim != 3:
+            raise ValueError(f"Expected metric depth [T,H,W], got {depth.shape}")
+        if horizontal_flip:
+            depth = np.flip(depth, axis=2)
+        return np.ascontiguousarray(depth)
 
     def _build_gripper_points_xyz(self, df: pd.DataFrame, task_index: int) -> list[list[list[float]]]:
         camera = self._load_libero_cameras()[int(task_index)]["agentview"]
         extrinsic = np.asarray(camera["extrinsic"], dtype=np.float64)
         geometry = self._ensure_gripper_geometry()
         results = []
-        for raw_state in df["state"]:
+        state_field = "observation.state" if "observation.state" in df else "state"
+        if state_field not in df:
+            raise KeyError("Dataset is missing observation state")
+        for raw_state in df[state_field]:
             state = np.asarray(raw_state, dtype=np.float64)
             if state.size < 8:
                 raise ValueError("state must contain at least 8 values to build gripper_points_xyz")
@@ -532,45 +633,6 @@ class OfflineSAMPipeline:
             )
             results.append(np.asarray(xyz, dtype=np.float32).tolist())
         return results
-
-    def _build_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
-        camera = self._load_libero_cameras()[int(task_index)]["agentview"]
-        extrinsic = np.asarray(camera["extrinsic"], dtype=np.float64)
-        world_to_camera_rotation = extrinsic[:3, :3].T
-        results = []
-        for raw_action in df["actions"]:
-            action = np.asarray(raw_action, dtype=np.float64)
-            if action.shape != (7,):
-                raise ValueError(f"actions must have shape (7,), got {action.shape}")
-            camera_action = action.copy()
-            camera_action[:3] = world_to_camera_rotation @ action[:3]
-            camera_action[3:6] = world_to_camera_rotation @ action[3:6]
-            results.append(camera_action.astype(np.float32).tolist())
-        return results
-
-
-    def _build_absolute_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
-        extrinsic = np.asarray(
-            self._load_libero_cameras()[int(task_index)]["agentview"]["extrinsic"],
-            dtype=np.float64,
-        )
-        camera_to_world_rotation = extrinsic[:3, :3]
-        camera_position_world = extrinsic[:3, 3]
-        world_to_camera_rotation = camera_to_world_rotation.T
-        results = []
-        for raw_state, raw_action in zip(df["state"], df["actions"], strict=True):
-            state = np.asarray(raw_state, dtype=np.float64)
-            action = np.asarray(raw_action, dtype=np.float64)
-            if state.size < 6 or action.shape != (7,):
-                raise ValueError(f"Expected state >=6 and action (7,), got {state.shape} and {action.shape}")
-            camera_action = np.empty(7, dtype=np.float64)
-            camera_action[:3] = world_to_camera_rotation @ (state[:3] - camera_position_world)
-            camera_rotation = world_to_camera_rotation @ R.from_rotvec(state[3:6]).as_matrix()
-            camera_action[3:6] = R.from_matrix(camera_rotation).as_rotvec()
-            camera_action[6] = action[6]
-            results.append(camera_action.astype(np.float32).tolist())
-        return results
-
 
     def _build_subtask_node_mask(self, df: pd.DataFrame, taskstructure: TaskStructure) -> np.ndarray:
         dataset_type = str(self.config.dataset_type).lower()
@@ -636,8 +698,8 @@ class OfflineSAMPipeline:
         else:
             cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
             cs.print(
-                "parquet fields: node_points_xyz, node_points_vis, valid_node_mask, "
-                "subtask_node_mask, gripper_points_xyz, actions_camera"
+                "parquet fields: node_points_xyz, valid_node_mask, "
+                "subtask_node_mask, gripper_points_xyz"
             )
         if self.config.debug:
             cs.print(f"debug SAM initialization images: {self.sam_initialization_vis_dir}")
@@ -810,7 +872,7 @@ class OfflineSAMPipeline:
     def _infer_image_key(self) -> str:
         image_keys = [
             key for key, spec in self.info["features"].items()
-            if spec.get("dtype") == "image"
+            if spec.get("dtype") in {"image", "video"}
         ]
         for key in ("image", "observation.images.image", "observation.images.rgb_static"):
             if key in image_keys:
@@ -851,11 +913,6 @@ class OfflineSAMPipeline:
                 "shape": [self.config.max_nodes, self.config.points_per_node, 3],
                 "names": ["node", "point", "xyz"],
             },
-            "node_points_vis": {
-                "dtype": "bool",
-                "shape": [self.config.max_nodes, self.config.points_per_node],
-                "names": ["node", "point"],
-            },
             "valid_node_mask": {
                 "dtype": "bool",
                 "shape": [self.config.max_nodes],
@@ -870,16 +927,6 @@ class OfflineSAMPipeline:
                 "dtype": "float32",
                 "shape": [6, 3],
                 "names": ["point", "xyz"],
-            },
-            "actions_camera": {
-                "dtype": "float32",
-                "shape": [7],
-                "names": ["actions"],
-            },
-            "absolute_actions_camera": {
-                "dtype": "float32",
-                "shape": [7],
-                "names": ["actions"],
             },
         }
 
@@ -950,12 +997,14 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--sam-version", choices=("sam2", "sam3"), default="sam3")
     parser.add_argument("--sam-device", default="cuda")
+    parser.add_argument("--sam-devices", nargs="+", help="Devices used by worker processes.")
+    parser.add_argument("--workers-per-device", type=int, default=1)
     parser.add_argument("--debug-dir", default="/data0/luokang/research/GraphVLA/__tmp__/pipeline_sam")
     args = parser.parse_args()
     api_key = os.environ.get("OPENAI_API_KEY")
 
     config = PipelineConfig(
-        dataset_dir="/data0/luokang/research/GraphVLA/examples/libero/extra/libero_with_depth_0_5_6_7_8",
+        dataset_dir="/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
         dataset_type="libero",
         # episode_selector={
         #     0: ["*"],
@@ -974,15 +1023,53 @@ if __name__ == "__main__":
         overwrite={
             "taskstructure": False,
             "node_points_xyz": True,
-            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
-            "actions_camera": False,
-            "absolute_actions_camera": False,
         },
         task_analyzer_api_key=api_key,
         debug=args.debug,
         debug_dir=args.debug_dir,
     )
-    OfflineSAMPipeline(config).run()
+    devices = args.sam_devices or [args.sam_device]
+    if args.workers_per_device <= 0:
+        parser.error("--workers-per-device must be positive")
+    worker_devices = [
+        device
+        for device in devices
+        for _ in range(args.workers_per_device)
+    ]
+    if len(worker_devices) == 1:
+        config.sam_device = worker_devices[0]
+        OfflineSAMPipeline(config).run()
+    else:
+        coordinator = OfflineSAMPipeline(config)
+        task_to_episodes = coordinator._scan_task_episodes()
+        episode_indices = sorted(
+            episode
+            for episodes in task_to_episodes.values()
+            for episode in episodes
+        )
+        coordinator._preflight_node_initialization_caches(episode_indices)
+        coordinator._ensure_output_features()
+        coordinator.build_taskstructures(sorted(task_to_episodes))
+        shards = [episode_indices[index::len(worker_devices)] for index in range(len(worker_devices))]
+        context = mp.get_context("spawn")
+        processes = []
+        for worker_id, (device, shard) in enumerate(zip(worker_devices, shards, strict=True)):
+            worker_config = PipelineConfig(**{**config.__dict__, "sam_device": device})
+            process = context.Process(
+                target=_run_worker,
+                args=(worker_config, shard, worker_id),
+                name=f"sam-worker-{worker_id}",
+            )
+            process.start()
+            processes.append(process)
+        for process in processes:
+            process.join()
+        failed = [process.name for process in processes if process.exitcode != 0]
+        if failed:
+            raise RuntimeError(f"SAM workers failed: {failed}")
+        cs.print(
+            f"all workers finished: workers={len(processes)}, episodes={len(episode_indices)}"
+        )

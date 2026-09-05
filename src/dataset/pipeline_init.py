@@ -14,6 +14,7 @@ from typing import Any
 import cv2
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from PIL import Image
 from pydantic import BaseModel
 
@@ -33,6 +34,7 @@ COLORS = [
     (30, 220, 220),
 ]
 CACHE_VERSION = 1
+_AGENT_VIDEO_KEYS = ("observation.images.image", "images.image", "agentview_image", "image")
 
 
 def load_task_nodes(dataset_dir: Path) -> dict[int, list[str]]:
@@ -57,21 +59,76 @@ def load_task_nodes(dataset_dir: Path) -> dict[int, list[str]]:
     return nodes_by_task
 
 
-def read_first_rgb(parquet_path: Path) -> tuple[np.ndarray, int, int]:
-    row = pd.read_parquet(
-        parquet_path, columns=["image", "episode_index", "task_index"]
-    ).iloc[0]
-    item = row["image"]
-    payload = item.get("bytes") if isinstance(item, dict) else None
-    if payload is None:
-        raise ValueError(f"image in {parquet_path} must contain embedded bytes")
-    with Image.open(io.BytesIO(payload)) as image:
-        frame_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
-    return (
-        np.ascontiguousarray(np.fliplr(frame_rgb)),
-        int(row["episode_index"]),
-        int(row["task_index"]),
-    )
+def _decode_first_video_frame(video_path: Path) -> np.ndarray:
+    try:
+        import av
+    except ImportError as error:
+        raise RuntimeError(
+            "PyAV is required to decode episode videos (install with: pip install av)."
+        ) from error
+    try:
+        with av.open(str(video_path)) as container:
+            stream = container.streams.video[0]
+            for packet in container.demux(stream):
+                for frame in packet.decode():
+                    return np.ascontiguousarray(frame.to_ndarray(format="rgb24"))
+    except av.error.FFmpegError as error:
+        raise ValueError(f"Unable to decode first frame of {video_path}") from error
+    raise ValueError(f"No decodable frame in {video_path}")
+
+
+def _read_video_first_frame(parquet_path: Path) -> np.ndarray:
+    dataset_dir = parquet_path.parents[2]
+    chunk_dir = parquet_path.parent.name
+    video_root = dataset_dir / "videos" / chunk_dir
+    mp4_name = f"{parquet_path.stem}.mp4"
+    candidates: list[str] = []
+    info_path = dataset_dir / "meta" / "info.json"
+    if info_path.is_file():
+        try:
+            features = json.loads(info_path.read_text(encoding="utf-8")).get("features", {})
+            candidates = [
+                key for key, value in features.items() if value.get("dtype") == "video"
+            ]
+        except (OSError, ValueError):
+            candidates = []
+    if not candidates and video_root.is_dir():
+        candidates = sorted(path.name for path in video_root.iterdir() if path.is_dir())
+    ordered = [key for key in _AGENT_VIDEO_KEYS if key in candidates] + [
+        key for key in candidates if key not in _AGENT_VIDEO_KEYS
+    ]
+    for key in ordered:
+        video_path = video_root / key / mp4_name
+        if video_path.is_file():
+            return _decode_first_video_frame(video_path)
+    raise FileNotFoundError(f"No agent-view video found for {parquet_path} under {video_root}")
+
+
+def read_first_rgb(
+    parquet_path: Path, *, horizontal_flip: bool = True
+) -> tuple[np.ndarray, int, int]:
+    episode_index = int(parquet_path.stem.rsplit("_", 1)[1])
+    if "image" in pq.read_schema(parquet_path).names:
+        row = pd.read_parquet(
+            parquet_path, columns=["image", "episode_index", "task_index"]
+        ).iloc[0]
+        item = row["image"]
+        payload = item.get("bytes") if isinstance(item, dict) else None
+        if payload is None:
+            raise ValueError(f"image in {parquet_path} must contain embedded bytes")
+        with Image.open(io.BytesIO(payload)) as image:
+            frame_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+        stored_episode = int(row["episode_index"])
+        task_index = int(row["task_index"])
+    else:
+        stored_episode = episode_index
+        task_index = int(
+            pd.read_parquet(parquet_path, columns=["task_index"]).iloc[0]["task_index"]
+        )
+        frame_rgb = _read_video_first_frame(parquet_path)
+    if horizontal_flip:
+        frame_rgb = np.fliplr(frame_rgb)
+    return np.ascontiguousarray(frame_rgb), stored_episode, task_index
 INDEX_HTML = """\
 <!doctype html>
 <html lang="zh-CN">
@@ -349,11 +406,23 @@ def parse_args() -> argparse.Namespace:
         default="robobrain",
     )
     initialize.add_argument(
+        "--locator-mode",
+        choices=("point", "box"),
+        default="point",
+        help="Use locator points or bounding boxes as the segmenter prompt.",
+    )
+    initialize.add_argument(
         "--segmenter",
         choices=("sam2", "sam3"),
         default="sam2",
     )
     initialize.add_argument("--scale", type=float, default=2.0)
+    initialize.add_argument(
+        "--no-horizontal-flip",
+        action="store_true",
+        help="Dataset RGB frames are already in the runtime orientation (default: flip "
+        "to match legacy embedded-image datasets).",
+    )
     initialize.add_argument("--episodes", type=int, nargs="*")
     initialize.add_argument("--overwrite", action="store_true")
 
@@ -459,8 +528,12 @@ def initialize_cache(args: argparse.Namespace) -> None:
 
     nodes_by_task = load_task_nodes(dataset_dir)
     locator, segmenter = build_models(args.locator, args.segmenter)
+    horizontal_flip = not args.no_horizontal_flip
+    fallback_boxes = []
     for episode_index in selected:
-        frame_rgb, stored_episode, task_index = read_first_rgb(parquet_paths[episode_index])
+        frame_rgb, stored_episode, task_index = read_first_rgb(
+            parquet_paths[episode_index], horizontal_flip=horizontal_flip
+        )
         if stored_episode != episode_index:
             raise ValueError(
                 f"Parquet episode mismatch: filename={episode_index}, row={stored_episode}"
@@ -477,8 +550,10 @@ def initialize_cache(args: argparse.Namespace) -> None:
             "scale": float(args.scale),
             "height": int(frame_rgb.shape[0]),
             "width": int(frame_rgb.shape[1]),
-            "frame_flipped": True,
+            "frame_flipped": horizontal_flip,
         }
+        if args.locator_mode == "box":
+            expected_metadata["locator_mode"] = "box"
         if output_path.exists() and not args.overwrite:
             existing = load_cache(output_path)
             if (
@@ -494,24 +569,58 @@ def initialize_cache(args: argparse.Namespace) -> None:
 
         unique_node_names = list(dict.fromkeys(node_names))
         unique_point_groups = []
+        unique_box_groups = []
         height, width = frame_rgb.shape[:2]
         for node_name in unique_node_names:
             result = locator.inference(
                 text=node_name,
                 image=Image.fromarray(frame_rgb),
+                task="grounding" if args.locator_mode == "box" else "pointing",
                 resize_scale=args.scale,
             )
-            normalized = np.asarray(result.get("points") or [], dtype=np.float32).reshape(-1, 2)
-            if not len(normalized):
-                raise RuntimeError(
-                    f"Locator found no point for episode={episode_index}, node={node_name!r}"
+            if args.locator_mode == "box":
+                boxes = np.asarray(
+                    result.get("boxes") or [], dtype=np.float32
+                ).reshape(-1, 4)
+                if not len(boxes):
+                    box = np.asarray(
+                        [0.0, 0.0, float(width - 1), float(height - 1)],
+                        dtype=np.float32,
+                    )
+                    fallback_boxes.append((episode_index, task_index, node_name))
+                    print(
+                        "WARNING: Locator found no box; using full-image fallback: "
+                        f"episode={episode_index}, task={task_index}, node={node_name!r}"
+                    )
+                else:
+                    box = boxes[0]
+                    box[[0, 2]] = np.clip(
+                        box[[0, 2]] / 1000.0 * width, 0, width - 1
+                    )
+                    box[[1, 3]] = np.clip(
+                        box[[1, 3]] / 1000.0 * height, 0, height - 1
+                    )
+                unique_box_groups.append(box.tolist())
+                unique_point_groups.append(
+                    [[float((box[0] + box[2]) / 2), float((box[1] + box[3]) / 2)]]
                 )
-            normalized[:, 0] = np.clip(normalized[:, 0] / 1000.0 * width, 0, width - 1)
-            normalized[:, 1] = np.clip(normalized[:, 1] / 1000.0 * height, 0, height - 1)
-            unique_point_groups.append(normalized.tolist())
+            else:
+                points = np.asarray(
+                    result.get("points") or [], dtype=np.float32
+                ).reshape(-1, 2)
+                if not len(points):
+                    raise RuntimeError(
+                        f"Locator found no point for episode={episode_index}, node={node_name!r}"
+                    )
+                points[:, 0] = np.clip(points[:, 0] / 1000.0 * width, 0, width - 1)
+                points[:, 1] = np.clip(points[:, 1] / 1000.0 * height, 0, height - 1)
+                unique_point_groups.append(points.tolist())
 
         unique_masks = segmenter.predict(
-            frame_rgb, points=unique_point_groups, anchor_frame=True
+            frame_rgb,
+            points=unique_point_groups if args.locator_mode == "point" else None,
+            boxes=unique_box_groups if args.locator_mode == "box" else None,
+            anchor_frame=True,
         )
         if len(unique_masks) != len(unique_node_names):
             raise RuntimeError(
@@ -544,6 +653,10 @@ def initialize_cache(args: argparse.Namespace) -> None:
         atomic_save_cache(output_path, data)
         print(f"initialized: {output_path}")
 
+    print(f"Fallback summary: {len(fallback_boxes)} fallback boxes used")
+    for episode_index, task_index, node_name in fallback_boxes:
+        print(f"  episode={episode_index}, task={task_index}, node={node_name!r}")
+
 
 class CacheEditor:
     def __init__(self, dataset_dir: Path, cache_dir: Path):
@@ -559,11 +672,19 @@ class CacheEditor:
 
         self.episodes_by_task: dict[int, list[int]] = {}
         segmenters = set()
+        self.frame_flipped: bool | None = None
         for episode_index, cache_file in self.cache_paths.items():
             data = load_cache(cache_file)
             task_index = int(data["task_index"])
             self.episodes_by_task.setdefault(task_index, []).append(episode_index)
             segmenters.add(cache_metadata(data)["segmenter"])
+            flipped = bool(cache_metadata(data)["frame_flipped"])
+            if self.frame_flipped is None:
+                self.frame_flipped = flipped
+            elif self.frame_flipped != flipped:
+                raise RuntimeError(
+                    f"Mixed frame_flipped configurations in cache: {cache_file}"
+                )
         for episodes in self.episodes_by_task.values():
             episodes.sort()
         if len(segmenters) != 1:
@@ -574,7 +695,9 @@ class CacheEditor:
 
     @lru_cache(maxsize=64)
     def frame(self, episode_index: int) -> np.ndarray:
-        frame_rgb, stored_episode, _ = read_first_rgb(self.parquet_paths[episode_index])
+        frame_rgb, stored_episode, _ = read_first_rgb(
+            self.parquet_paths[episode_index], horizontal_flip=self.frame_flipped
+        )
         if stored_episode != episode_index:
             raise ValueError(f"Episode mismatch for {self.parquet_paths[episode_index]}")
         return frame_rgb

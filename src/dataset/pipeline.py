@@ -17,7 +17,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from PIL import Image
 from rich.console import Console
-from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
 from src.common.geom_utils import sample_points_from_mask
@@ -65,12 +64,9 @@ class OfflinePipeline:
         overwrite_defaults = {
             "taskstructure": False,
             "node_points_xyz": True,
-            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
-            "actions_camera": False,
-            "absolute_actions_camera": False,
         }
         unknown_overwrite = set(config.overwrite or {}) - set(overwrite_defaults)
         if unknown_overwrite:
@@ -193,8 +189,6 @@ class OfflinePipeline:
         need_node_tracking = (
             self.overwrite["node_points_xyz"]
             or "node_points_xyz" not in df.columns
-            or self.overwrite["node_points_vis"]
-            or "node_points_vis" not in df.columns
             or self.overwrite["valid_node_mask"]
             or "valid_node_mask" not in df.columns
         )
@@ -203,25 +197,19 @@ class OfflinePipeline:
             or "subtask_node_mask" not in df.columns
         )
         need_gripper_points_xyz = self.overwrite["gripper_points_xyz"] or "gripper_points_xyz" not in df.columns
-        need_actions_camera = self.overwrite["actions_camera"] or "actions_camera" not in df.columns
-        need_absolute_actions_camera = (
-            self.overwrite["absolute_actions_camera"]
-            or "absolute_actions_camera" not in df.columns
-        )
         if "subtask_id" not in df.columns:
             raise KeyError(f"subtask_id is required in {parquet_path}")
         if (
             not need_node_tracking
             and not need_subtask_node_mask
             and not need_gripper_points_xyz
-            and not need_actions_camera
-            and not need_absolute_actions_camera
         ):
             return
 
         subtask_node_mask = self._build_subtask_node_mask(df, taskstructures[task_index])
         if need_node_tracking:
-            frames = self._read_parquet_frames(df)
+            frame_flipped = self._node_cache_frame_flipped(episode_index)
+            frames = self._read_parquet_frames(df, horizontal_flip=frame_flipped)
             tracks = self._build_node_points_track(
                 frames,
                 taskstructures[task_index],
@@ -232,21 +220,16 @@ class OfflinePipeline:
             intrinsic = np.asarray(
                 self._load_libero_cameras()[task_index]["agentview"]["intrinsic"], dtype=np.float64
             )
-            node_xyz, node_vis, valid_node_mask = self._build_node_points_xyz(
-                tracks, self._read_metric_depths(df), intrinsic,
+            node_xyz, _, valid_node_mask = self._build_node_points_xyz(
+                tracks, self._read_metric_depths(df, horizontal_flip=frame_flipped), intrinsic,
             )
             df["node_points_xyz"] = [points.tolist() for points in node_xyz]
-            df["node_points_vis"] = [visibility.tolist() for visibility in node_vis]
             df["valid_node_mask"] = [mask.tolist() for mask in valid_node_mask]
         if need_subtask_node_mask:
             df["subtask_node_mask"] = [mask.tolist() for mask in subtask_node_mask]
 
         if need_gripper_points_xyz:
             df["gripper_points_xyz"] = self._build_gripper_points_xyz(df, task_index)
-        if need_actions_camera:
-            df["actions_camera"] = self._build_actions_camera(df, task_index)
-        if need_absolute_actions_camera:
-            df["absolute_actions_camera"] = self._build_absolute_actions_camera(df, task_index)
 
         if self.config.debug:
             cs.print(f"[yellow]debug dry-run: skip writing parquet {parquet_path}[/yellow]")
@@ -259,12 +242,9 @@ class OfflinePipeline:
         table = pa.Table.from_pandas(df, preserve_index=False)
         target_types = {
             "node_points_xyz": pa.list_(pa.list_(pa.list_(pa.float32()))),
-            "node_points_vis": pa.list_(pa.list_(pa.bool_())),
             "valid_node_mask": pa.list_(pa.bool_()),
             "subtask_node_mask": pa.list_(pa.bool_()),
             "gripper_points_xyz": pa.list_(pa.list_(pa.float32())),
-            "actions_camera": pa.list_(pa.float32()),
-            "absolute_actions_camera": pa.list_(pa.float32()),
         }
         for name, target_type in target_types.items():
             if name not in table.column_names:
@@ -416,8 +396,8 @@ class OfflinePipeline:
                 f"Cache {path} nodes do not match taskstructure: "
                 f"{node_names} != {expected_names}"
             )
-        if metadata.get("frame_flipped") is not True:
-            raise ValueError(f"Cache {path} is not defined on horizontally flipped frames")
+        if not isinstance(metadata.get("frame_flipped"), bool):
+            raise ValueError(f"Cache {path} is missing the frame_flipped flag")
         if masks.shape != (len(nodes), height, width):
             raise ValueError(
                 f"Cache {path} masks have shape {masks.shape}; "
@@ -482,7 +462,19 @@ class OfflinePipeline:
                 )
         return output, point_vis, valid_nodes
 
-    def _read_parquet_frames(self, df: pd.DataFrame) -> list[np.ndarray]:
+    def _node_cache_frame_flipped(self, episode_index: int) -> bool:
+        path = self.node_initialization_cache_dir / f"episode_{episode_index:06d}.npz"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Missing node initialization cache: {path}. "
+                f"Run `python src/dataset/pipeline_init.py initialize "
+                f"--dataset-dir {self.dataset_dir}` first."
+            )
+        with np.load(path, allow_pickle=False) as cache:
+            metadata = json.loads(str(cache["metadata_json"].item()))
+        return bool(metadata.get("frame_flipped", True))
+
+    def _read_parquet_frames(self, df: pd.DataFrame, horizontal_flip: bool = True) -> list[np.ndarray]:
         frames = []
         for item in df[self.image_key]:
             payload = item.get("bytes") if isinstance(item, Mapping) else None
@@ -490,11 +482,15 @@ class OfflinePipeline:
                 raise ValueError(f"{self.image_key} must contain embedded image bytes")
             with Image.open(io.BytesIO(payload)) as image:
                 frame = np.asarray(image.convert("RGB"), dtype=np.uint8)
-            frames.append(np.ascontiguousarray(np.fliplr(frame)))
+            frames.append(
+                np.ascontiguousarray(np.fliplr(frame))
+                if horizontal_flip
+                else np.ascontiguousarray(frame)
+            )
         return frames
 
     @staticmethod
-    def _read_metric_depths(df: pd.DataFrame) -> np.ndarray:
+    def _read_metric_depths(df: pd.DataFrame, horizontal_flip: bool = True) -> np.ndarray:
         field = "agentview_real_depth_images"
         if field not in df:
             raise KeyError(f"Dataset is missing required metric depth field: {field}")
@@ -504,7 +500,10 @@ class OfflinePipeline:
         side = int(round(np.sqrt(flat.shape[1])))
         if side * side != flat.shape[1]:
             raise ValueError(f"Metric depth size {flat.shape[1]} is not a square image")
-        return np.ascontiguousarray(np.flip(flat.reshape(-1, side, side), axis=2))
+        depth = flat.reshape(-1, side, side)
+        if horizontal_flip:
+            depth = np.flip(depth, axis=2)
+        return np.ascontiguousarray(depth)
 
     def _build_gripper_points_xyz(self, df: pd.DataFrame, task_index: int) -> list[list[list[float]]]:
         camera = self._load_libero_cameras()[int(task_index)]["agentview"]
@@ -523,45 +522,6 @@ class OfflinePipeline:
             )
             results.append(np.asarray(xyz, dtype=np.float32).tolist())
         return results
-
-    def _build_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
-        camera = self._load_libero_cameras()[int(task_index)]["agentview"]
-        extrinsic = np.asarray(camera["extrinsic"], dtype=np.float64)
-        world_to_camera_rotation = extrinsic[:3, :3].T
-        results = []
-        for raw_action in df["actions"]:
-            action = np.asarray(raw_action, dtype=np.float64)
-            if action.shape != (7,):
-                raise ValueError(f"actions must have shape (7,), got {action.shape}")
-            camera_action = action.copy()
-            camera_action[:3] = world_to_camera_rotation @ action[:3]
-            camera_action[3:6] = world_to_camera_rotation @ action[3:6]
-            results.append(camera_action.astype(np.float32).tolist())
-        return results
-
-
-    def _build_absolute_actions_camera(self, df: pd.DataFrame, task_index: int) -> list[list[float]]:
-        extrinsic = np.asarray(
-            self._load_libero_cameras()[int(task_index)]["agentview"]["extrinsic"],
-            dtype=np.float64,
-        )
-        camera_to_world_rotation = extrinsic[:3, :3]
-        camera_position_world = extrinsic[:3, 3]
-        world_to_camera_rotation = camera_to_world_rotation.T
-        results = []
-        for raw_state, raw_action in zip(df["state"], df["actions"], strict=True):
-            state = np.asarray(raw_state, dtype=np.float64)
-            action = np.asarray(raw_action, dtype=np.float64)
-            if state.size < 6 or action.shape != (7,):
-                raise ValueError(f"Expected state >=6 and action (7,), got {state.shape} and {action.shape}")
-            camera_action = np.empty(7, dtype=np.float64)
-            camera_action[:3] = world_to_camera_rotation @ (state[:3] - camera_position_world)
-            camera_rotation = world_to_camera_rotation @ R.from_rotvec(state[3:6]).as_matrix()
-            camera_action[3:6] = R.from_matrix(camera_rotation).as_rotvec()
-            camera_action[6] = action[6]
-            results.append(camera_action.astype(np.float32).tolist())
-        return results
-
 
     def _build_subtask_node_mask(self, df: pd.DataFrame, taskstructure: TaskStructure) -> np.ndarray:
         dataset_type = str(self.config.dataset_type).lower()
@@ -627,8 +587,8 @@ class OfflinePipeline:
         else:
             cs.print(f"taskstructures jsonl: {self.taskstructures_jsonl_path}")
             cs.print(
-                "parquet fields: node_points_xyz, node_points_vis, valid_node_mask, "
-                "subtask_node_mask, gripper_points_xyz, actions_camera"
+                "parquet fields: node_points_xyz, valid_node_mask, "
+                "subtask_node_mask, gripper_points_xyz"
             )
         if self.config.debug:
             cs.print(f"debug node locator images: {self.node_locator_vis_dir}")
@@ -838,11 +798,6 @@ class OfflinePipeline:
                 "shape": [self.config.max_nodes, self.config.points_per_node, 3],
                 "names": ["node", "point", "xyz"],
             },
-            "node_points_vis": {
-                "dtype": "bool",
-                "shape": [self.config.max_nodes, self.config.points_per_node],
-                "names": ["node", "point"],
-            },
             "valid_node_mask": {
                 "dtype": "bool",
                 "shape": [self.config.max_nodes],
@@ -857,16 +812,6 @@ class OfflinePipeline:
                 "dtype": "float32",
                 "shape": [6, 3],
                 "names": ["point", "xyz"],
-            },
-            "actions_camera": {
-                "dtype": "float32",
-                "shape": [7],
-                "names": ["actions"],
-            },
-            "absolute_actions_camera": {
-                "dtype": "float32",
-                "shape": [7],
-                "names": ["actions"],
             },
         }
 
@@ -957,12 +902,9 @@ if __name__ == "__main__":
         overwrite={
             "taskstructure": False,
             "node_points_xyz": True,
-            "node_points_vis": True,
             "valid_node_mask": True,
             "subtask_node_mask": True,
             "gripper_points_xyz": False,
-            "actions_camera": False,
-            "absolute_actions_camera": False,
         },
         task_analyzer_api_key=api_key,
         debug=args.debug,

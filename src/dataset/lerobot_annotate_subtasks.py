@@ -17,7 +17,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -105,6 +104,7 @@ class DatasetStore:
         preview_scale: float = 0.5,
         completion_soft_width: int = 2,
         save_workers: int = 4,
+        with_complete: bool = False,
     ) -> None:
         self.root = root.resolve()
         self.meta_dir = self.root / "meta"
@@ -128,6 +128,7 @@ class DatasetStore:
         self.save_workers = save_workers
         self.horizontal_flip = horizontal_flip
         self.preview_scale = preview_scale
+        self.with_complete = with_complete
         self.cache_episodes = max(1, cache_episodes)
         self.lock = threading.RLock()
         self.frame_cache: OrderedDict[int, dict[int, bytes]] = OrderedDict()
@@ -327,20 +328,49 @@ class DatasetStore:
                 return encode_jpeg(image, self.preview_scale)
 
         path = self.video_path(episode_index)
-        capture = cv2.VideoCapture(str(path))
-        if not capture.isOpened():
-            raise FileNotFoundError(f"Unable to open episode video: {path}")
         try:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-            ok, frame_bgr = capture.read()
-        finally:
-            capture.release()
-        if not ok:
+            import av
+        except ImportError as error:
+            raise RuntimeError(
+                "PyAV is required to decode episode videos (install with: pip install av)."
+            ) from error
+        try:
+            with av.open(str(path)) as container:
+                stream = container.streams.video[0]
+                rate = stream.average_rate or stream.guessed_rate
+                if rate is None or stream.time_base is None:
+                    raise ValueError(
+                        f"Cannot decode episode {episode_index}: unknown video frame rate"
+                    )
+                pts_per_frame = float(rate) * float(stream.time_base)
+                container.seek(
+                    int(frame_index / pts_per_frame),
+                    stream=stream,
+                    any_frame=False,
+                    backward=True,
+                )
+                rgb = None
+                for packet in container.demux(stream):
+                    for frame in packet.decode():
+                        if frame.pts is None:
+                            continue
+                        if round(frame.pts * pts_per_frame) < frame_index:
+                            continue
+                        rgb = frame.to_ndarray(format="rgb24")
+                        break
+                    if rgb is not None:
+                        break
+        except OSError as error:
+            raise FileNotFoundError(f"Unable to open episode video: {path}") from error
+        except av.error.FFmpegError as error:
+            raise ValueError(
+                f"Unable to decode episode {episode_index} frame {frame_index}"
+            ) from error
+        if rgb is None:
             raise ValueError(f"Unable to decode episode {episode_index} frame {frame_index}")
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         if self.horizontal_flip:
-            frame_rgb = np.fliplr(frame_rgb)
-        return encode_jpeg(frame_rgb, self.preview_scale)
+            rgb = np.fliplr(rgb)
+        return encode_jpeg(rgb, self.preview_scale)
 
     def save_annotation(self, episode_index: int, boundaries: list[int]) -> dict[str, Any]:
         result = self.save_annotations([(episode_index, boundaries)])
@@ -385,9 +415,17 @@ class DatasetStore:
             validated = validate_boundaries(boundaries, length)
             subtask_ids = np.searchsorted(validated, np.arange(length), side="right") + 1
             subtask_progress = linear_subtask_progress(validated, length)
-            is_complete = completion_mask(validated, length, self.completion_frames)
-            is_complete_soft = completion_soft_mask(
-                validated, length, self.completion_frames, self.completion_soft_width
+            is_complete = (
+                completion_mask(validated, length, self.completion_frames)
+                if self.with_complete
+                else None
+            )
+            is_complete_soft = (
+                completion_soft_mask(
+                    validated, length, self.completion_frames, self.completion_soft_width
+                )
+                if self.with_complete
+                else None
             )
             prepared.append(
                 (episode_index, subtask_ids, subtask_progress, is_complete, is_complete_soft)
@@ -430,9 +468,10 @@ class DatasetStore:
                         saved.append(episode_index)
                         self.annotated_episodes.add(episode_index)
                         self.progress_column_episodes.add(episode_index)
-                        self.completion_column_episodes.add(episode_index)
-                        self.completion_soft_column_episodes.add(episode_index)
-                        self.completion_episodes.add(episode_index)
+                        if self.with_complete:
+                            self.completion_column_episodes.add(episode_index)
+                            self.completion_soft_column_episodes.add(episode_index)
+                            self.completion_episodes.add(episode_index)
                         yield {
                             "episode_index": episode_index,
                             "status": "saved",
@@ -441,10 +480,13 @@ class DatasetStore:
             if saved:
                 try:
                     self._ensure_info_features(
-                        include_completion=len(self.completion_column_episodes)
+                        include_completion=self.with_complete
+                        and len(self.completion_column_episodes)
                         == len(self.episodes_by_index),
-                        include_completion_soft=len(self.completion_soft_column_episodes)
+                        include_completion_soft=self.with_complete
+                        and len(self.completion_soft_column_episodes)
                         == len(self.episodes_by_index),
+                        prune_completion=not self.with_complete,
                     )
                 except Exception as error:
                     yield {
@@ -457,35 +499,45 @@ class DatasetStore:
         episode_index: int,
         subtask_ids: np.ndarray,
         subtask_progress: np.ndarray,
-        is_complete: np.ndarray,
-        is_complete_soft: np.ndarray,
+        is_complete: np.ndarray | None,
+        is_complete_soft: np.ndarray | None,
     ) -> bool:
         path = self.episode_path(episode_index)
         source = pq.ParquetFile(path)
-        if not (
-            source.metadata.num_rows
-            == len(subtask_ids)
-            == len(subtask_progress)
-            == len(is_complete)
-            == len(is_complete_soft)
-        ):
+        completion_present = is_complete is not None and is_complete_soft is not None
+        row_mismatch = (
+            source.metadata.num_rows != len(subtask_ids)
+            or source.metadata.num_rows != len(subtask_progress)
+        )
+        if completion_present:
+            row_mismatch = row_mismatch or len(is_complete) != source.metadata.num_rows
+            row_mismatch = row_mismatch or len(is_complete_soft) != source.metadata.num_rows
+        if row_mismatch:
             raise ValueError(
                 f"Episode {episode_index} parquet has {source.metadata.num_rows} rows, "
-                f"expected {len(subtask_ids)}"
+                f"expected {len(subtask_ids)} (subtask_id), "
+                f"{len(subtask_progress)} (subtask_progress), "
+                f"{len(is_complete) if is_complete is not None else '-'} (is_complete), "
+                f"{len(is_complete_soft) if is_complete_soft is not None else '-'} (is_complete_soft)"
             )
         expected = {
             "subtask_id": subtask_ids,
             "subtask_progress": subtask_progress,
-            "is_complete": is_complete,
-            "is_complete_soft": is_complete_soft,
         }
+        if completion_present:
+            expected["is_complete"] = is_complete
+            expected["is_complete_soft"] = is_complete_soft
         if all(name in source.schema_arrow.names for name in expected):
             current = source.read(columns=list(expected))
             if all(
                 np.array_equal(current[name].to_numpy(zero_copy_only=False), values)
                 for name, values in expected.items()
             ):
-                return False
+                if completion_present or not any(
+                    name in source.schema_arrow.names
+                    for name in ("is_complete", "is_complete_soft")
+                ):
+                    return False
         compression = source.metadata.row_group(0).column(0).compression.lower()
         handle, temporary = tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".parquet", dir=path.parent
@@ -505,19 +557,36 @@ class DatasetStore:
                             subtask_progress[offset : offset + length], type=pa.float32()
                         ),
                     ),
-                    ("is_complete", pa.array(is_complete[offset : offset + length], type=pa.bool_())),
-                    (
-                        "is_complete_soft",
-                        pa.array(
-                            is_complete_soft[offset : offset + length], type=pa.float32()
-                        ),
-                    ),
                 )
+                if completion_present:
+                    columns += (
+                        (
+                            "is_complete",
+                            pa.array(
+                                is_complete[offset : offset + length], type=pa.bool_()
+                            ),
+                        ),
+                        (
+                            "is_complete_soft",
+                            pa.array(
+                                is_complete_soft[offset : offset + length],
+                                type=pa.float32(),
+                            ),
+                        ),
+                    )
                 for name, column in columns:
                     if name in table.column_names:
                         table = table.set_column(table.column_names.index(name), name, column)
                     else:
                         table = table.append_column(name, column)
+                if not completion_present:
+                    drop_names = [
+                        name
+                        for name in ("is_complete", "is_complete_soft")
+                        if name in table.column_names
+                    ]
+                    if drop_names:
+                        table = table.drop(drop_names)
                 if writer is None:
                     writer = pq.ParquetWriter(temporary, table.schema, compression=compression)
                 writer.write_table(table, row_group_size=length)
@@ -535,7 +604,10 @@ class DatasetStore:
             Path(temporary).unlink(missing_ok=True)
 
     def _ensure_info_features(
-        self, include_completion: bool, include_completion_soft: bool = False
+        self,
+        include_completion: bool,
+        include_completion_soft: bool = False,
+        prune_completion: bool = False,
     ) -> None:
         required = {
             "subtask_id": SUBTASK_FEATURE,
@@ -545,11 +617,19 @@ class DatasetStore:
             required["is_complete"] = IS_COMPLETE_FEATURE
         if include_completion_soft:
             required["is_complete_soft"] = IS_COMPLETE_SOFT_FEATURE
-        features = self.info.setdefault("features", {})
-        if all(features.get(name) == feature for name, feature in required.items()):
-            return
         updated_info = copy.deepcopy(self.info)
-        updated_info.setdefault("features", {}).update(required)
+        features = updated_info.setdefault("features", {})
+        changed = False
+        for name, feature in required.items():
+            if features.get(name) != feature:
+                features[name] = feature
+                changed = True
+        if prune_completion:
+            for name in ("is_complete", "is_complete_soft"):
+                if features.pop(name, None) is not None:
+                    changed = True
+        if not changed:
+            return
         atomic_write_text(
             self.info_path, json.dumps(updated_info, ensure_ascii=False, indent=2) + "\n"
         )
@@ -644,6 +724,7 @@ def create_app(
     horizontal_flip: bool = True,
     preview_scale: float = 0.5,
     save_workers: int = 4,
+    with_complete: bool = False,
 ) -> FastAPI:
     store = DatasetStore(
         root=Path(dataset),
@@ -654,12 +735,17 @@ def create_app(
         preview_scale=preview_scale,
         completion_soft_width=soft_width,
         save_workers=save_workers,
+        with_complete=with_complete,
     )
     app = FastAPI(title="LeRobot Subtask Annotator")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return HTML
+
+    @app.get("/api/config")
+    def config() -> dict[str, Any]:
+        return {"with_complete": with_complete}
 
     @app.get("/api/tasks")
     def tasks() -> list[dict[str, Any]]:
@@ -772,7 +858,7 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 .boundary{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:#202936;border-radius:7px;padding:8px;margin:6px 0}.boundary-thumbnail{grid-column:1/-1;width:100%;max-height:220px;object-fit:contain;background:#080a0e;border-radius:5px}.segment{font-size:13px;color:#b9c4d2;padding:5px 0;border-bottom:1px solid #293342}
 .primary{background:#246bce;border-color:#347be0}.danger{background:#7b2930}.message{min-height:24px;color:#7ed79f;margin-top:10px}.save-all{width:100%;margin-top:14px}
 </style></head><body>
-<header><h1>LeRobot Subtask Boundary Annotator</h1><label>Task <select id="task"></select></label><span id="taskProgress"></span></header>
+<header><h1>LeRobot Subtask Boundary Annotator</h1><label>Task <select id="task"></select></label><span id="taskProgress"></span><button id="saveAllTasks">Save All Tasks</button></header>
 <div class="layout"><aside class="episodes"><b>Episodes</b><div id="episodes"></div></aside>
 <main><div class="viewer"><img id="frame" alt="Episode frame"></div><div class="timeline">
 <div class="range-wrap"><input id="slider" type="range" min="0" value="0" step="1"><div id="completion" class="completion-track"></div><div id="markers" class="marker-track"></div></div>
@@ -783,7 +869,7 @@ main{padding:18px;display:flex;flex-direction:column;align-items:center;overflow
 <button class="primary save-all" id="save">Save All Changes (0)</button><div class="message" id="message"></div></aside></div>
 <script>
 const $=id=>document.getElementById(id);
-let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null,dragBoundary=null;
+let tasks=[],episodes=[],detail=null,current=0,boundaries=[],timer=null,activeTask=null,dragBoundary=null;let WITH_COMPLETE=false;
 const drafts=new Map(),savedByEpisode=new Map(),annotatedByEpisode=new Map(),progressByEpisode=new Map(),completionByEpisode=new Map(),completionSoftByEpisode=new Map();
 const edited=new Set(),completionPending=new Set();
 async function json(url,options){const response=await fetch(url,options);const body=await response.json();if(!response.ok)throw new Error(body.detail||response.statusText);return body}
@@ -792,13 +878,13 @@ function stashCurrent(){if(detail)drafts.set(detail.episode_index,[...boundaries
 function needsSave(id){return completionPending.has(id)||(edited.has(id)&&!equal(drafts.get(id),savedByEpisode.get(id)))}
 function dirtyIds(){return [...new Set([...edited,...completionPending])].filter(needsSave).sort((a,b)=>a-b)}
 function saveIds(){return episodes.map(item=>item.episode_index).filter(id=>annotatedByEpisode.get(id)||edited.has(id)||completionPending.has(id))}
-function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);progressByEpisode.set(id,episode.progress_annotated);completionByEpisode.set(id,episode.completion_annotated);completionSoftByEpisode.set(id,episode.completion_soft_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
+function rememberEpisode(episode){const id=episode.episode_index;annotatedByEpisode.set(id,episode.annotated);progressByEpisode.set(id,episode.progress_annotated);completionByEpisode.set(id,episode.completion_annotated);completionSoftByEpisode.set(id,episode.completion_soft_annotated);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries]);if(WITH_COMPLETE&&episode.annotated&&!episode.completion_annotated)completionPending.add(id);else completionPending.delete(id)}
 function rememberCompletionPending(episode){const id=episode.episode_index;annotatedByEpisode.set(id,true);progressByEpisode.set(id,false);completionByEpisode.set(id,false);completionSoftByEpisode.set(id,false);completionPending.add(id);savedByEpisode.set(id,[...episode.boundaries]);if(!drafts.has(id))drafts.set(id,[...episode.boundaries])}
-async function init(){tasks=await json('/api/tasks');const pending=await json('/api/completion-pending');for(const episode of pending)rememberCompletionPending(episode);$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
+async function init(){const config=await json('/api/config');WITH_COMPLETE=config.with_complete;if(WITH_COMPLETE){const pending=await json('/api/completion-pending');for(const episode of pending)rememberCompletionPending(episode)}else{$('completion').style.display='none';const completionKey=document.querySelector('.legend .completion-key');if(completionKey)completionKey.style.display='none'}tasks=await json('/api/tasks');$('task').innerHTML='';for(const task of tasks){const option=document.createElement('option');option.value=task.task_index;option.textContent=task.task_index+': '+task.task;$('task').appendChild(option)}$('task').onchange=loadTask;if(tasks.length)await loadTask()}
 async function loadTask(){stashCurrent();stop();activeTask=Number($('task').value);episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);renderEpisodes();renderProgress();if(episodes.length)await selectEpisode(episodes[0].episode_index)}
 function renderProgress(){const task=tasks.find(item=>item.task_index===activeTask);if(!task)return;$('taskProgress').textContent=task.annotated+'/'+task.episodes+' saved · '+dirtyIds().length+' unsaved';$('save').textContent='Save All Annotated ('+saveIds().length+')'}
 function renderEpisodes(){const box=$('episodes');box.innerHTML='';for(const episode of episodes){const id=episode.episode_index;const button=document.createElement('button');button.className='episode';button.classList.toggle('current',Boolean(detail)&&id===detail.episode_index);button.onclick=()=>selectEpisode(id);const left=document.createElement('span');left.textContent='Episode '+id;const right=document.createElement('span');right.className='episode-status';if(annotatedByEpisode.get(id)){const persisted=document.createElement('span');persisted.className='persisted';persisted.textContent='subtask_id ✓';right.appendChild(persisted)}if(progressByEpisode.get(id)){const progress=document.createElement('span');progress.className='persisted';progress.textContent='subtask_progress ✓';right.appendChild(progress)}if(completionByEpisode.get(id)){const complete=document.createElement('span');complete.className='persisted';complete.textContent='is_complete ✓';right.appendChild(complete)}if(completionSoftByEpisode.get(id)){const soft=document.createElement('span');soft.className='persisted';soft.textContent='is_complete_soft ✓';right.appendChild(soft)}const state=document.createElement('span');if(completionPending.has(id)&&!edited.has(id)){state.className='unsaved';state.textContent='Needs is_complete'}else if(needsSave(id)){state.className='unsaved';state.textContent='Unsaved'}else if(!annotatedByEpisode.get(id)){state.className='pending';state.textContent='Pending'}right.appendChild(state);button.append(left,right);box.appendChild(button)}}
-async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);progressByEpisode.set(id,next.progress_annotated);completionByEpisode.set(id,next.completion_annotated);completionSoftByEpisode.set(id,next.completion_soft_annotated);if(next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
+async function selectEpisode(id){stashCurrent();stop();const next=await json('/api/episodes/'+id);detail=next;current=0;savedByEpisode.set(id,[...next.boundaries]);annotatedByEpisode.set(id,next.annotated);progressByEpisode.set(id,next.progress_annotated);completionByEpisode.set(id,next.completion_annotated);completionSoftByEpisode.set(id,next.completion_soft_annotated);if(WITH_COMPLETE&&next.annotated&&!next.completion_annotated)completionPending.add(id);else completionPending.delete(id);if(!drafts.has(id))drafts.set(id,[...next.boundaries]);boundaries=[...drafts.get(id)];$('slider').max=next.length-1;$('slider').value=0;showFrame();renderAnnotation();$('message').textContent='';renderEpisodes();renderProgress()}
 function changeEpisode(delta){if(!detail)return;const index=episodes.findIndex(item=>item.episode_index===detail.episode_index),next=episodes[index+delta];if(next)selectEpisode(next.episode_index)}
 function showFrame(){if(!detail)return;$('slider').value=current;$('frame').src='/api/episodes/'+detail.episode_index+'/frames/'+current;$('frameLabel').textContent='Original frame '+current+' / '+(detail.length-1)+' · subtask '+subtaskAt(current)}
 function subtaskAt(frame){return 1+boundaries.filter(value=>value<=frame).length}
@@ -817,10 +903,11 @@ function beginBoundaryDrag(event,index){event.preventDefault();stop();dragBounda
 function endBoundaryDrag(event){if(!dragBoundary)return;updateBoundaryDrag(event);dragBoundary=null;updateDraft();$('message').textContent='Boundary updated. Save all changes when ready.'}
 function cancelBoundaryDrag(){if(!dragBoundary)return;dragBoundary=null;updateDraft();$('message').textContent='Boundary drag ended.'}
 function renderMarkers(){const id=detail.episode_index,completionBox=$('completion'),ranges=(edited.has(id)||completionPending.has(id))?completionRangesFromBoundaries():(detail.completion_ranges||[]);completionBox.innerHTML='';for(const range of ranges){const region=document.createElement('span');region.className='completion-region';region.style.left=(range.start/detail.length*100)+'%';region.style.width=((range.end-range.start+1)/detail.length*100)+'%';region.title='is_complete=true · frame '+range.start+'–'+range.end;completionBox.appendChild(region)}const saved=savedByEpisode.get(id)||[],currentSet=new Set(boundaries),savedSet=new Set(saved),all=[...new Set([...saved,...boundaries])].sort((a,b)=>a-b),max=Math.max(1,detail.length-1),box=$('markers');box.innerHTML='';for(const value of all){const marker=document.createElement('span');const state=currentSet.has(value)?(savedSet.has(value)?'saved':'unsaved'):'removed';marker.className='marker '+state;marker.style.left=(value/max*100)+'%';marker.title=(state==='saved'?'Drag saved boundary':state==='unsaved'?'Drag unsaved boundary':'Saved boundary pending removal')+' · frame '+value;if(state!=='removed'){const index=boundaries.indexOf(value);marker.onpointerdown=event=>beginBoundaryDrag(event,index)}box.appendChild(marker)}}
-async function saveAll(){
-  stashCurrent();const ids=saveIds();
-  if(!ids.length){$('message').textContent='There are no annotated episodes in this task.';return}
-  const button=$('save');button.disabled=true;button.textContent='Saving 0 / '+ids.length;
+async function saveAnnotations(ids,button,emptyMessage,taskByEpisode){
+  if(!ids.length){$('message').textContent=emptyMessage;return}
+  const original=button.textContent;button.disabled=true;
+  let taskDone=0,taskTotal=0,taskLeft=new Map();
+  if(taskByEpisode){for(const id of ids){const task=taskByEpisode.get(id);if(task!==undefined)taskLeft.set(task,(taskLeft.get(task)||0)+1)}taskTotal=taskLeft.size;button.textContent='Saving tasks 0 / '+taskTotal}else{button.textContent='Saving 0 / '+ids.length}
   let summary=null,metadataErrorCount=0;
   try{
     const submittedByEpisode=new Map(ids.map(id=>[id,[...(drafts.get(id)||[])]]));
@@ -835,25 +922,38 @@ async function saveAll(){
       for(const line of lines){
         if(!line.trim())continue;const event=JSON.parse(line);
         if(event.status==='saved'){
-          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);progressByEpisode.set(id,true);completionByEpisode.set(id,true);completionSoftByEpisode.set(id,true);completionPending.delete(id);
+          const id=event.episode_index,submitted=submittedByEpisode.get(id)||[];savedByEpisode.set(id,[...submitted]);annotatedByEpisode.set(id,true);progressByEpisode.set(id,true);completionPending.delete(id);if(WITH_COMPLETE){completionByEpisode.set(id,true);completionSoftByEpisode.set(id,true)}else{completionByEpisode.set(id,false);completionSoftByEpisode.set(id,false)}
           if(equal(drafts.get(id),submitted))edited.delete(id);else edited.add(id);
-          if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.completion_ranges=completionRangesFromBoundaries(submitted);detail.annotated=true;renderAnnotation()}
-          metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
+          if(detail&&id===detail.episode_index){detail.boundaries=[...submitted];detail.completion_ranges=WITH_COMPLETE?completionRangesFromBoundaries(submitted):[];detail.annotated=true;renderAnnotation()}
+          if(taskByEpisode){const task=taskByEpisode.get(id);if(task!==undefined){const left=taskLeft.get(task)-1;taskLeft.set(task,left);if(left===0)taskDone++}button.textContent='Saving tasks '+taskDone+' / '+taskTotal}else{button.textContent='Saving '+event.completed+' / '+event.total}metadataErrorCount+=(event.metadata_errors||[]).length;renderEpisodes();renderProgress();
           $('message').textContent='Saved episode '+id+' ('+event.completed+' / '+event.total+').';
         }else if(event.status==='failed'){
-          renderEpisodes();renderProgress();button.textContent='Saving '+event.completed+' / '+event.total;
+          if(taskByEpisode){button.textContent='Saving tasks '+taskDone+' / '+taskTotal}else{button.textContent='Saving '+event.completed+' / '+event.total}renderEpisodes();renderProgress();
           $('message').textContent='Episode '+event.episode_index+' failed and remains unsaved: '+event.error;
         }else if(event.status==='done'){summary=event;metadataErrorCount+=(event.metadata_errors||[]).length}
       }
       if(chunk.done)break;
     }
-    tasks=await json('/api/tasks');episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode);
+    tasks=await json('/api/tasks');
+    if(activeTask!==null){episodes=await json('/api/tasks/'+activeTask+'/episodes');for(const episode of episodes)rememberEpisode(episode)}
     renderEpisodes();renderProgress();
     if(summary){$('message').textContent='Saved '+summary.saved+' / '+summary.total+' episode(s).'+(summary.failed?' '+summary.failed+' failed and remain unsaved.':'')+(metadataErrorCount?' Metadata sync reported '+metadataErrorCount+' error(s).':'')}
-  }catch(error){$('message').textContent=error.message}finally{button.disabled=false;renderProgress()}
+  }catch(error){$('message').textContent=error.message}finally{button.disabled=false;button.textContent=original;renderProgress()}
+}
+async function saveAll(){
+  stashCurrent();await saveAnnotations(saveIds(),$('save'),'There are no annotated episodes in this task.')
+}
+async function saveAllTasks(){
+  stashCurrent();const seen=new Set();const ids=[];const taskByEpisode=new Map();
+  for(const task of tasks){
+    const rows=await json('/api/tasks/'+task.task_index+'/episodes');
+    for(const episode of rows)rememberEpisode(episode);
+    for(const row of rows){const id=row.episode_index;if((!(annotatedByEpisode.get(id)&&progressByEpisode.get(id))||edited.has(id)||completionPending.has(id))&&!seen.has(id)){seen.add(id);ids.push(id);taskByEpisode.set(id,task.task_index)}}
+  }
+  await saveAnnotations(ids,$('saveAllTasks'),'All episodes already have the required fields.',taskByEpisode.size?taskByEpisode:null)
 }
 $('slider').oninput=event=>{stop();current=Number(event.target.value);showFrame()};$('play').onclick=play;$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);
-$('add').onclick=()=>{if(!detail||current<=0||current>=detail.length||boundaries.includes(current))return;boundaries.push(current);boundaries.sort((a,b)=>a-b);updateDraft()};$('save').onclick=saveAll;
+$('add').onclick=()=>{if(!detail||current<=0||current>=detail.length||boundaries.includes(current))return;boundaries.push(current);boundaries.sort((a,b)=>a-b);updateDraft()};$('save').onclick=saveAll;$('saveAllTasks').onclick=saveAllTasks;
 document.addEventListener('pointermove',event=>{if(dragBoundary){event.preventDefault();updateBoundaryDrag(event)}});document.addEventListener('pointerup',endBoundaryDrag);document.addEventListener('pointercancel',cancelBoundaryDrag);
 document.addEventListener('keydown',event=>{if(event.key==='ArrowLeft')move(-1);if(event.key==='ArrowRight')move(1);if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();changeEpisode(event.key==='ArrowUp'?-1:1)}if(event.key===' '){event.preventDefault();play()}});
 window.onbeforeunload=()=>dirtyIds().length?'You have unsaved annotations.':undefined;init().catch(error=>$('message').textContent=error.message);
@@ -892,6 +992,14 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Horizontally flip images in the web UI only (default: enabled).",
     )
+    parser.add_argument(
+        "--with-complete",
+        "--with_complete",
+        dest="with_complete",
+        action="store_true",
+        default=False,
+        help="Write is_complete and is_complete_soft columns (default: disabled).",
+    )
     return parser.parse_args()
 
 
@@ -906,6 +1014,7 @@ def main() -> None:
         args.horizontal_flip,
         args.preview_scale,
         args.save_workers,
+        args.with_complete,
     )
     print(f"Open http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)
