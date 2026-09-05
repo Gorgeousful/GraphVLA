@@ -56,13 +56,19 @@ def test_progress_head_forward_backward_and_sample() -> None:
         "loss", "loss_flow", "loss_flow_points", "loss_flow_gripper",
         "loss_progress",
     }
-    assert model.progress_head[0].in_features == (2 * model.cls_token_num + 2) * 32
+    assert model.progress_head.input_projection.in_features == 2 * model.cls_token_num * 32
     assert any(parameter.grad is not None for parameter in model.progress_head.parameters())
     assert all(
-        block.semantic_norm.modulation.weight.grad is not None
-        and torch.count_nonzero(block.semantic_norm.modulation.weight.grad) > 0
+        block.self_norm.task_modulation.weight.grad is not None
+        and torch.count_nonzero(block.self_norm.task_modulation.weight.grad) > 0
         for block in model.flow.blocks
     )
+    assert all(
+        not hasattr(block, "semantic_attention")
+        for block in model.flow.blocks
+    )
+    assert model.progress_head.norm.modulation[-1].weight.grad is not None
+    assert torch.count_nonzero(model.progress_head.norm.modulation[-1].weight.grad) > 0
 
     outputs = model.eval().sample(
         batch,
