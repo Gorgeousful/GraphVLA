@@ -536,7 +536,7 @@ def _default_max_steps(task_suite_name: str) -> int:
         return 280
     if task_suite_name == "libero_goal":
         return 300
-    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom", "libero_swap_test"}:
+    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom", "libero_custom_0902", "libero_swap_test"}:
         return 520
     if task_suite_name == "libero_90":
         return 400
