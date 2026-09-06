@@ -100,7 +100,7 @@ LIBERO_POINT_STATS_FIELD = (
 LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
-LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.0 # baseline 0
+LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.5 # baseline 0
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",

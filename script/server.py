@@ -72,6 +72,7 @@ class Args:
     locator_scale: float = 1.0
     segmenter: str = "sam2"
     sam_only: bool = False
+    keep_locator_loaded: bool = False
     execute_chunk_len: int = 5
     release_lift_height: float = 0.05
     seed: int = 42
@@ -279,6 +280,7 @@ class InputPreprocessor:
         locator_scale: float = 1.0,
         segmenter: str = "sam2",
         sam_only: bool = False,
+        keep_locator_loaded: bool = False,
         devices: Mapping[str, str] | None = None,
     ) -> None:
         self.history_frames = tuple(
@@ -304,10 +306,12 @@ class InputPreprocessor:
         self.locator_scale = locator_scale
         self.segmenter = segmenter
         self.sam_only = sam_only
+        self.keep_locator_loaded = keep_locator_loaded
         self.devices = dict(devices or {})
         norm_stats_path = Path(dataset_dir) / "meta" / "norm_stats_suite.json"
         payload = load_norm_stats(norm_stats_path)
         self.norm_stats = dict(payload.get("norm_stats", payload))
+        self.node_locator = None
         self.node_segmenter_model = None
         self.robot: Any = None
 
@@ -355,7 +359,12 @@ class InputPreprocessor:
         box_prompts = None
         if perception_nodes:
             locator_cls = NodeLocatorLA if self.locator == "locateanything" else NodeLocatorRobo
-            node_locator = locator_cls(device_map=self._device("node_locator"))
+            if self.keep_locator_loaded:
+                if self.node_locator is None:
+                    self.node_locator = locator_cls(device_map=self._device("node_locator"))
+                node_locator = self.node_locator
+            else:
+                node_locator = locator_cls(device_map=self._device("node_locator"))
             try:
                 if self.locator_mode == "box":
                     box_prompts = []
@@ -383,10 +392,11 @@ class InputPreprocessor:
                     session.object_to_unique_indices
                 ]
             finally:
-                del node_locator
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                if not self.keep_locator_loaded:
+                    del node_locator
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
         node_segmenter_device = self._device("node_segmenter")
         segmenter_cls = NodeSegmenterSAM2 if self.segmenter == "sam2" else NodeSegmenter
@@ -1452,6 +1462,11 @@ def parse_args() -> Args:
         action="store_true",
         help="Track masks with SAM and resample object points every frame without PointTracker.",
     )
+    parser.add_argument(
+        "--keep-locator-loaded",
+        action="store_true",
+        help="Keep the node locator loaded and reuse it across episodes.",
+    )
     parser.add_argument("--execute-chunk-len", type=int, default=Args.execute_chunk_len)
     parser.add_argument(
         "--release-lift-height",
@@ -1550,6 +1565,7 @@ def main() -> None:
             locator_scale=args.locator_scale,
             segmenter=args.segmenter,
             sam_only=args.sam_only,
+            keep_locator_loaded=args.keep_locator_loaded,
             devices=args.devices,
         ),
         inference = InferenceModel(
