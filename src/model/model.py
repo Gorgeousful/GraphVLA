@@ -156,8 +156,6 @@ class GraphFlowModel(nn.Module):
         dropout: float = 0.1,
         sample_steps: int = 10,
         gripper_flow_weight: float = 1.0,
-        condition_loss_temperature: float = 0.1,
-        condition_loss_progress_threshold: float = 0.5,
         weights: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
@@ -173,16 +171,6 @@ class GraphFlowModel(nn.Module):
             )
         if gripper_flow_weight <= 0:
             raise ValueError(f"gripper_flow_weight must be positive, got {gripper_flow_weight}")
-        if condition_loss_temperature <= 0:
-            raise ValueError(
-                "condition_loss_temperature must be positive, "
-                f"got {condition_loss_temperature}"
-            )
-        if not 0.0 <= condition_loss_progress_threshold <= 1.0:
-            raise ValueError(
-                "condition_loss_progress_threshold must be in [0, 1], "
-                f"got {condition_loss_progress_threshold}"
-            )
         self.num_points = num_points
         self.cls_token_num = cls_token_num
         self.history_horizon = history_horizon
@@ -191,8 +179,6 @@ class GraphFlowModel(nn.Module):
         self.sample_steps = sample_steps
         self.encoder_output_type = encoder_output_type
         self.gripper_flow_weight = float(gripper_flow_weight)
-        self.condition_loss_temperature = float(condition_loss_temperature)
-        self.condition_loss_progress_threshold = float(condition_loss_progress_threshold)
         self.weights = dict(weights or {})
         self.encoder = EntityEncoder(
             hidden_dim, self.actor_num_points, encoder_layers, num_heads, mlp_ratio, condition_dim,
@@ -278,65 +264,6 @@ class GraphFlowModel(nn.Module):
             + self.gripper_flow_weight * gripper_squared_error.numel()
         )
 
-        per_sample_flow_error = (
-            point_squared_error.flatten(1).sum(dim=1)
-            + self.gripper_flow_weight * gripper_squared_error.flatten(1).sum(dim=1)
-        ) / (
-            point_squared_error[0].numel()
-            + self.gripper_flow_weight * gripper_squared_error[0].numel()
-        )
-
-        scene_condition = batch["scene_condition"]
-        action_condition, degree_condition = scene_condition.unbind(dim=1)
-        eligible_negative = (
-            (action_condition[:, None] == action_condition[None, :]).all(dim=-1)
-            & ~(degree_condition[:, None] == degree_condition[None, :]).all(dim=-1)
-        )
-        progress_target = target["subtask_progress"].flatten()
-        condition_mask = (
-            eligible_negative.any(dim=1)
-            & (progress_target >= self.condition_loss_progress_threshold)
-        )
-        zero = loss_flow.new_zeros(())
-        loss_condition = zero
-        if condition_mask.any():
-            random_scores = torch.rand(
-                eligible_negative.shape, device=eligible_negative.device,
-            ).masked_fill(~eligible_negative, -1.0)
-            negative_indices = random_scores.argmax(dim=1)[condition_mask]
-            negative_scene_condition = scene_condition[condition_mask].clone()
-            negative_scene_condition[:, 1] = degree_condition[negative_indices]
-            negative_memory, _, negative_semantic_memory = self.encoder(
-                batch["entity_points"][condition_mask],
-                batch["entity_point_mask"][condition_mask],
-                negative_scene_condition,
-            )
-            negative_velocity = self.flow(
-                state[condition_mask],
-                time[condition_mask],
-                negative_memory,
-                self._task_condition(negative_semantic_memory),
-                actor_history[condition_mask],
-                self._memory_positions(negative_memory),
-            )
-            negative_squared_error = (
-                negative_velocity - target_velocity[condition_mask]
-            ).square()
-            negative_point_error = negative_squared_error[..., :-1]
-            negative_gripper_error = negative_squared_error[..., -1:]
-            negative_flow_error = (
-                negative_point_error.flatten(1).sum(dim=1)
-                + self.gripper_flow_weight * negative_gripper_error.flatten(1).sum(dim=1)
-            ) / (
-                negative_point_error[0].numel()
-                + self.gripper_flow_weight * negative_gripper_error[0].numel()
-            )
-            positive_flow_error = per_sample_flow_error[condition_mask]
-            loss_condition = F.softplus(
-                (positive_flow_error - negative_flow_error)
-                / self.condition_loss_temperature
-            ).mean()
-
         task_condition = self._task_condition(semantic_memory)
         progress = torch.sigmoid(
             self.progress_head(relation_local.flatten(1), task_condition)
@@ -348,7 +275,6 @@ class GraphFlowModel(nn.Module):
         losses = {
             "loss_flow": loss_flow,
             "loss_progress": loss_progress,
-            "loss_condition": loss_condition,
         }
         total = sum(value * float(self.weights.get(name, 1.0)) for name, value in losses.items())
         return total, {

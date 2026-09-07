@@ -34,12 +34,9 @@ class ModelConfig:
     action_delta: bool = False
     point_coordinate_frame: str = "tcp_relative"
     gripper_flow_weight: float = 1.0
-    condition_loss_temperature: float = 0.1
-    condition_loss_progress_threshold: float = 0.5
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,
         "loss_progress": 1.0,
-        "loss_condition": 0.0,
     })
 
     def __post_init__(self) -> None:
@@ -82,16 +79,6 @@ class ModelConfig:
         if self.gripper_flow_weight <= 0:
             raise ValueError(
                 f"gripper_flow_weight must be positive, got {self.gripper_flow_weight}"
-            )
-        if self.condition_loss_temperature <= 0:
-            raise ValueError(
-                "condition_loss_temperature must be positive, "
-                f"got {self.condition_loss_temperature}"
-            )
-        if not 0.0 <= self.condition_loss_progress_threshold <= 1.0:
-            raise ValueError(
-                "condition_loss_progress_threshold must be in [0, 1], "
-                f"got {self.condition_loss_progress_threshold}"
             )
         if self.point_coordinate_frame not in ("camera", "tcp_absolute", "tcp_relative"):
             raise ValueError(

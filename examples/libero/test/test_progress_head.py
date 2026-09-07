@@ -58,9 +58,8 @@ def test_progress_head_forward_backward_and_sample() -> None:
     assert torch.isfinite(loss)
     assert set(losses) == {
         "loss", "loss_flow", "loss_flow_points", "loss_flow_gripper",
-        "loss_progress", "loss_condition",
+        "loss_progress",
     }
-    assert losses["loss_condition"] > 0
     assert model.progress_head.input_projection.in_features == 2 * model.cls_token_num * 32
     assert any(parameter.grad is not None for parameter in model.progress_head.parameters())
     assert all(
@@ -97,24 +96,3 @@ def test_gripper_flow_weight_reweights_only_the_last_trajectory_dimension() -> N
         ) / (point_dimensions + gripper_flow_weight)
 
         torch.testing.assert_close(losses["loss_flow"], expected)
-
-
-def test_condition_loss_requires_progress_at_threshold() -> None:
-    model = _model()
-    batch = _batch()
-    batch["target"]["subtask_progress"].fill_(0.49)
-
-    _, losses = model(batch)
-
-    torch.testing.assert_close(losses["loss_condition"], torch.tensor(0.0))
-
-
-def test_condition_loss_requires_a_different_degree_for_the_same_action() -> None:
-    model = _model()
-    batch = _batch()
-    batch["scene_condition"][:, 1] = batch["scene_condition"][0, 1]
-    batch["target"]["subtask_progress"].fill_(1.0)
-
-    _, losses = model(batch)
-
-    torch.testing.assert_close(losses["loss_condition"], torch.tensor(0.0))
