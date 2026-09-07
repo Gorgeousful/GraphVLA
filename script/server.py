@@ -12,6 +12,7 @@ import asyncio
 import gc
 import json
 import random
+import threading
 import cv2
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -44,6 +45,11 @@ from src.common.schema import (
 
 
 cs = Console()
+_WORKER_CONTEXT = threading.local()
+
+
+def _worker_prefix() -> str:
+    return f"\\[worker {getattr(_WORKER_CONTEXT, 'worker_id', 0)}]"
 
 LIBERO_DELTA_POSITION_SCALE = 0.05
 REQUIRED_REQUEST_FIELDS = (
@@ -95,6 +101,7 @@ class InferenceSession:
     session_id: str
     benchmark: str
     language: str
+    worker_id: int = 0
     current_subtask: str | None = None
     taskstructure: dict[str, Any] | None = None
     subtask_index: int = 0
@@ -111,9 +118,10 @@ class InferenceSession:
     initial_points: np.ndarray | None = None
     object_to_unique_indices: list[int] = field(default_factory=list)
 
-    def reset(self, *, benchmark: str, language: str) -> None:
+    def reset(self, *, benchmark: str, language: str, worker_id: int = 0) -> None:
         self.benchmark = benchmark
         self.language = language
+        self.worker_id = worker_id
         self.current_subtask = None
         self.taskstructure = None
         self.subtask_index = 0
@@ -184,10 +192,10 @@ class TopLevelTaskPlanner:
                 f"subtask_progress={score:.4f}"
             )
             if score >= self.progress_threshold:
-                cs.print(f"[green]{score_text}[/green]")
+                cs.print(f"{_worker_prefix()} [green]{score_text}[/green]")
                 session.progress_streak += 1
             else:
-                cs.print(score_text)
+                cs.print(f"{_worker_prefix()} {score_text}")
                 session.progress_streak = 0
             if session.progress_streak >= self.progress_window:
                 session.progress_streak = 0
@@ -314,6 +322,7 @@ class InputPreprocessor:
         self.node_locator = None
         self.node_segmenter_model = None
         self.robot: Any = None
+        self._shared_model_init_lock = threading.Lock()
 
     def build(
         self,
@@ -360,8 +369,9 @@ class InputPreprocessor:
         if perception_nodes:
             locator_cls = NodeLocatorLA if self.locator == "locateanything" else NodeLocatorRobo
             if self.keep_locator_loaded:
-                if self.node_locator is None:
-                    self.node_locator = locator_cls(device_map=self._device("node_locator"))
+                with self._shared_model_init_lock:
+                    if self.node_locator is None:
+                        self.node_locator = locator_cls(device_map=self._device("node_locator"))
                 node_locator = self.node_locator
             else:
                 node_locator = locator_cls(device_map=self._device("node_locator"))
@@ -372,7 +382,8 @@ class InputPreprocessor:
                     for node in perception_nodes:
                         box = self._locate_node_box(node_locator, frame.image, node["name"])
                         cs.print(
-                            f"node locator node={node['name']} pixel_xyxy={np.round(box, 1).tolist()}",
+                            f"[worker {session.worker_id}] node locator node={node['name']} "
+                            f"pixel_xyxy={np.round(box, 1).tolist()}",
                             markup=False,
                         )
                         box_prompts.append(box)
@@ -383,7 +394,8 @@ class InputPreprocessor:
                     for node in perception_nodes:
                         points = self._locate_node_points(node_locator, frame.image, node["name"])
                         cs.print(
-                            f"node locator node={node['name']} pixel_xy={np.round(points, 1).tolist()}",
+                            f"[worker {session.worker_id}] node locator node={node['name']} "
+                            f"pixel_xy={np.round(points, 1).tolist()}",
                             markup=False,
                         )
                         point_prompts.append(points)
@@ -400,8 +412,9 @@ class InputPreprocessor:
 
         node_segmenter_device = self._device("node_segmenter")
         segmenter_cls = NodeSegmenterSAM2 if self.segmenter == "sam2" else NodeSegmenter
-        if self.node_segmenter_model is None:
-            self.node_segmenter_model = segmenter_cls(device=node_segmenter_device).model
+        with self._shared_model_init_lock:
+            if self.node_segmenter_model is None:
+                self.node_segmenter_model = segmenter_cls(device=node_segmenter_device).model
         session.object_segmenter = segmenter_cls(
             device=node_segmenter_device,
             model=self.node_segmenter_model,
@@ -1068,13 +1081,14 @@ class InferenceModel:
         self.bge_tokenizer = None
         self.bge_model = None
         self.embedding_cache: dict[str, torch.Tensor] = {}
+        self._embedding_lock = threading.Lock()
 
         model_kwargs = dict(model_kwargs)
         model_kwargs.pop("include_future_object_point", None)
         self.model = GraphFlowModel(**model_kwargs).to(device)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
         self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
-        cs.print(f"[green]loaded checkpoint from {ckpt_path}[/green]")
+        cs.print(f"{_worker_prefix()} [green]loaded checkpoint from {ckpt_path}[/green]")
         self.model.eval()
 
     @torch.inference_mode()
@@ -1123,25 +1137,26 @@ class InferenceModel:
         return json_outputs, self.to_json(infer_inputs)
 
     def embed_text(self, text: str | None) -> torch.Tensor:
-        if self.bge_model is None:
-            from transformers import AutoModel, AutoTokenizer
+        with self._embedding_lock:
+            if self.bge_model is None:
+                from transformers import AutoModel, AutoTokenizer
 
-            self.bge_tokenizer = AutoTokenizer.from_pretrained(self.bge_path)
-            self.bge_model = AutoModel.from_pretrained(self.bge_path).to(self.device)
-            self.bge_model.eval()
-            cs.print(f"[green]loaded BGE from {self.bge_path}[/green]")
+                self.bge_tokenizer = AutoTokenizer.from_pretrained(self.bge_path)
+                self.bge_model = AutoModel.from_pretrained(self.bge_path).to(self.device)
+                self.bge_model.eval()
+                cs.print(f"{_worker_prefix()} [green]loaded BGE from {self.bge_path}[/green]")
 
-        assert self.bge_tokenizer is not None and self.bge_model is not None
-        dim = int(self.bge_model.config.hidden_size)
-        if text is None or text == "":
-            return torch.zeros(dim, dtype=torch.float32, device=self.device)
-        if text not in self.embedding_cache:
-            batch = self.bge_tokenizer([text], padding=True, truncation=True, return_tensors="pt")
-            batch = {key: value.to(self.device) for key, value in batch.items()}
-            output = self.bge_model(**batch)
-            embedding = F.normalize(output.last_hidden_state[:, 0], p=2, dim=1)[0]
-            self.embedding_cache[text] = embedding.detach().float()
-        return self.embedding_cache[text].to(self.device)
+            assert self.bge_tokenizer is not None and self.bge_model is not None
+            dim = int(self.bge_model.config.hidden_size)
+            if text is None or text == "":
+                return torch.zeros(dim, dtype=torch.float32, device=self.device)
+            if text not in self.embedding_cache:
+                batch = self.bge_tokenizer([text], padding=True, truncation=True, return_tensors="pt")
+                batch = {key: value.to(self.device) for key, value in batch.items()}
+                output = self.bge_model(**batch)
+                embedding = F.normalize(output.last_hidden_state[:, 0], p=2, dim=1)[0]
+                self.embedding_cache[text] = embedding.detach().float()
+            return self.embedding_cache[text].to(self.device)
 
     def to_json(self, value: Any) -> Any:
         if isinstance(value, torch.Tensor):
@@ -1187,6 +1202,8 @@ class InferenceServer:
         self.embodiment = embodiment
         self.ckpt_path = str(Path(ckpt_path).resolve())
         self.sessions: dict[str, InferenceSession] = {}
+        self.session_locks: dict[str, threading.Lock] = {}
+        self.session_locks_guard = threading.Lock()
         self.idle_timeout = 180.0
         self.last_message_time = 0.0
 
@@ -1194,8 +1211,8 @@ class InferenceServer:
         asyncio.run(self.serve())
 
     async def serve(self) -> None:
-        cs.print(f"[green]GraphVLA inference server listening on ws://{self.host}:{self.port}[/green]")
-        cs.print("WebSocket messages must be flat observation requests; replies are model fields plus action.")
+        cs.print(f"{_worker_prefix()} [green]GraphVLA inference server listening on ws://{self.host}:{self.port}[/green]")
+        cs.print(f"{_worker_prefix()} WebSocket messages must be flat observation requests; replies are model fields plus action.")
         self.last_message_time = asyncio.get_running_loop().time()
         async with websockets.serve(
             self.handle_connection,
@@ -1212,28 +1229,43 @@ class InferenceServer:
             await asyncio.sleep(1.0)
             idle_seconds = asyncio.get_running_loop().time() - self.last_message_time
             if idle_seconds >= self.idle_timeout:
-                cs.print(f"[yellow]No WebSocket message received for {self.idle_timeout:.0f}s; shutting down.[/yellow]")
+                cs.print(
+                    f"{_worker_prefix()} [yellow]No WebSocket message received for "
+                    f"{self.idle_timeout:.0f}s; shutting down.[/yellow]"
+                )
                 return
 
     async def handle_connection(self, websocket: websockets.ServerConnection) -> None:
         peer = websocket.remote_address
-        cs.print(f"{peer} - connected")
         async for message in websocket:
             self.last_message_time = asyncio.get_running_loop().time()
             try:
                 request = json.loads(message)
                 if not isinstance(request, Mapping):
                     raise TypeError("request message must be a JSON object")
+                worker_id = int(request.get("worker_id", 0))
+                cs.print(f"\\[worker {worker_id}] {peer} - connected")
                 if request.get("type") == "server_info":
                     response = {
                         "ckpt_path": self.ckpt_path,
                         "progress_threshold": self.planner.progress_threshold,
                     }
                 else:
-                    response = self.infer_from_observation(request)
+                    response = await asyncio.to_thread(self._infer_locked, request)
             except Exception as exc:
                 response = {"error": str(exc)}
             await websocket.send(json.dumps(response))
+
+    def _infer_locked(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        session_id = str(request.get("session_id", ""))
+        with self.session_locks_guard:
+            session_lock = self.session_locks.setdefault(session_id, threading.Lock())
+        with session_lock:
+            _WORKER_CONTEXT.worker_id = int(request.get("worker_id", 0))
+            try:
+                return self.infer_from_observation(request)
+            finally:
+                del _WORKER_CONTEXT.worker_id
 
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
         self._validate_request(request)
@@ -1278,7 +1310,8 @@ class InferenceServer:
         gripper_actions = [float(action[-1]) for action in executed_actions]
         gripper_text = ", ".join(f"{g:.3f}" for g in gripper_actions)
         cs.print(
-            f"step={session.frame_index} gripper_action[{len(gripper_actions)}]=[{gripper_text}]",
+            f"[worker {session.worker_id}] step={session.frame_index} "
+            f"gripper_action[{len(gripper_actions)}]=[{gripper_text}]",
             markup=False,
         )
         response_initial_points, response_initial_point_object_ids, response_initial_point_active = (
@@ -1405,14 +1438,17 @@ class InferenceServer:
         session_id = str(request["session_id"])
         benchmark = str(request["benchmark"])
         language = str(request["language"])
+        worker_id = int(request.get("worker_id", 0))
         session = self.sessions.get(session_id)
         if session is None:
-            session = InferenceSession(session_id=session_id, benchmark=benchmark, language=language)
+            session = InferenceSession(
+                session_id=session_id, benchmark=benchmark, language=language, worker_id=worker_id,
+            )
             self.sessions[session_id] = session
             return session
 
         if bool(request.get("reset", False)) or session.language != language or session.benchmark != benchmark:
-            session.reset(benchmark=benchmark, language=language)
+            session.reset(benchmark=benchmark, language=language, worker_id=worker_id)
         return session
 
 
@@ -1528,7 +1564,7 @@ def main() -> None:
         debugpy.wait_for_client()
 
     args = parse_args()
-    cs.print(args)
+    cs.print(f"{_worker_prefix()} {args}")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)

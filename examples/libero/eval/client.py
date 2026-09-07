@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import dataclasses
 import json
 import logging
@@ -39,6 +40,10 @@ import websockets
 
 cs = Console()
 
+
+def _worker_prefix(worker_id: int) -> str:
+    return f"\\[worker {worker_id}]"
+
 LIBERO_ENV_RESOLUTION = 256
 LIBERO_CAMERA_NAME = "agentview"
 
@@ -60,6 +65,7 @@ class Args:
     seed: int = 42
     save_video: bool = True
     action_delta: bool = False
+    num_workers: int = 1
 
 
 class ObservationDeltaBuffer:
@@ -92,9 +98,10 @@ class ObservationDeltaBuffer:
 
 
 class InferenceClient:
-    def __init__(self, *, host: str, port: int) -> None:
+    def __init__(self, *, host: str, port: int, worker_id: int = 0) -> None:
         self.host = host
         self.port = port
+        self.worker_id = worker_id
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
         self.extrinsic: np.ndarray | None = None
@@ -136,6 +143,7 @@ class InferenceClient:
         request = {
             "benchmark": "libero",
             "session_id": self.session_id,
+            "worker_id": self.worker_id,
             "language": task_description,
             **self.pending_observations.to_request_fields(intrinsic=self.intrinsic, extrinsic=self.extrinsic),
         }
@@ -470,7 +478,9 @@ def _draw_response_points(
     return image
 
 
-def _save_video_ffmpeg(frames_rgb: list[np.ndarray], save_path: Path, *, fps: float = 10.0) -> None:
+def _save_video_ffmpeg(
+    frames_rgb: list[np.ndarray], save_path: Path, *, fps: float = 10.0, worker_id: int = 0,
+) -> None:
     if not frames_rgb:
         return
     first = np.asarray(frames_rgb[0], dtype=np.uint8)
@@ -514,7 +524,7 @@ def _save_video_ffmpeg(frames_rgb: list[np.ndarray], save_path: Path, *, fps: fl
     if pipe_broken or proc.returncode != 0:
         message = stderr.decode("utf-8", errors="replace") if stderr else "unknown ffmpeg error"
         raise RuntimeError(f"ffmpeg failed while saving {save_path}: {message}")
-    cs.print(f"saved video to: {save_path} ({len(frames_rgb)} frames, {fps:.1f} fps)")
+    cs.print(f"{_worker_prefix(worker_id)} saved video to: {save_path} ({len(frames_rgb)} frames, {fps:.1f} fps)")
 
 
 def _goal_progress(env: Any) -> tuple[int, int, float, list[int], list[str]]:
@@ -565,6 +575,12 @@ def parse_args() -> Args:
     parser.add_argument("--trials-init-state", type=int, nargs="+", default=Args.trials_init_state)
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
     parser.add_argument("--seed", type=int, default=Args.seed)
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=Args.num_workers,
+        help="Number of task groups evaluated concurrently against the same server.",
+    )
     parser.add_argument("--no-save-video", action="store_true")
     action_group = parser.add_mutually_exclusive_group()
     action_group.add_argument(
@@ -583,6 +599,8 @@ def parse_args() -> Args:
     ns = parser.parse_args()
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
+    if ns.num_workers <= 0:
+        parser.error("--num-workers must be positive")
     return Args(
         host=ns.host,
         control_freq=ns.control_freq,
@@ -596,7 +614,270 @@ def parse_args() -> Args:
         seed=ns.seed,
         save_video=not ns.no_save_video,
         action_delta=ns.action_delta,
+        num_workers=ns.num_workers,
     )
+
+
+def _evaluate_task(
+    *,
+    args: Args,
+    task_suite: Any,
+    task_order: int,
+    total_tasks: int,
+    task_id: int,
+    max_steps: int,
+    progress_threshold: float,
+    video_dir: Path,
+    client: InferenceClient,
+) -> dict[str, Any]:
+    worker_id = client.worker_id
+    task = task_suite.get_task(task_id)
+    initial_states = task_suite.get_task_init_states(task_id)
+    init_state_ids = (
+        args.trials_init_state if args.trials_init_state is not None else list(range(args.num_trials_per_task))
+    )
+    invalid_init_state_ids = [
+        state_id for state_id in init_state_ids if state_id < 0 or state_id >= len(initial_states)
+    ]
+    if invalid_init_state_ids:
+        raise ValueError(
+            f"initial state indices {invalid_init_state_ids} out of range for task {task_id}; "
+            f"available range is 0-{len(initial_states) - 1}"
+        )
+    env, task_description = _get_libero_env(
+        task,
+        LIBERO_ENV_RESOLUTION,
+        seed=args.seed,
+        control_freq=args.control_freq,
+        action_delta=args.action_delta,
+    )
+    try:
+        total_goals = len(env.env.parsed_problem["goal_state"])
+        task_episodes = 0
+        task_successes = 0
+        task_server_successes = 0
+        task_progress = 0.0
+        episode_results: list[dict[str, Any]] = []
+
+        for episode_idx, init_state_id in enumerate(init_state_ids):
+            logging.info("[worker %s] Task %s episode %s: %s", worker_id, task_id, episode_idx, task_description)
+            cs.print(
+                f"{_worker_prefix(worker_id)} [cyan]task {task_order}/{total_tasks}[/cyan] "
+                f"id={task_id} episode {episode_idx + 1}/{len(init_state_ids)} "
+                f"init_state={init_state_id}: "
+                f"{task_description}"
+            )
+            env.reset()
+            obs = env.set_init_state(initial_states[init_state_id])
+            client.reset_episode(env=env)
+            combined_frames = []
+            step_records: list[dict[str, Any]] = []
+            inference_records: list[dict[str, Any]] = []
+            current_inference_id: int | None = None
+            done = False
+            server_done = False
+            interrupted = False
+
+            try:
+                for step in range(max_steps + args.num_steps_wait):
+                    if step < args.num_steps_wait:
+                        cs.print(
+                            f"{_worker_prefix(worker_id)} [dim]task {task_order}/{total_tasks} id={task_id} "
+                            f"episode {episode_idx + 1}/{len(init_state_ids)} "
+                            f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
+                        )
+                        action = _dummy_action(obs, action_delta=args.action_delta)
+                        current_state = np.concatenate(
+                            (
+                                obs["robot0_eef_pos"],
+                                _quat2axisangle(obs["robot0_eef_quat"]),
+                                obs["robot0_gripper_qpos"],
+                            )
+                        )
+                        policy_step = None
+                    else:
+                        policy_step = step - args.num_steps_wait + 1
+                        cs.print(
+                            f"{_worker_prefix(worker_id)} [dim]task {task_order}/{total_tasks} id={task_id} "
+                            f"episode {episode_idx + 1}/{len(init_state_ids)} "
+                            f"step {policy_step}/{max_steps}[/dim]"
+                        )
+                        prepared_observation = _prepare_observation(obs, env)
+                        previous_response = client.last_response
+                        action = client.infer(prepared_observation, task_description)
+                        current_state = prepared_observation["state"]
+                        if client.last_response is not previous_response and not client.episode_done:
+                            current_inference_id = len(inference_records)
+                            response = client.last_response or {}
+                            inference_records.append(
+                                {
+                                    "inference_id": current_inference_id,
+                                    "video_frame": len(combined_frames),
+                                    "subtask": response.get("subtask"),
+                                    "subtask_index": response.get("subtask_index"),
+                                    "tracking_point": response.get("tracking_point"),
+                                    "tracking_object_id": response.get("tracking_object_id"),
+                                    "tracking_point_active": response.get("tracking_point_active"),
+                                }
+                            )
+                        if client.episode_done:
+                            server_done = True
+                            cs.print(
+                                f"{_worker_prefix(worker_id)} [green]server completed episode "
+                                f"at policy step {policy_step}[/green]"
+                            )
+                            break
+
+                    frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
+                    prediction_frame = _draw_response_points(
+                        frame,
+                        client.last_response,
+                        client.last_action_frame_id,
+                        mode="prediction",
+                        progress_threshold=progress_threshold,
+                        intrinsic=client.intrinsic,
+                    )
+                    tracking_frame = _draw_response_points(
+                        frame,
+                        client.last_response,
+                        client.last_action_frame_id,
+                        mode="tracking",
+                        progress_threshold=progress_threshold,
+                    )
+                    combined_frames.append(np.hstack([prediction_frame, tracking_frame]))
+                    controller_action = _to_libero_action(
+                        action,
+                        action_delta=args.action_delta,
+                    )
+                    step_records.append(
+                        {
+                            "video_frame": len(combined_frames) - 1,
+                            "policy_step": policy_step,
+                            "state": np.asarray(current_state, dtype=np.float64).tolist(),
+                            "action": np.asarray(action, dtype=np.float64).tolist(),
+                            "controller_action": np.asarray(controller_action, dtype=np.float64).tolist(),
+                            "inference_id": current_inference_id,
+                            "action_frame_id": client.last_action_frame_id if policy_step is not None else None,
+                        }
+                    )
+                    obs, _, done, _ = env.step(controller_action.tolist())
+                    if done:
+                        break
+
+            except KeyboardInterrupt:
+                interrupted = True
+                cs.print(
+                    f"{_worker_prefix(worker_id)} [yellow]task={task_id} episode={episode_idx} interrupted; "
+                    "saving current progress and continuing[/yellow]"
+                )
+
+            task_episodes += 1
+            env_success = bool(done) and not interrupted
+            if env_success:
+                task_successes += 1
+            if server_done:
+                task_server_successes += 1
+
+            (
+                completed_goals,
+                total_goals,
+                progress,
+                completed_subtasks,
+                completed_goal_states,
+            ) = _goal_progress(env)
+            task_progress += progress
+
+            if args.save_video:
+                env_result = "success" if env_success else "failure"
+                server_result = "success" if server_done else "failure"
+                duration_seconds = round(len(combined_frames) / args.control_freq)
+                artifact_stem = (
+                    f"task_{task_id:03d}_ep_{episode_idx:03d}_sec_{duration_seconds:03d}_{env_result}_{server_result}"
+                )
+                _save_video_ffmpeg(
+                    combined_frames, video_dir / f"{artifact_stem}.mp4",
+                    fps=float(args.control_freq), worker_id=worker_id,
+                )
+                record = {
+                    "metadata": {
+                        "task_id": task_id,
+                        "episode_id": episode_idx,
+                        "init_state_id": init_state_id,
+                        "task_description": task_description,
+                        "fps": args.control_freq,
+                    },
+                    "steps": step_records,
+                    "inferences": inference_records,
+                }
+                json_path = video_dir / f"{artifact_stem}.json"
+                json_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+                cs.print(
+                    f"{_worker_prefix(worker_id)} saved execution record to: "
+                    f"{json_path} ({len(step_records)} frames)"
+                )
+
+            episode_results.append(
+                {
+                    "episode_id": episode_idx,
+                    "init_state_id": init_state_id,
+                    "success": env_success,
+                    "server_success": server_done,
+                    "interrupted": interrupted,
+                    "progress": progress,
+                    "completed_subtasks": completed_subtasks,
+                    "completed_goals": completed_goal_states,
+                }
+            )
+
+            cs.print(
+                f"{_worker_prefix(worker_id)} task={task_id} episode={episode_idx} "
+                f"success={env_success} env_done={done} server_done={server_done} "
+                f"progress={completed_goals}/{total_goals} "
+                f"completed_subtasks={completed_subtasks} "
+                f"completed_goals={completed_goal_states}"
+            )
+
+        return {
+            "task_id": task_id,
+            "task_desc": task_description,
+            "total_goals": total_goals,
+            "success_rate": float(task_successes) / float(task_episodes),
+            "server_success_rate": float(task_server_successes) / float(task_episodes),
+            "progress_rate": float(task_progress) / float(task_episodes),
+            "num_episodes": task_episodes,
+            "episodes": episode_results,
+        }
+    finally:
+        env.close()
+
+
+def _evaluate_task_group(
+    args: Args,
+    worker_id: int,
+    task_entries: list[tuple[int, int]],
+    total_tasks: int,
+    max_steps: int,
+    progress_threshold: float,
+    video_dir: Path,
+) -> list[dict[str, Any]]:
+    from libero.libero import benchmark
+
+    task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
+    client = InferenceClient(host=args.host, port=args.port, worker_id=worker_id)
+    return [
+        _evaluate_task(
+            args=args,
+            task_suite=task_suite,
+            task_order=task_order,
+            total_tasks=total_tasks,
+            task_id=task_id,
+            max_steps=max_steps,
+            progress_threshold=progress_threshold,
+            video_dir=video_dir,
+            client=client,
+        )
+        for task_order, task_id in task_entries
+    ]
 
 
 def main() -> None:
@@ -604,16 +885,18 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
-    cs.print(args, markup=False)
+    cs.print(f"[worker 0] {args}", markup=False)
     np.random.seed(args.seed)
 
-    benchmark_dict = benchmark.get_benchmark_dict()
-    task_suite = benchmark_dict[args.task_suite_name]()
+    task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
     task_ids = args.tasks if args.tasks is not None else list(range(num_tasks_in_suite))
     for task_id in task_ids:
         if task_id < 0 or task_id >= num_tasks_in_suite:
-            raise ValueError(f"task id {task_id} out of range for {args.task_suite_name}: 0-{num_tasks_in_suite - 1}")
+            raise ValueError(
+                f"task id {task_id} out of range for {args.task_suite_name}: "
+                f"0-{num_tasks_in_suite - 1}"
+            )
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
     timestamp = datetime.now().strftime("%m%d-%H%M")
@@ -623,226 +906,44 @@ def main() -> None:
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
-    result_path.parent.mkdir(parents=True, exist_ok=True)
 
-    client = InferenceClient(host=args.host, port=args.port)
-    total_episodes = 0
-    total_successes = 0
-    total_server_successes = 0
-    total_progress = 0.0
-    task_results: list[dict[str, Any]] = []
-
-    for task_order, task_id in enumerate(task_ids, start=1):
-        task = task_suite.get_task(task_id)
-        initial_states = task_suite.get_task_init_states(task_id)
-        init_state_ids = (
-            args.trials_init_state
-            if args.trials_init_state is not None
-            else list(range(args.num_trials_per_task))
+    task_entries = list(enumerate(task_ids, start=1))
+    worker_count = min(args.num_workers, len(task_entries)) if task_entries else 1
+    groups = [task_entries[index::worker_count] for index in range(worker_count)]
+    if worker_count == 1:
+        task_results = _evaluate_task_group(
+            args, 0, groups[0], len(task_entries), max_steps, progress_threshold, video_dir,
         )
-        invalid_init_state_ids = [
-            state_id for state_id in init_state_ids
-            if state_id < 0 or state_id >= len(initial_states)
-        ]
-        if invalid_init_state_ids:
-            raise ValueError(
-                f"initial state indices {invalid_init_state_ids} out of range for task {task_id}; "
-                f"available range is 0-{len(initial_states) - 1}"
-            )
-        env, task_description = _get_libero_env(
-            task,
-            LIBERO_ENV_RESOLUTION,
-            seed=args.seed,
-            control_freq=args.control_freq,
-            action_delta=args.action_delta,
-        )
-        try:
-            total_goals = len(env.env.parsed_problem["goal_state"])
-            task_episodes = 0
-            task_successes = 0
-            task_server_successes = 0
-            task_progress = 0.0
-            episode_results: list[dict[str, Any]] = []
-
-            for episode_idx, init_state_id in enumerate(init_state_ids):
-                logging.info("Task %s episode %s: %s", task_id, episode_idx, task_description)
-                cs.print(
-                    f"[cyan]task {task_order}/{len(task_ids)}[/cyan] "
-                    f"id={task_id} episode {episode_idx + 1}/{len(init_state_ids)} "
-                    f"init_state={init_state_id}: "
-                    f"{task_description}"
+    else:
+        cs.print(f"{_worker_prefix(0)} running {len(task_entries)} tasks across {worker_count} concurrent workers")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(
+                    _evaluate_task_group,
+                    args,
+                    worker_id,
+                    group,
+                    len(task_entries),
+                    max_steps,
+                    progress_threshold,
+                    video_dir,
                 )
-                env.reset()
-                obs = env.set_init_state(initial_states[init_state_id])
-                client.reset_episode(env=env)
-                combined_frames = []
-                step_records: list[dict[str, Any]] = []
-                inference_records: list[dict[str, Any]] = []
-                current_inference_id: int | None = None
-                done = False
-                server_done = False
-                interrupted = False
+                for worker_id, group in enumerate(groups)
+            ]
+            task_results = [result for future in futures for result in future.result()]
+        task_order = {task_id: index for index, task_id in enumerate(task_ids)}
+        task_results.sort(key=lambda result: task_order[result["task_id"]])
 
-                try:
-                    for step in range(max_steps + args.num_steps_wait):
-                        if step < args.num_steps_wait:
-                            cs.print(
-                                f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                                f"episode {episode_idx + 1}/{len(init_state_ids)} "
-                                f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
-                            )
-                            action = _dummy_action(obs, action_delta=args.action_delta)
-                            current_state = np.concatenate((
-                                obs["robot0_eef_pos"],
-                                _quat2axisangle(obs["robot0_eef_quat"]),
-                                obs["robot0_gripper_qpos"],
-                            ))
-                            policy_step = None
-                        else:
-                            policy_step = step - args.num_steps_wait + 1
-                            cs.print(
-                                f"[dim]task {task_order}/{len(task_ids)} id={task_id} "
-                                f"episode {episode_idx + 1}/{len(init_state_ids)} "
-                                f"step {policy_step}/{max_steps}[/dim]"
-                            )
-                            prepared_observation = _prepare_observation(obs, env)
-                            previous_response = client.last_response
-                            action = client.infer(prepared_observation, task_description)
-                            current_state = prepared_observation["state"]
-                            if client.last_response is not previous_response and not client.episode_done:
-                                current_inference_id = len(inference_records)
-                                response = client.last_response or {}
-                                inference_records.append({
-                                    "inference_id": current_inference_id,
-                                    "video_frame": len(combined_frames),
-                                    "subtask": response.get("subtask"),
-                                    "subtask_index": response.get("subtask_index"),
-                                    "tracking_point": response.get("tracking_point"),
-                                    "tracking_object_id": response.get("tracking_object_id"),
-                                    "tracking_point_active": response.get("tracking_point_active"),
-                                })
-                            if client.episode_done:
-                                server_done = True
-                                cs.print(
-                                    f"[green]server completed episode at policy step {policy_step}[/green]"
-                                )
-                                break
-
-                        frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
-                        prediction_frame = _draw_response_points(
-                            frame,
-                            client.last_response,
-                            client.last_action_frame_id,
-                            mode="prediction",
-                            progress_threshold=progress_threshold,
-                            intrinsic=client.intrinsic,
-                        )
-                        tracking_frame = _draw_response_points(
-                            frame,
-                            client.last_response,
-                            client.last_action_frame_id,
-                            mode="tracking",
-                            progress_threshold=progress_threshold,
-                        )
-                        combined_frames.append(np.hstack([prediction_frame, tracking_frame]))
-                        controller_action = _to_libero_action(
-                            action, action_delta=args.action_delta,
-                        )
-                        step_records.append({
-                            "video_frame": len(combined_frames) - 1,
-                            "policy_step": policy_step,
-                            "state": np.asarray(current_state, dtype=np.float64).tolist(),
-                            "action": np.asarray(action, dtype=np.float64).tolist(),
-                            "controller_action": np.asarray(controller_action, dtype=np.float64).tolist(),
-                            "inference_id": current_inference_id,
-                            "action_frame_id": client.last_action_frame_id if policy_step is not None else None,
-                        })
-                        obs, _, done, _ = env.step(controller_action.tolist())
-                        if done:
-                            break
-
-                except KeyboardInterrupt:
-                    interrupted = True
-                    cs.print(
-                        f"[yellow]task={task_id} episode={episode_idx} interrupted; "
-                        "saving current progress and continuing[/yellow]"
-                    )
-
-                task_episodes += 1
-                total_episodes += 1
-                env_success = bool(done) and not interrupted
-                if env_success:
-                    task_successes += 1
-                    total_successes += 1
-                if server_done:
-                    task_server_successes += 1
-                    total_server_successes += 1
-
-                (
-                    completed_goals,
-                    total_goals,
-                    progress,
-                    completed_subtasks,
-                    completed_goal_states,
-                ) = _goal_progress(env)
-                task_progress += progress
-                total_progress += progress
-
-                if args.save_video:
-                    env_result = "success" if env_success else "failure"
-                    server_result = "success" if server_done else "failure"
-                    duration_seconds = round(len(combined_frames) / args.control_freq)
-                    artifact_stem = (
-                        f"task_{task_id:03d}_ep_{episode_idx:03d}_sec_{duration_seconds:03d}_"
-                        f"{env_result}_{server_result}"
-                    )
-                    _save_video_ffmpeg(combined_frames, video_dir / f"{artifact_stem}.mp4", fps=float(args.control_freq))
-                    record = {
-                        "metadata": {
-                            "task_id": task_id,
-                            "episode_id": episode_idx,
-                            "init_state_id": init_state_id,
-                            "task_description": task_description,
-                            "fps": args.control_freq,
-                        },
-                        "steps": step_records,
-                        "inferences": inference_records,
-                    }
-                    json_path = video_dir / f"{artifact_stem}.json"
-                    json_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
-                    cs.print(f"saved execution record to: {json_path} ({len(step_records)} frames)")
-
-                episode_results.append({
-                    "episode_id": episode_idx,
-                    "init_state_id": init_state_id,
-                    "success": env_success,
-                    "server_success": server_done,
-                    "interrupted": interrupted,
-                    "progress": progress,
-                    "completed_subtasks": completed_subtasks,
-                    "completed_goals": completed_goal_states,
-                })
-
-                cs.print(
-                    f"task={task_id} episode={episode_idx} success={env_success} env_done={done} server_done={server_done} "
-                    f"progress={completed_goals}/{total_goals} "
-                    f"completed_subtasks={completed_subtasks} "
-                    f"completed_goals={completed_goal_states}"
-                )
-
-            task_result = {
-                "task_id": task_id,
-                "task_desc": task_description,
-                "total_goals": total_goals,
-                "success_rate": float(task_successes) / float(task_episodes),
-                "server_success_rate": float(task_server_successes) / float(task_episodes),
-                "progress_rate": float(task_progress) / float(task_episodes),
-                "num_episodes": task_episodes,
-                "episodes": episode_results,
-            }
-            task_results.append(task_result)
-        finally:
-            env.close()
+    total_episodes = sum(result["num_episodes"] for result in task_results)
+    total_successes = sum(
+        episode["success"] for result in task_results for episode in result["episodes"]
+    )
+    total_server_successes = sum(
+        episode["server_success"] for result in task_results for episode in result["episodes"]
+    )
+    total_progress = sum(
+        episode["progress"] for result in task_results for episode in result["episodes"]
+    )
 
     result = {
         "task_suite": args.task_suite_name,
@@ -855,7 +956,7 @@ def main() -> None:
         "tasks": task_results,
     }
     result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    cs.print(f"saved results to: {result_path}")
+    cs.print(f"{_worker_prefix(0)} saved results to: {result_path}")
 
 
 if __name__ == "__main__":
