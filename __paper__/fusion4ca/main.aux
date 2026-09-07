@@ -1,0 +1,159 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{yurtsever2020survey}
+\citation{arnold2019survey}
+\citation{wu2022sparse}
+\citation{zhang2024safdnet}
+\citation{chen2023voxelnext}
+\citation{wu2023virtual}
+\citation{li2020lidar}
+\citation{ibrahim2025multistream}
+\citation{bai2022transfusion}
+\citation{guan2022m3detr}
+\citation{liu2023bevfusion}
+\citation{liu2023bevfusion}
+\citation{liang2022bevfusion}
+\citation{liu2023bevfusion}
+\citation{zhao2024simplebev}
+\citation{liu2023bevfusion}
+\citation{yin20255}
+\citation{hou2021coordinate}
+\@writefile{toc}{\contentsline {section}{\numberline {I}INTRODUCTION}{1}{section.1}\protected@file@percent }
+\citation{li2023bevdepth}
+\citation{philion2020lift}
+\citation{lu2025toward}
+\citation{li2024bevformer}
+\citation{yang2023bevformer}
+\citation{jiang2023polarformer}
+\citation{yin20255}
+\citation{qi2017pointnet}
+\citation{qi2017pointnet++}
+\citation{ding2019votenet}
+\citation{zhou2018voxelnet}
+\citation{lang2019pointpillars}
+\citation{yan2018second}
+\citation{ibrahim2025multistream}
+\citation{hu2023ea}
+\citation{qi2018frustum}
+\citation{vora2020pointpainting}
+\citation{liu2023bevfusion}
+\citation{liang2022bevfusion}
+\citation{cai2023bevfusion4d}
+\citation{bai2022transfusion}
+\citation{zhang2024sparselif}
+\citation{wang2025mv2dfusion}
+\citation{liu2023bevfusion}
+\citation{hou2021coordinate}
+\citation{yin20255}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces  Key components of our Fusion4CA framework, consisting of Contrastive Alignment Module, Camera Auxiliary Branch, Cognitive Adapter and Coordinate Attention Module. Our model outperforms BEVFusion by 5\% mAP at six epochs and surpasses its 20-epoch counterpart by 1.2\% mAP.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig:Design}{{1}{2}{Key components of our Fusion4CA framework, consisting of Contrastive Alignment Module, Camera Auxiliary Branch, Cognitive Adapter and Coordinate Attention Module. Our model outperforms BEVFusion by 5\% mAP at six epochs and surpasses its 20-epoch counterpart by 1.2\% mAP}{figure.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {II}RELATED WORK}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-A}3D Object Detection with Camera Modality}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-B}3D Object Detection with LiDAR Modality}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-C}3D Object Detection with Multi-Modalities}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}METHODOLOGY}{2}{section.3}\protected@file@percent }
+\citation{chen2020simple}
+\citation{yin2021center}
+\citation{liu2023bevfusion}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces  An overview of the proposed Fusion4CA network with four plug-and-play enhancements for visual exploitation. (1) A Contrastive Alignment Module is designed to align image features with projected point cloud features. (2) A Camera Auxiliary Branch is proposed to provide extra supervision for direct optimization of the camera branch. (3) An off-the-shelf Cognitive Adapter is inserted into the Swin Transformer while keeping its original weights frozen. (4) A standard Coordinate Attention Module is appended after convolutional fusion to capture discriminative information effectively. Note that residual connections are omitted for brevity. }}{3}{figure.2}\protected@file@percent }
+\newlabel{fig:Pipeline}{{2}{3}{An overview of the proposed Fusion4CA network with four plug-and-play enhancements for visual exploitation. (1) A Contrastive Alignment Module is designed to align image features with projected point cloud features. (2) A Camera Auxiliary Branch is proposed to provide extra supervision for direct optimization of the camera branch. (3) An off-the-shelf Cognitive Adapter is inserted into the Swin Transformer while keeping its original weights frozen. (4) A standard Coordinate Attention Module is appended after convolutional fusion to capture discriminative information effectively. Note that residual connections are omitted for brevity}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Illustration of the Camera Auxiliary Branch, comprising stacked residual blocks, FPN, and CenterPoint Head. The primary function is to provide supplementary supervision signals to directly optimize the camera branch.}}{3}{figure.3}\protected@file@percent }
+\newlabel{fig:Camera_Aux}{{3}{3}{Illustration of the Camera Auxiliary Branch, comprising stacked residual blocks, FPN, and CenterPoint Head. The primary function is to provide supplementary supervision signals to directly optimize the camera branch}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-A}Contrastive Alignment for Image Calibration}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-B}Camera Auxiliary Branch for Visual Supervision}{3}{subsection.3.2}\protected@file@percent }
+\citation{yin20255}
+\citation{hou2021coordinate}
+\citation{liu2023bevfusion}
+\citation{liu2023bevfusion}
+\citation{yin2021center}
+\citation{chen2022focal}
+\citation{bai2022transfusion}
+\citation{chen2023voxelnext}
+\citation{yin2021multimodal}
+\citation{song2023graphalign}
+\citation{wang2021pointaugmenting}
+\citation{xu2021fusionpainting}
+\citation{bai2022transfusion}
+\citation{liang2022bevfusion}
+\citation{chen2023futr3d}
+\citation{caesar2020nuscenes}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces The Cognitive Adapter is inserted after the self-attention and feed-forward layers in each Swin-T block, where adaptive layer normalization, depthwise convolution and residual connections are employed to boost feature expressiveness.}}{4}{figure.4}\protected@file@percent }
+\newlabel{fig:Cognitive_Adapter}{{4}{4}{The Cognitive Adapter is inserted after the self-attention and feed-forward layers in each Swin-T block, where adaptive layer normalization, depthwise convolution and residual connections are employed to boost feature expressiveness}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-C}Image Encoder Enhanced by Cognitive Adapter}{4}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-D}Fusion Refinement with Coordinate Attention}{4}{subsection.3.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Illustration of Coordinate Attention Module. The module applies 1D global average pooling along two directions to compute direction-sensitive attention weights, then enhances the input via element-wise multiplication and a residual connection. }}{4}{figure.5}\protected@file@percent }
+\newlabel{fig:Coordinate_Attn}{{5}{4}{Illustration of Coordinate Attention Module. The module applies 1D global average pooling along two directions to compute direction-sensitive attention weights, then enhances the input via element-wise multiplication and a residual connection}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces The simulated lunar environment in NVIDIA Isaac Sim, which is characterized by uneven terrain and craters with multiple protrusions and depressions. There are two categories to detect: Meteor (green) and Platform (blue). The gray appearance of Meteors (green here only for visualization) is similar to lunar surface, posing significant challenges for the camera branch.}}{4}{figure.6}\protected@file@percent }
+\newlabel{fig:Sim_Env}{{6}{4}{The simulated lunar environment in NVIDIA Isaac Sim, which is characterized by uneven terrain and craters with multiple protrusions and depressions. There are two categories to detect: Meteor (green) and Platform (blue). The gray appearance of Meteors (green here only for visualization) is similar to lunar surface, posing significant challenges for the camera branch}{figure.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}EXPERIMENTS}{4}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-A}Experimental Setup}{4}{subsection.4.1}\protected@file@percent }
+\citation{liu2023bevfusion}
+\citation{yadav2019evalai}
+\citation{caesar2020nuscenes}
+\citation{liu2023bevfusion}
+\citation{yin2024fusion}
+\citation{liu2023bevfusion}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Comparison on the nuScenes dataset. ‘C.V.’, ‘T.L.’, ‘B.R.’, ‘M.T’, ‘Ped.’ and ‘T.C.’ are short for construction vehicle, trailer, barrier, motor, pedestrian and traffic cone, respectively. ‘L’ and ‘C‘ are short for LiDAR and camera. Note that our method only trained for 6 epochs, while others are fully trained.}}{5}{table.1}\protected@file@percent }
+\newlabel{tab:Comparision}{{I}{5}{Comparison on the nuScenes dataset. ‘C.V.’, ‘T.L.’, ‘B.R.’, ‘M.T’, ‘Ped.’ and ‘T.C.’ are short for construction vehicle, trailer, barrier, motor, pedestrian and traffic cone, respectively. ‘L’ and ‘C‘ are short for LiDAR and camera. Note that our method only trained for 6 epochs, while others are fully trained}{table.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Ablation study on nuScenes validation set using different component combinations.}}{5}{table.2}\protected@file@percent }
+\newlabel{tab:Ablation}{{II}{5}{Ablation study on nuScenes validation set using different component combinations}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-B}Multi-class Results on nuScenes Dataset}{5}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-C}Ablation Study on nuScenes Dataset}{5}{subsection.4.3}\protected@file@percent }
+\citation{yin20255}
+\citation{hou2021coordinate}
+\bibstyle{IEEEtranBST/IEEEtran}
+\bibdata{IEEEtranBST/ref}
+\bibcite{yurtsever2020survey}{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Visualization results between our method and the fully trained baseline. Green boxes denote ground truth, yellow boxes denote correct predictions, red boxes denote wrong predictions, and orange markers indicate instances correctly detected by our method but missed by the baseline.}}{6}{figure.7}\protected@file@percent }
+\newlabel{fig:Vis}{{7}{6}{Visualization results between our method and the fully trained baseline. Green boxes denote ground truth, yellow boxes denote correct predictions, red boxes denote wrong predictions, and orange markers indicate instances correctly detected by our method but missed by the baseline}{figure.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Comparision on simulated lunar dataset. }}{6}{table.3}\protected@file@percent }
+\newlabel{tab:Comparasion_Sim}{{III}{6}{Comparision on simulated lunar dataset}{table.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-D}Results in Simulated Lunar Environment}{6}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}CONCLUSION}{6}{section.5}\protected@file@percent }
+\bibcite{arnold2019survey}{2}
+\bibcite{wu2022sparse}{3}
+\bibcite{zhang2024safdnet}{4}
+\bibcite{chen2023voxelnext}{5}
+\bibcite{wu2023virtual}{6}
+\bibcite{li2020lidar}{7}
+\bibcite{ibrahim2025multistream}{8}
+\bibcite{bai2022transfusion}{9}
+\bibcite{guan2022m3detr}{10}
+\bibcite{liu2023bevfusion}{11}
+\bibcite{liang2022bevfusion}{12}
+\bibcite{zhao2024simplebev}{13}
+\bibcite{yin20255}{14}
+\bibcite{hou2021coordinate}{15}
+\bibcite{li2023bevdepth}{16}
+\bibcite{philion2020lift}{17}
+\bibcite{lu2025toward}{18}
+\bibcite{li2024bevformer}{19}
+\bibcite{yang2023bevformer}{20}
+\bibcite{jiang2023polarformer}{21}
+\bibcite{qi2017pointnet}{22}
+\bibcite{qi2017pointnet++}{23}
+\bibcite{ding2019votenet}{24}
+\bibcite{zhou2018voxelnet}{25}
+\bibcite{lang2019pointpillars}{26}
+\bibcite{yan2018second}{27}
+\bibcite{hu2023ea}{28}
+\bibcite{qi2018frustum}{29}
+\bibcite{vora2020pointpainting}{30}
+\bibcite{cai2023bevfusion4d}{31}
+\bibcite{zhang2024sparselif}{32}
+\bibcite{wang2025mv2dfusion}{33}
+\bibcite{chen2020simple}{34}
+\bibcite{yin2021center}{35}
+\bibcite{chen2022focal}{36}
+\bibcite{yin2021multimodal}{37}
+\bibcite{song2023graphalign}{38}
+\bibcite{wang2021pointaugmenting}{39}
+\bibcite{xu2021fusionpainting}{40}
+\@writefile{toc}{\contentsline {section}{References}{7}{section*.1}\protected@file@percent }
+\bibcite{chen2023futr3d}{41}
+\bibcite{caesar2020nuscenes}{42}
+\bibcite{yadav2019evalai}{43}
+\bibcite{yin2024fusion}{44}
+\gdef \@abspage@last{8}

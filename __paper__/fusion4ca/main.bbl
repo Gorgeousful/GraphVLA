@@ -1,0 +1,269 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{#1}
+\csname url@rmstyle\endcsname
+\providecommand{\newblock}{\relax}
+\providecommand{\bibinfo}[2]{#2}
+\providecommand\BIBentrySTDinterwordspacing{\spaceskip=0pt\relax}
+\providecommand\BIBentryALTinterwordstretchfactor{4}
+\providecommand\BIBentryALTinterwordspacing{\spaceskip=\fontdimen2\font plus
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
+  \fontdimen4\font\relax}
+\providecommand\BIBforeignlanguage[2]{{%
+\expandafter\ifx\csname l@#1\endcsname\relax
+\typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
+\typeout{** loaded for the language `#1'. Using the pattern for}%
+\typeout{** the default language instead.}%
+\else
+\language=\csname l@#1\endcsname
+\fi
+#2}}
+
+\bibitem{yurtsever2020survey}
+E.~Yurtsever, J.~Lambert, A.~Carballo, and K.~Takeda, ``A survey of autonomous
+  driving: Common practices and emerging technologies,'' \emph{IEEE access},
+  vol.~8, pp. 58\,443--58\,469, 2020.
+
+\bibitem{arnold2019survey}
+E.~Arnold, O.~Y. Al-Jarrah, M.~Dianati, S.~Fallah, D.~Oxtoby, and
+  A.~Mouzakitis, ``A survey on 3d object detection methods for autonomous
+  driving applications,'' \emph{IEEE Transactions on Intelligent Transportation
+  Systems}, vol.~20, no.~10, pp. 3782--3795, 2019.
+
+\bibitem{wu2022sparse}
+X.~Wu, L.~Peng, H.~Yang, L.~Xie, C.~Huang, C.~Deng, H.~Liu, and D.~Cai,
+  ``Sparse fuse dense: Towards high quality 3d detection with depth
+  completion,'' in \emph{Proceedings of the IEEE/CVF conference on computer
+  vision and pattern recognition}, 2022, pp. 5418--5427.
+
+\bibitem{zhang2024safdnet}
+G.~Zhang, J.~Chen, G.~Gao, J.~Li, S.~Liu, and X.~Hu, ``Safdnet: A simple and
+  effective network for fully sparse 3d object detection,'' in
+  \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern
+  recognition}, 2024, pp. 14\,477--14\,486.
+
+\bibitem{chen2023voxelnext}
+Y.~Chen, J.~Liu, X.~Zhang, X.~Qi, and J.~Jia, ``Voxelnext: Fully sparse
+  voxelnet for 3d object detection and tracking,'' in \emph{Proceedings of the
+  IEEE/CVF conference on computer vision and pattern recognition}, 2023, pp.
+  21\,674--21\,683.
+
+\bibitem{wu2023virtual}
+H.~Wu, C.~Wen, S.~Shi, X.~Li, and C.~Wang, ``Virtual sparse convolution for
+  multimodal 3d object detection,'' in \emph{Proceedings of the IEEE/CVF
+  conference on computer vision and pattern recognition}, 2023, pp.
+  21\,653--21\,662.
+
+\bibitem{li2020lidar}
+Y.~Li and J.~Ibanez-Guzman, ``Lidar for autonomous driving: The principles,
+  challenges, and trends for automotive lidar and perception systems,''
+  \emph{IEEE Signal Processing Magazine}, vol.~37, no.~4, pp. 50--61, 2020.
+
+\bibitem{ibrahim2025multistream}
+M.~Ibrahim, N.~Akhtar, H.~Wang, S.~Anwar, and A.~Mian, ``Multistream network
+  for lidar and camera-based 3d object detection in outdoor scenes,'' in
+  \emph{2025 IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2025, pp.
+  7796--7803.
+
+\bibitem{bai2022transfusion}
+X.~Bai, Z.~Hu, X.~Zhu, Q.~Huang, Y.~Chen, H.~Fu, and C.-L. Tai, ``Transfusion:
+  Robust lidar-camera fusion for 3d object detection with transformers,'' in
+  \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern
+  recognition}, 2022, pp. 1090--1099.
+
+\bibitem{guan2022m3detr}
+T.~Guan, J.~Wang, S.~Lan, R.~Chandra, Z.~Wu, L.~Davis, and D.~Manocha,
+  ``M3detr: Multi-representation, multi-scale, mutual-relation 3d object
+  detection with transformers,'' in \emph{Proceedings of the IEEE/CVF winter
+  conference on applications of computer vision}, 2022, pp. 772--782.
+
+\bibitem{liu2023bevfusion}
+Z.~Liu, H.~Tang, A.~Amini, X.~Yang, H.~Mao, D.~Rus, and S.~Han, ``Bevfusion:
+  Multi-task multi-sensor fusion with unified bird's-eye view representation,''
+  in \emph{IEEE International Conference on Robotics and Automation (ICRA)},
+  2023.
+
+\bibitem{liang2022bevfusion}
+T.~Liang, H.~Xie, K.~Yu, Z.~Xia, Z.~Lin, Y.~Wang, T.~Tang, B.~Wang, and
+  Z.~Tang, ``Bevfusion: A simple and robust lidar-camera fusion framework,''
+  \emph{Advances in neural information processing systems}, vol.~35, pp.
+  10\,421--10\,434, 2022.
+
+\bibitem{zhao2024simplebev}
+Y.~Zhao, Z.~Gong, P.~Zheng, H.~Zhu, and S.~Wu, ``Simplebev: Improved
+  lidar-camera fusion architecture for 3d object detection,'' \emph{arXiv
+  preprint arXiv:2411.05292}, 2024.
+
+\bibitem{yin20255}
+D.~Yin, L.~Hu, B.~Li, Y.~Zhang, and X.~Yang, ``5\%> 100\%: Breaking performance
+  shackles of full fine-tuning on visual recognition tasks,'' in
+  \emph{Proceedings of the Computer Vision and Pattern Recognition Conference},
+  2025, pp. 20\,071--20\,081.
+
+\bibitem{hou2021coordinate}
+Q.~Hou, D.~Zhou, and J.~Feng, ``Coordinate attention for efficient mobile
+  network design,'' in \emph{Proceedings of the IEEE/CVF conference on computer
+  vision and pattern recognition}, 2021, pp. 13\,713--13\,722.
+
+\bibitem{li2023bevdepth}
+Y.~Li, Z.~Ge, G.~Yu, J.~Yang, Z.~Wang, Y.~Shi, J.~Sun, and Z.~Li, ``Bevdepth:
+  Acquisition of reliable depth for multi-view 3d object detection,'' in
+  \emph{Proceedings of the AAAI conference on artificial intelligence},
+  vol.~37, no.~2, 2023, pp. 1477--1485.
+
+\bibitem{philion2020lift}
+J.~Philion and S.~Fidler, ``Lift, splat, shoot: Encoding images from arbitrary
+  camera rigs by implicitly unprojecting to 3d,'' in \emph{European conference
+  on computer vision}.\hskip 1em plus 0.5em minus 0.4em\relax Springer, 2020,
+  pp. 194--210.
+
+\bibitem{lu2025toward}
+S.-W. Lu, Y.-H. Tsai, and Y.-T. Chen, ``Toward real-world bev perception: Depth
+  uncertainty estimation via gaussian splatting,'' in \emph{Proceedings of the
+  Computer Vision and Pattern Recognition Conference}, 2025, pp.
+  17\,124--17\,133.
+
+\bibitem{li2024bevformer}
+Z.~Li, W.~Wang, H.~Li, E.~Xie, C.~Sima, T.~Lu, Q.~Yu, and J.~Dai, ``Bevformer:
+  learning bird’s-eye-view representation from lidar-camera via
+  spatiotemporal transformers,'' \emph{IEEE Transactions on Pattern Analysis
+  and Machine Intelligence}, vol.~47, no.~3, pp. 2020--2036, 2024.
+
+\bibitem{yang2023bevformer}
+C.~Yang, Y.~Chen, H.~Tian, C.~Tao, X.~Zhu, Z.~Zhang, G.~Huang, H.~Li, Y.~Qiao,
+  L.~Lu, \emph{et~al.}, ``Bevformer v2: Adapting modern image backbones to
+  bird's-eye-view recognition via perspective supervision,'' in
+  \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern
+  recognition}, 2023, pp. 17\,830--17\,839.
+
+\bibitem{jiang2023polarformer}
+Y.~Jiang, L.~Zhang, Z.~Miao, X.~Zhu, J.~Gao, W.~Hu, and Y.-G. Jiang,
+  ``Polarformer: Multi-camera 3d object detection with polar transformer,'' in
+  \emph{Proceedings of the AAAI conference on Artificial Intelligence},
+  vol.~37, no.~1, 2023, pp. 1042--1050.
+
+\bibitem{qi2017pointnet}
+C.~R. Qi, H.~Su, K.~Mo, and L.~J. Guibas, ``Pointnet: Deep learning on point
+  sets for 3d classification and segmentation,'' in \emph{Proceedings of the
+  IEEE conference on computer vision and pattern recognition}, 2017, pp.
+  652--660.
+
+\bibitem{qi2017pointnet++}
+C.~R. Qi, L.~Yi, H.~Su, and L.~J. Guibas, ``Pointnet++: Deep hierarchical
+  feature learning on point sets in a metric space,'' \emph{Advances in neural
+  information processing systems}, vol.~30, 2017.
+
+\bibitem{ding2019votenet}
+Z.~Ding, X.~Han, and M.~Niethammer, ``Votenet: A deep learning label fusion
+  method for multi-atlas segmentation,'' in \emph{International conference on
+  medical image computing and computer-assisted intervention}.\hskip 1em plus
+  0.5em minus 0.4em\relax Springer, 2019, pp. 202--210.
+
+\bibitem{zhou2018voxelnet}
+Y.~Zhou and O.~Tuzel, ``Voxelnet: End-to-end learning for point cloud based 3d
+  object detection,'' in \emph{Proceedings of the IEEE conference on computer
+  vision and pattern recognition}, 2018, pp. 4490--4499.
+
+\bibitem{lang2019pointpillars}
+A.~H. Lang, S.~Vora, H.~Caesar, L.~Zhou, J.~Yang, and O.~Beijbom,
+  ``Pointpillars: Fast encoders for object detection from point clouds,'' in
+  \emph{Proceedings of the IEEE/CVF conference on computer vision and pattern
+  recognition}, 2019, pp. 12\,697--12\,705.
+
+\bibitem{yan2018second}
+Y.~Yan, Y.~Mao, and B.~Li, ``Second: Sparsely embedded convolutional
+  detection,'' \emph{Sensors}, vol.~18, no.~10, p. 3337, 2018.
+
+\bibitem{hu2023ea}
+H.~Hu, F.~Wang, J.~Su, Y.~Wang, L.~Hu, W.~Fang, J.~Xu, and Z.~Zhang, ``Ea-lss:
+  Edge-aware lift-splat-shot framework for 3d bev object detection,''
+  \emph{arXiv preprint arXiv:2303.17895}, 2023.
+
+\bibitem{qi2018frustum}
+C.~R. Qi, W.~Liu, C.~Wu, H.~Su, and L.~J. Guibas, ``Frustum pointnets for 3d
+  object detection from rgb-d data,'' in \emph{Proceedings of the IEEE
+  conference on computer vision and pattern recognition}, 2018, pp. 918--927.
+
+\bibitem{vora2020pointpainting}
+S.~Vora, A.~H. Lang, B.~Helou, and O.~Beijbom, ``Pointpainting: Sequential
+  fusion for 3d object detection,'' in \emph{Proceedings of the IEEE/CVF
+  conference on computer vision and pattern recognition}, 2020, pp. 4604--4612.
+
+\bibitem{cai2023bevfusion4d}
+H.~Cai, Z.~Zhang, Z.~Zhou, Z.~Li, W.~Ding, and J.~Zhao, ``Bevfusion4d: Learning
+  lidar-camera fusion under bird's-eye-view via cross-modality guidance and
+  temporal aggregation,'' \emph{arXiv preprint arXiv:2303.17099}, 2023.
+
+\bibitem{zhang2024sparselif}
+H.~Zhang, L.~Liang, P.~Zeng, X.~Song, and Z.~Wang, ``Sparselif:
+  High-performance sparse lidar-camera fusion for 3d object detection,'' in
+  \emph{European conference on computer vision}.\hskip 1em plus 0.5em minus
+  0.4em\relax Springer, 2024, pp. 109--128.
+
+\bibitem{wang2025mv2dfusion}
+Z.~Wang, Z.~Huang, Y.~Gao, N.~Wang, and S.~Liu, ``Mv2dfusion: Leveraging
+  modality-specific object semantics for multi-modal 3d detection,'' \emph{IEEE
+  Transactions on Pattern Analysis and Machine Intelligence}, 2025.
+
+\bibitem{chen2020simple}
+T.~Chen, S.~Kornblith, M.~Norouzi, and G.~Hinton, ``A simple framework for
+  contrastive learning of visual representations,'' in \emph{International
+  conference on machine learning}.\hskip 1em plus 0.5em minus 0.4em\relax PmLR,
+  2020, pp. 1597--1607.
+
+\bibitem{yin2021center}
+T.~Yin, X.~Zhou, and P.~Krahenbuhl, ``Center-based 3d object detection and
+  tracking,'' in \emph{Proceedings of the IEEE/CVF conference on computer
+  vision and pattern recognition}, 2021, pp. 11\,784--11\,793.
+
+\bibitem{chen2022focal}
+Y.~Chen, Y.~Li, X.~Zhang, J.~Sun, and J.~Jia, ``Focal sparse convolutional
+  networks for 3d object detection,'' in \emph{Proceedings of the IEEE/CVF
+  conference on computer vision and pattern recognition}, 2022, pp. 5428--5437.
+
+\bibitem{yin2021multimodal}
+T.~Yin, X.~Zhou, and P.~Kr{\"a}henb{\"u}hl, ``Multimodal virtual point 3d
+  detection,'' \emph{Advances in Neural Information Processing Systems},
+  vol.~34, pp. 16\,494--16\,507, 2021.
+
+\bibitem{song2023graphalign}
+Z.~Song, H.~Wei, L.~Bai, L.~Yang, and C.~Jia, ``Graphalign: Enhancing accurate
+  feature alignment by graph matching for multi-modal 3d object detection,'' in
+  \emph{Proceedings of the IEEE/CVF international conference on computer
+  vision}, 2023, pp. 3358--3369.
+
+\bibitem{wang2021pointaugmenting}
+C.~Wang, C.~Ma, M.~Zhu, and X.~Yang, ``Pointaugmenting: Cross-modal
+  augmentation for 3d object detection,'' in \emph{Proceedings of the IEEE/CVF
+  conference on computer vision and pattern recognition}, 2021, pp.
+  11\,794--11\,803.
+
+\bibitem{xu2021fusionpainting}
+S.~Xu, D.~Zhou, J.~Fang, J.~Yin, Z.~Bin, and L.~Zhang, ``Fusionpainting:
+  Multimodal fusion with adaptive attention for 3d object detection,'' in
+  \emph{2021 IEEE international intelligent transportation systems conference
+  (ITSC)}.\hskip 1em plus 0.5em minus 0.4em\relax IEEE, 2021, pp. 3047--3054.
+
+\bibitem{chen2023futr3d}
+X.~Chen, T.~Zhang, Y.~Wang, Y.~Wang, and H.~Zhao, ``Futr3d: A unified sensor
+  fusion framework for 3d detection,'' in \emph{proceedings of the IEEE/CVF
+  conference on computer vision and pattern recognition}, 2023, pp. 172--181.
+
+\bibitem{caesar2020nuscenes}
+H.~Caesar, V.~Bankiti, A.~H. Lang, S.~Vora, V.~E. Liong, Q.~Xu, A.~Krishnan,
+  Y.~Pan, G.~Baldan, and O.~Beijbom, ``nuscenes: A multimodal dataset for
+  autonomous driving,'' in \emph{Proceedings of the IEEE/CVF conference on
+  computer vision and pattern recognition}, 2020, pp. 11\,621--11\,631.
+
+\bibitem{yadav2019evalai}
+D.~Yadav, R.~Jain, H.~Agrawal, P.~Chattopadhyay, T.~Singh, A.~Jain, S.~B.
+  Singh, S.~Lee, and D.~Batra, ``Evalai: Towards better evaluation systems for
+  ai agents,'' \emph{arXiv preprint arXiv:1902.03570}, 2019.
+
+\bibitem{yin2024fusion}
+J.~Yin, J.~Shen, R.~Chen, W.~Li, R.~Yang, P.~Frossard, and W.~Wang,
+  ``Is-fusion: Instance-scene collaborative fusion for multimodal 3d object
+  detection,'' in \emph{Proceedings of the IEEE/CVF conference on computer
+  vision and pattern recognition}, 2024, pp. 14\,905--14\,915.
+
+\end{thebibliography}
