@@ -2,6 +2,7 @@
 # 0 4 7 11 14 15
 # 1 2 3 5 6 8 9 10 12 13 16 17
 
+#! eval
 CUDA_VISIBLE_DEVICES=0 \
 python -m script.server \
 --example libero \
