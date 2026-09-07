@@ -27,6 +27,15 @@ python -m examples.libero.eval.client \
 --control-freq 20 \
 --port 8002
 
+# 
+python -m examples.libero.eval.client \
+--task-suite-name libero_custom_0902 \
+--tasks 0 \
+--num-trials-per-task 5 \
+--max-steps 1000 \
+--control-freq 20 \
+--port 8002
+
 # 1 2 3 5 6 8 9 10 12 13 16 17 
 # 2 5 、 13 16
 python -m examples.libero.eval.client \
