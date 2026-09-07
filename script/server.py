@@ -1026,7 +1026,13 @@ class EmbodimentAdapter:
                     chunk_len,
                     dtype=np.float32,
                 )
-        return actions.tolist()
+        hold_actions = (
+            np.zeros_like(actions)
+            if self.action_delta
+            else actions[-1:].repeat(chunk_len, axis=0)
+        )
+        hold_actions[:, 6] = -1.0
+        return np.concatenate((actions, hold_actions), axis=0).tolist()
 
     @staticmethod
     def _current_camera_matrix(

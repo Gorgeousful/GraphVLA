@@ -261,7 +261,7 @@ def test_point_only_server_rejects_delta_and_missing_robot_geometry() -> None:
         )
 
 
-def test_absolute_release_opens_gripper_and_linearly_lifts_tcp() -> None:
+def test_absolute_release_opens_gripper_then_holds_lifted_tcp() -> None:
     adapter = EmbodimentAdapter(
         actor_point_indices=ACTOR_POINT_INDICES,
         future_horizon=3,
@@ -275,5 +275,26 @@ def test_absolute_release_opens_gripper_and_linearly_lifts_tcp() -> None:
     expected = np.asarray([
         [0.4, -0.2, 1.325, 0.1, 0.2, 1.4, -1.0],
         [0.4, -0.2, 1.350, 0.1, 0.2, 1.4, -1.0],
+        [0.4, -0.2, 1.350, 0.1, 0.2, 1.4, -1.0],
+        [0.4, -0.2, 1.350, 0.1, 0.2, 1.4, -1.0],
+    ], dtype=np.float32)
+    np.testing.assert_allclose(actions, expected, atol=1e-7)
+
+
+def test_delta_release_opens_gripper_then_holds_position() -> None:
+    adapter = EmbodimentAdapter(
+        actor_point_indices=ACTOR_POINT_INDICES,
+        future_horizon=3,
+        action_delta=True,
+        robot_cls=object,
+    )
+
+    actions = adapter.release_actions(SimpleNamespace(), 2)
+
+    expected = np.asarray([
+        [0.0, 0.0, 0.5, 0.0, 0.0, 0.0, -1.0],
+        [0.0, 0.0, 0.5, 0.0, 0.0, 0.0, -1.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0],
     ], dtype=np.float32)
     np.testing.assert_allclose(actions, expected, atol=1e-7)
