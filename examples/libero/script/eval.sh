@@ -1,4 +1,8 @@
-CUDA_VISIBLE_DEVICES=1 \
+# --trials-init-state 0 1 2 3 4 5 6 8 10 11
+# 0 4 7 11 14 15
+# 1 2 3 5 6 8 9 10 12 13 16 17
+
+CUDA_VISIBLE_DEVICES=0 \
 python -m script.server \
 --example libero \
 --ckpt-path examples/libero/result/0906-pointdropknn-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel/checkpoints/step_30000.pt \
@@ -12,47 +16,25 @@ python -m script.server \
 --locator-mode box \
 --keep-locator-loaded
 
-
-# --sam-only
-# --locator-mode box 
-# --trials-init-state 0 1 2 3 4 5 6 8 10 11
-
-# v1
-# 0 4 7 11 14 15
-# 1 2 3 5 6 8 9 10 12 13 16 17d
-
-# v2
-# 2 4 7 9 12 17
-# 0 1 3 5 6 8 10 11 13 14 15 16
-
-
-# libero_custom_0902
+# OOD
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 0 4 7 11 14 15 \
---num-trials-per-task 3 \
+--num-trials-per-task 50 \
 --max-steps 1000 \
 --control-freq 20 \
---port 8002
+--port 8002 \
+--num-workers 3
 
-# 
-python -m examples.libero.eval.client \
---task-suite-name libero_custom_0902 \
---tasks 0 \
---num-trials-per-task 5 \
---max-steps 1000 \
---control-freq 20 \
---port 8002
-
-# 1 2 3 5 6 8 9 10 12 13 16 17 
-# 2 5 、 13 16
+# ID
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 1 2 3 5 6 8 9 10 12 13 16 17  \
---num-trials-per-task 2 \
+--num-trials-per-task 50 \
 --max-steps 1000 \
 --control-freq 20 \
---port 8002
+--port 8003 \
+--num-workers 3
 
 
 # libero_10 # 1 6 4
