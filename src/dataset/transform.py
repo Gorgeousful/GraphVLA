@@ -105,11 +105,17 @@ class CenterOnCurrentTCP(TransformFn):
 @dataclass
 class RandomCollapseNodePoints(TransformFn):
     probability: float = 0.25
+    patient_nearest_points: int = 4
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.probability <= 1.0:
             raise ValueError(
                 f"probability must be in [0, 1], got {self.probability}"
+            )
+        if self.patient_nearest_points < 1:
+            raise ValueError(
+                "patient_nearest_points must be at least 1, "
+                f"got {self.patient_nearest_points}"
             )
 
     def __call__(self, data: DataDict) -> DataDict:
@@ -119,12 +125,21 @@ class RandomCollapseNodePoints(TransformFn):
             return data
 
         node_points = data["node_points_xyz"]
+        gripper_points = data["gripper_points_xyz"]
         subtask_node_mask = data["subtask_node_mask"]
+        subtaskstructure = data["subtaskstructure"]
         history_horizon = int(data["history_horizon"])
         if node_points.ndim != 4 or node_points.shape[-1] != POINT_FEATURE_DIM:
             raise ValueError(
                 f"Expected node_points_xyz [T,N,P,{POINT_FEATURE_DIM}], got "
                 f"{tuple(node_points.shape)}"
+            )
+        if gripper_points.ndim != 3 or gripper_points.shape != (
+            node_points.shape[0], GRIPPER_NUM_POINTS, POINT_FEATURE_DIM,
+        ):
+            raise ValueError(
+                f"Expected gripper_points_xyz [T,{GRIPPER_NUM_POINTS},{POINT_FEATURE_DIM}], "
+                f"got {tuple(gripper_points.shape)}"
             )
         if tuple(subtask_node_mask.shape) != tuple(node_points.shape[:2]):
             raise ValueError(
@@ -136,27 +151,64 @@ class RandomCollapseNodePoints(TransformFn):
                 f"history_horizon {history_horizon} is outside {node_points.shape[0]} frames"
             )
 
+        roles = [
+            str(node.get("role", ""))
+            for node in subtaskstructure.get("nodes", [])
+            if str(node.get("role", "")) != "actor"
+        ]
         if isinstance(node_points, torch.Tensor):
-            selected_nodes = torch.as_tensor(
+            selected_nodes = torch.nonzero(torch.as_tensor(
                 subtask_node_mask[history_horizon], dtype=torch.bool,
                 device=node_points.device,
-            )
-            if not selected_nodes.any():
+            ), as_tuple=False).flatten()
+            if selected_nodes.numel() == 0:
                 return data
             collapsed = node_points.clone()
-            centers = node_points.mean(dim=2, keepdim=True)
-            collapsed[:, selected_nodes] = centers[:, selected_nodes].expand(
-                -1, -1, node_points.shape[2], -1
-            )
+            tcp = torch.as_tensor(
+                gripper_points, dtype=node_points.dtype, device=node_points.device,
+            )[:, GRIPPER_TCP_POINT_INDEX]
+            for role_index, node_index in enumerate(selected_nodes.tolist()):
+                role = roles[role_index] if role_index < len(roles) else (
+                    "patient" if role_index == 0 else "target"
+                )
+                points = node_points[:, node_index]
+                if role == "patient":
+                    nearest_count = min(self.patient_nearest_points, points.shape[1])
+                    distances = (points - tcp[:, None]).square().sum(dim=-1)
+                    nearest = distances.topk(nearest_count, dim=1, largest=False).indices
+                    anchor = points.gather(
+                        1, nearest[..., None].expand(-1, -1, POINT_FEATURE_DIM),
+                    ).mean(dim=1, keepdim=True)
+                else:
+                    anchor = points.mean(dim=1, keepdim=True)
+                collapsed[:, node_index] = anchor.expand(-1, points.shape[1], -1)
         else:
-            selected_nodes = np.asarray(subtask_node_mask[history_horizon], dtype=bool)
-            if not selected_nodes.any():
+            selected_nodes = np.flatnonzero(
+                np.asarray(subtask_node_mask[history_horizon], dtype=bool)
+            )
+            if selected_nodes.size == 0:
                 return data
             collapsed = np.asarray(node_points).copy()
-            centers = np.asarray(node_points).mean(axis=2, keepdims=True)
-            collapsed[:, selected_nodes] = np.broadcast_to(
-                centers[:, selected_nodes], collapsed[:, selected_nodes].shape
-            )
+            tcp = np.asarray(gripper_points)[:, GRIPPER_TCP_POINT_INDEX]
+            for role_index, node_index in enumerate(selected_nodes.tolist()):
+                role = roles[role_index] if role_index < len(roles) else (
+                    "patient" if role_index == 0 else "target"
+                )
+                points = np.asarray(node_points)[:, node_index]
+                if role == "patient":
+                    nearest_count = min(self.patient_nearest_points, points.shape[1])
+                    distances = np.square(points - tcp[:, None]).sum(axis=-1)
+                    nearest = np.argpartition(
+                        distances, nearest_count - 1, axis=1,
+                    )[:, :nearest_count]
+                    anchor = np.take_along_axis(
+                        points, nearest[..., None], axis=1,
+                    ).mean(axis=1, keepdims=True)
+                else:
+                    anchor = points.mean(axis=1, keepdims=True)
+                collapsed[:, node_index] = np.broadcast_to(
+                    anchor, collapsed[:, node_index].shape,
+                )
 
         data["node_points_xyz"] = collapsed
         return data

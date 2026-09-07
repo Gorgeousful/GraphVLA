@@ -41,25 +41,51 @@ def test_center_on_current_tcp_uses_one_origin_for_the_entire_window() -> None:
     torch.testing.assert_close(result["node_points_xyz"][0, 1], torch.zeros(2, 3))
 
 
-def test_random_collapse_node_points_collapses_selected_nodes_across_window() -> None:
-    node_points = torch.arange(3 * 3 * 4 * 3, dtype=torch.float32).reshape(3, 3, 4, 3)
-    original = node_points.clone()
-    subtask_node_mask = torch.tensor([
-        [False, False, False],
-        [True, False, True],
-        [False, False, False],
+@pytest.mark.parametrize("use_numpy", [False, True])
+def test_random_collapse_node_points_uses_patient_tcp_anchor_and_target_center(
+    use_numpy: bool,
+) -> None:
+    node_points = torch.tensor([
+        [
+            [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [4.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            [[10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [12.0, 0.0, 0.0], [13.0, 0.0, 0.0]],
+            [[20.0, 0.0, 0.0], [22.0, 0.0, 0.0], [24.0, 0.0, 0.0], [26.0, 0.0, 0.0]],
+        ],
+        [
+            [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [4.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+            [[10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [12.0, 0.0, 0.0], [13.0, 0.0, 0.0]],
+            [[20.0, 0.0, 0.0], [22.0, 0.0, 0.0], [24.0, 0.0, 0.0], [26.0, 0.0, 0.0]],
+        ],
     ])
-
-    result = RandomCollapseNodePoints(probability=1.0)({
+    original = node_points.clone()
+    gripper_points = torch.zeros(2, 6, 3)
+    gripper_points[0, GRIPPER_TCP_POINT_INDEX, 0] = 0.5
+    gripper_points[1, GRIPPER_TCP_POINT_INDEX, 0] = 5.5
+    subtask_node_mask = torch.tensor([[True, False, True], [True, False, True]])
+    data = {
         "history_horizon": 1,
         "node_points_xyz": node_points,
+        "gripper_points_xyz": gripper_points,
         "subtask_node_mask": subtask_node_mask,
-    })
+        "subtaskstructure": {"nodes": [
+            {"role": "actor"}, {"role": "patient"}, {"role": "target"},
+        ]},
+    }
+    if use_numpy:
+        data = {
+            key: value.numpy() if isinstance(value, torch.Tensor) else value
+            for key, value in data.items()
+        }
 
-    expected_centers = original.mean(dim=2, keepdim=True).expand_as(original)
-    torch.testing.assert_close(result["node_points_xyz"][:, 0], expected_centers[:, 0])
-    torch.testing.assert_close(result["node_points_xyz"][:, 2], expected_centers[:, 2])
-    torch.testing.assert_close(result["node_points_xyz"][:, 1], original[:, 1])
+    result = RandomCollapseNodePoints(probability=1.0, patient_nearest_points=2)(data)
+
+    collapsed = torch.as_tensor(result["node_points_xyz"])
+    expected_patient = torch.tensor([1.0, 5.0])[:, None, None].expand(-1, 4, 3).clone()
+    expected_patient[..., 1:] = 0.0
+    expected_target = original[:, 2].mean(dim=1, keepdim=True).expand(-1, 4, -1)
+    torch.testing.assert_close(collapsed[:, 0], expected_patient)
+    torch.testing.assert_close(collapsed[:, 2], expected_target)
+    torch.testing.assert_close(collapsed[:, 1], original[:, 1])
 
 
 def test_normalize_loads_stats_from_json_path(tmp_path) -> None:
