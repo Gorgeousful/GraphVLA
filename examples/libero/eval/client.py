@@ -18,6 +18,8 @@ import pathlib
 import cv2
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +68,32 @@ class Args:
     save_video: bool = True
     action_delta: bool = False
     num_workers: int = 1
+
+
+class OverallProgress:
+    def __init__(self, total_episodes: int) -> None:
+        self.total_episodes = total_episodes
+        self.completed_episodes = 0
+        self.next_percent = 1
+        self.lock = threading.Lock()
+        self.start_time = time.monotonic()
+
+    def complete_episode(self) -> None:
+        with self.lock:
+            self.completed_episodes += 1
+            if self.completed_episodes * 100 < self.next_percent * self.total_episodes:
+                return
+            percent = 100.0 * self.completed_episodes / self.total_episodes
+            elapsed = time.monotonic() - self.start_time
+            eta_seconds = elapsed / self.completed_episodes * (self.total_episodes - self.completed_episodes)
+            eta_hours, eta_remainder = divmod(int(eta_seconds), 3600)
+            eta_minutes, eta_seconds = divmod(eta_remainder, 60)
+            self.next_percent = min(int(percent) + 1, 101)
+            cs.print(
+                f"[bold magenta]Overall progress: {self.completed_episodes}/"
+                f"{self.total_episodes} ({percent:.1f}%) "
+                f"ETA {eta_hours:02d}:{eta_minutes:02d}:{eta_seconds:02d}[/bold magenta]"
+            )
 
 
 class ObservationDeltaBuffer:
@@ -629,6 +657,7 @@ def _evaluate_task(
     progress_threshold: float,
     video_dir: Path,
     client: InferenceClient,
+    overall_progress: OverallProgress,
 ) -> dict[str, Any]:
     worker_id = client.worker_id
     task = task_suite.get_task(task_id)
@@ -836,6 +865,7 @@ def _evaluate_task(
                 f"completed_subtasks={completed_subtasks} "
                 f"completed_goals={completed_goal_states}"
             )
+            overall_progress.complete_episode()
 
         return {
             "task_id": task_id,
@@ -859,6 +889,7 @@ def _evaluate_task_group(
     max_steps: int,
     progress_threshold: float,
     video_dir: Path,
+    overall_progress: OverallProgress,
 ) -> list[dict[str, Any]]:
     from libero.libero import benchmark
 
@@ -875,6 +906,7 @@ def _evaluate_task_group(
             progress_threshold=progress_threshold,
             video_dir=video_dir,
             client=client,
+            overall_progress=overall_progress,
         )
         for task_order, task_id in task_entries
     ]
@@ -908,11 +940,24 @@ def main() -> None:
     video_dir.mkdir(parents=True, exist_ok=True)
 
     task_entries = list(enumerate(task_ids, start=1))
+    episodes_per_task = (
+        len(args.trials_init_state)
+        if args.trials_init_state is not None
+        else args.num_trials_per_task
+    )
+    overall_progress = OverallProgress(len(task_entries) * episodes_per_task)
     worker_count = min(args.num_workers, len(task_entries)) if task_entries else 1
     groups = [task_entries[index::worker_count] for index in range(worker_count)]
     if worker_count == 1:
         task_results = _evaluate_task_group(
-            args, 0, groups[0], len(task_entries), max_steps, progress_threshold, video_dir,
+            args,
+            0,
+            groups[0],
+            len(task_entries),
+            max_steps,
+            progress_threshold,
+            video_dir,
+            overall_progress,
         )
     else:
         cs.print(f"{_worker_prefix(0)} running {len(task_entries)} tasks across {worker_count} concurrent workers")
@@ -927,6 +972,7 @@ def main() -> None:
                     max_steps,
                     progress_threshold,
                     video_dir,
+                    overall_progress,
                 )
                 for worker_id, group in enumerate(groups)
             ]
