@@ -194,8 +194,7 @@ LIBERO_OUT_TRANSFORM = (
     ),
 )
 
-# TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
-TASKS = [0, 1, 3, 5, 6, 8, 10, 11, 13, 14, 15, 16]
+TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
 EPISODES = select_first_episodes_per_task(
     LIBERO_DATASET_DIR,
     TASKS,
