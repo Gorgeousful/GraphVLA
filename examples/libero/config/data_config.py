@@ -100,7 +100,8 @@ LIBERO_POINT_STATS_FIELD = (
 LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
-LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.5 # baseline 0
+LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.25  # baseline 0
+LIBERO_PATIENT_NEAREST_POINTS = 4
 
 LIBERO_REPACK = {
     # "images.image": "observation.images.image",
@@ -152,7 +153,10 @@ LIBERO_TRANSFORM = (
     ),
     CustomTransform(mode="add_subtaskstructure", dataset_dir=LIBERO_DATASET_DIR),
     *LIBERO_POINT_TRANSFORMS,
-    RandomCollapseNodePoints(probability=LIBERO_POINT_SHAPE_DROPOUT_PROB),
+    RandomCollapseNodePoints(
+        probability=LIBERO_POINT_SHAPE_DROPOUT_PROB,
+        patient_nearest_points=LIBERO_PATIENT_NEAREST_POINTS,
+    ),
 
     Normalize(
         norm_stats=LIBERO_NORM_STATS_PATH,
