@@ -101,6 +101,7 @@ LIBERO_POINT_TRANSFORMS = (
     (CenterOnCurrentTCP(),) if LIBERO_POINT_COORDINATE_FRAME == "tcp_relative" else ()
 )
 LIBERO_POINT_SHAPE_DROPOUT_PROB = 0.1  # baseline 0
+LIBERO_TARGET_SHAPE_DROPOUT_PROB = 0.0
 LIBERO_PATIENT_NEAREST_POINTS = 4
 
 LIBERO_REPACK = {
@@ -155,6 +156,7 @@ LIBERO_TRANSFORM = (
     *LIBERO_POINT_TRANSFORMS,
     RandomCollapseNodePoints(
         probability=LIBERO_POINT_SHAPE_DROPOUT_PROB,
+        target_probability=LIBERO_TARGET_SHAPE_DROPOUT_PROB,
         patient_nearest_points=LIBERO_PATIENT_NEAREST_POINTS,
     ),
 

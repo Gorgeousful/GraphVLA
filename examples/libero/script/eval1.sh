@@ -45,5 +45,4 @@ python -m examples.libero.eval.client \
 --max-steps 1000 \
 --control-freq 20 \
 --port 8002 \
---num-workers 3 \
---resume-dir examples/libero/eval/output/0906-pointdropknn-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000/libero_custom_0902-0907-1508
+--num-workers 3

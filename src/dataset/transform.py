@@ -105,12 +105,21 @@ class CenterOnCurrentTCP(TransformFn):
 @dataclass
 class RandomCollapseNodePoints(TransformFn):
     probability: float = 0.25
+    target_probability: float | None = None
     patient_nearest_points: int = 4
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.probability <= 1.0:
             raise ValueError(
                 f"probability must be in [0, 1], got {self.probability}"
+            )
+        if (
+            self.target_probability is not None
+            and not 0.0 <= self.target_probability <= 1.0
+        ):
+            raise ValueError(
+                "target_probability must be in [0, 1], "
+                f"got {self.target_probability}"
             )
         if self.patient_nearest_points < 1:
             raise ValueError(
@@ -119,9 +128,26 @@ class RandomCollapseNodePoints(TransformFn):
             )
 
     def __call__(self, data: DataDict) -> DataDict:
-        if self.probability == 0.0:
-            return data
-        if self.probability < 1.0 and torch.rand(()).item() >= self.probability:
+        if self.target_probability is None:
+            collapse = self.probability == 1.0 or (
+                self.probability > 0.0
+                and torch.rand(()).item() < self.probability
+            )
+            collapse_roles = {"patient": collapse, "target": collapse}
+        else:
+            collapse_roles = {
+                "patient": self.probability == 1.0
+                or (
+                    self.probability > 0.0
+                    and torch.rand(()).item() < self.probability
+                ),
+                "target": self.target_probability == 1.0
+                or (
+                    self.target_probability > 0.0
+                    and torch.rand(()).item() < self.target_probability
+                ),
+            }
+        if not any(collapse_roles.values()):
             return data
 
         node_points = data["node_points_xyz"]
@@ -171,6 +197,8 @@ class RandomCollapseNodePoints(TransformFn):
                 role = roles[role_index] if role_index < len(roles) else (
                     "patient" if role_index == 0 else "target"
                 )
+                if not collapse_roles.get(role, False):
+                    continue
                 points = node_points[:, node_index]
                 if role == "patient":
                     nearest_count = min(self.patient_nearest_points, points.shape[1])
@@ -194,6 +222,8 @@ class RandomCollapseNodePoints(TransformFn):
                 role = roles[role_index] if role_index < len(roles) else (
                     "patient" if role_index == 0 else "target"
                 )
+                if not collapse_roles.get(role, False):
+                    continue
                 points = np.asarray(node_points)[:, node_index]
                 if role == "patient":
                     nearest_count = min(self.patient_nearest_points, points.shape[1])

@@ -42,7 +42,7 @@ def test_center_on_current_tcp_uses_one_origin_for_the_entire_window() -> None:
 
 
 @pytest.mark.parametrize("use_numpy", [False, True])
-def test_random_collapse_node_points_uses_patient_tcp_anchor_and_target_center(
+def test_random_collapse_node_points_collapses_patient_when_target_is_disabled(
     use_numpy: bool,
 ) -> None:
     node_points = torch.tensor([
@@ -77,15 +77,55 @@ def test_random_collapse_node_points_uses_patient_tcp_anchor_and_target_center(
             for key, value in data.items()
         }
 
-    result = RandomCollapseNodePoints(probability=1.0, patient_nearest_points=2)(data)
+    result = RandomCollapseNodePoints(
+        probability=1.0,
+        target_probability=0.0,
+        patient_nearest_points=2,
+    )(data)
 
     collapsed = torch.as_tensor(result["node_points_xyz"])
     expected_patient = torch.tensor([1.0, 5.0])[:, None, None].expand(-1, 4, 3).clone()
     expected_patient[..., 1:] = 0.0
-    expected_target = original[:, 2].mean(dim=1, keepdim=True).expand(-1, 4, -1)
     torch.testing.assert_close(collapsed[:, 0], expected_patient)
-    torch.testing.assert_close(collapsed[:, 2], expected_target)
+    torch.testing.assert_close(collapsed[:, 2], original[:, 2])
     torch.testing.assert_close(collapsed[:, 1], original[:, 1])
+
+
+def test_random_collapse_node_points_can_collapse_target_independently() -> None:
+    node_points = torch.arange(2 * 2 * 4 * 3, dtype=torch.float32).reshape(2, 2, 4, 3)
+    original = node_points.clone()
+    result = RandomCollapseNodePoints(
+        probability=0.0,
+        target_probability=1.0,
+    )({
+        "history_horizon": 1,
+        "node_points_xyz": node_points,
+        "gripper_points_xyz": torch.zeros(2, 6, 3),
+        "subtask_node_mask": torch.ones(2, 2, dtype=torch.bool),
+        "subtaskstructure": {"nodes": [
+            {"role": "actor"}, {"role": "patient"}, {"role": "target"},
+        ]},
+    })
+
+    expected_target = original[:, 1].mean(dim=1, keepdim=True).expand(-1, 4, -1)
+    torch.testing.assert_close(result["node_points_xyz"][:, 0], original[:, 0])
+    torch.testing.assert_close(result["node_points_xyz"][:, 1], expected_target)
+
+
+def test_random_collapse_node_points_keeps_legacy_shared_probability() -> None:
+    node_points = torch.arange(2 * 2 * 4 * 3, dtype=torch.float32).reshape(2, 2, 4, 3)
+    result = RandomCollapseNodePoints(probability=1.0)({
+        "history_horizon": 1,
+        "node_points_xyz": node_points,
+        "gripper_points_xyz": torch.zeros(2, 6, 3),
+        "subtask_node_mask": torch.ones(2, 2, dtype=torch.bool),
+        "subtaskstructure": {"nodes": [
+            {"role": "actor"}, {"role": "patient"}, {"role": "target"},
+        ]},
+    })
+
+    expected_target = node_points[:, 1].mean(dim=1, keepdim=True).expand(-1, 4, -1)
+    torch.testing.assert_close(result["node_points_xyz"][:, 1], expected_target)
 
 
 def test_normalize_loads_stats_from_json_path(tmp_path) -> None:
