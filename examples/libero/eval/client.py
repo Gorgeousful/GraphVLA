@@ -145,11 +145,13 @@ class InferenceClient:
         self.last_action_frame_id: int | None = None
         self.episode_done = False
 
-    def reset_episode(self, *, env: Any) -> None:
+    def set_camera(self, *, env: Any) -> None:
+        self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
+
+    def reset_episode(self) -> None:
         self.pending_observations.reset()
         self.action_chunk.clear()
         self.action_frame_ids.clear()
-        self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
         self.first_request = True
         self.last_response = None
         self.last_action_frame_id = None
@@ -602,8 +604,6 @@ def _load_episode_records(video_dir: Path) -> dict[tuple[int, int], Path]:
 def _restore_episode_result(
     path: Path,
     *,
-    env: Any,
-    initial_state: Any,
     task_id: int,
     episode_idx: int,
     init_state_id: int,
@@ -624,11 +624,6 @@ def _restore_episode_result(
     match = ARTIFACT_PATTERN.fullmatch(path.name)
     if match is None:
         raise ValueError(f"invalid resume artifact name: {path.name}")
-    env.reset()
-    env.set_init_state(initial_state)
-    for step in record.get("steps", []):
-        env.step(step["controller_action"])
-    completed_goals, _, progress, completed_subtasks, completed_goal_states = _goal_progress(env)
     env_success = match.group(3) == "success"
     episode_result = {
         "episode_id": episode_idx,
@@ -636,12 +631,10 @@ def _restore_episode_result(
         "success": env_success,
         "server_success": match.group(4) == "success",
         "interrupted": False,
-        "progress": 1.0 if env_success else progress,
-        "completed_subtasks": completed_subtasks,
-        "completed_goals": completed_goal_states,
+        "progress": float(env_success),
+        "completed_subtasks": [],
+        "completed_goals": [],
     }
-    if env_success and completed_goals == 0:
-        logging.warning("successful legacy episode replay did not reproduce its goal state: %s", path)
     record["result"] = episode_result
     _write_json_atomic(path, record)
     return episode_result
@@ -765,15 +758,25 @@ def _evaluate_task(
             f"initial state indices {invalid_init_state_ids} out of range for task {task_id}; "
             f"available range is 0-{len(initial_states) - 1}"
         )
-    env, task_description = _get_libero_env(
-        task,
-        LIBERO_ENV_RESOLUTION,
-        seed=args.seed,
-        control_freq=args.control_freq,
-        action_delta=args.action_delta,
-    )
-    try:
+    missing_episode_indices = [
+        episode_idx
+        for episode_idx in range(len(init_state_ids))
+        if (task_id, episode_idx) not in existing_records
+    ]
+    env = None
+    task_description = task.language
+    total_goals = 1
+    if missing_episode_indices:
+        env, task_description = _get_libero_env(
+            task,
+            LIBERO_ENV_RESOLUTION,
+            seed=args.seed,
+            control_freq=args.control_freq,
+            action_delta=args.action_delta,
+        )
         total_goals = len(env.env.parsed_problem["goal_state"])
+        client.set_camera(env=env)
+    try:
         task_episodes = 0
         task_successes = 0
         task_server_successes = 0
@@ -785,8 +788,6 @@ def _evaluate_task(
             if existing_path is not None:
                 episode_result = _restore_episode_result(
                     existing_path,
-                    env=env,
-                    initial_state=initial_states[init_state_id],
                     task_id=task_id,
                     episode_idx=episode_idx,
                     init_state_id=init_state_id,
@@ -802,6 +803,8 @@ def _evaluate_task(
                 )
                 continue
 
+            if env is None:
+                raise RuntimeError(f"task {task_id} has a missing episode but no environment")
             logging.info("[worker %s] Task %s episode %s: %s", worker_id, task_id, episode_idx, task_description)
             cs.print(
                 f"{_worker_prefix(worker_id)} [cyan]task {task_order}/{total_tasks}[/cyan] "
@@ -811,7 +814,7 @@ def _evaluate_task(
             )
             env.reset()
             obs = env.set_init_state(initial_states[init_state_id])
-            client.reset_episode(env=env)
+            client.reset_episode()
             combined_frames = []
             step_records: list[dict[str, Any]] = []
             inference_records: list[dict[str, Any]] = []
@@ -957,6 +960,7 @@ def _evaluate_task(
                         "init_state_id": init_state_id,
                         "task_description": task_description,
                         "fps": args.control_freq,
+                        "total_goals": total_goals,
                     },
                     "steps": step_records,
                     "inferences": inference_records,
@@ -991,7 +995,8 @@ def _evaluate_task(
             "episodes": episode_results,
         }
     finally:
-        env.close()
+        if env is not None:
+            env.close()
 
 
 def _evaluate_task_group(
