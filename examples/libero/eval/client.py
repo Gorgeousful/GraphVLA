@@ -16,6 +16,7 @@ import json
 import logging
 import pathlib
 import cv2
+import re
 import subprocess
 import sys
 import threading
@@ -68,13 +69,15 @@ class Args:
     save_video: bool = True
     action_delta: bool = False
     num_workers: int = 1
+    resume_dir: Path | None = None
 
 
 class OverallProgress:
-    def __init__(self, total_episodes: int) -> None:
+    def __init__(self, total_episodes: int, completed_episodes: int = 0) -> None:
         self.total_episodes = total_episodes
-        self.completed_episodes = 0
-        self.next_percent = 1
+        self.completed_episodes = completed_episodes
+        self.resumed_episodes = completed_episodes
+        self.next_percent = int(100.0 * completed_episodes / total_episodes) + 1
         self.lock = threading.Lock()
         self.start_time = time.monotonic()
 
@@ -85,7 +88,8 @@ class OverallProgress:
                 return
             percent = 100.0 * self.completed_episodes / self.total_episodes
             elapsed = time.monotonic() - self.start_time
-            eta_seconds = elapsed / self.completed_episodes * (self.total_episodes - self.completed_episodes)
+            newly_completed = self.completed_episodes - self.resumed_episodes
+            eta_seconds = elapsed / newly_completed * (self.total_episodes - self.completed_episodes)
             eta_hours, eta_remainder = divmod(int(eta_seconds), 3600)
             eta_minutes, eta_seconds = divmod(eta_remainder, 60)
             self.next_percent = min(int(percent) + 1, 101)
@@ -567,6 +571,82 @@ def _goal_progress(env: Any) -> tuple[int, int, float, list[int], list[str]]:
     return completed_goals, total_goals, progress, completed_subtasks, completed_goal_states
 
 
+ARTIFACT_PATTERN = re.compile(
+    r"task_(\d+)_ep_(\d+)_sec_\d+_(success|failure)_(success|failure)\.json$"
+)
+
+
+def _write_json_atomic(path: Path, value: Any) -> None:
+    temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary_path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    temporary_path.replace(path)
+
+
+def _load_episode_records(video_dir: Path) -> dict[tuple[int, int], Path]:
+    records: dict[tuple[int, int], Path] = {}
+    for path in sorted(video_dir.glob("*.json")):
+        match = ARTIFACT_PATTERN.fullmatch(path.name)
+        if match is None:
+            continue
+        key = (int(match.group(1)), int(match.group(2)))
+        if key in records:
+            raise ValueError(
+                f"duplicate resume records for task={key[0]} episode={key[1]}: "
+                f"{records[key].name}, {path.name}"
+            )
+        json.loads(path.read_text(encoding="utf-8"))
+        records[key] = path
+    return records
+
+
+def _restore_episode_result(
+    path: Path,
+    *,
+    env: Any,
+    initial_state: Any,
+    task_id: int,
+    episode_idx: int,
+    init_state_id: int,
+) -> dict[str, Any]:
+    record = json.loads(path.read_text(encoding="utf-8"))
+    metadata = record.get("metadata", {})
+    expected = (task_id, episode_idx, init_state_id)
+    actual = (
+        metadata.get("task_id"),
+        metadata.get("episode_id"),
+        metadata.get("init_state_id"),
+    )
+    if actual != expected:
+        raise ValueError(f"resume metadata mismatch in {path}: expected {expected}, got {actual}")
+    if "result" in record:
+        return record["result"]
+
+    match = ARTIFACT_PATTERN.fullmatch(path.name)
+    if match is None:
+        raise ValueError(f"invalid resume artifact name: {path.name}")
+    env.reset()
+    env.set_init_state(initial_state)
+    for step in record.get("steps", []):
+        env.step(step["controller_action"])
+    completed_goals, _, progress, completed_subtasks, completed_goal_states = _goal_progress(env)
+    env_success = match.group(3) == "success"
+    episode_result = {
+        "episode_id": episode_idx,
+        "init_state_id": init_state_id,
+        "success": env_success,
+        "server_success": match.group(4) == "success",
+        "interrupted": False,
+        "progress": 1.0 if env_success else progress,
+        "completed_subtasks": completed_subtasks,
+        "completed_goals": completed_goal_states,
+    }
+    if env_success and completed_goals == 0:
+        logging.warning("successful legacy episode replay did not reproduce its goal state: %s", path)
+    record["result"] = episode_result
+    _write_json_atomic(path, record)
+    return episode_result
+
+
 def _default_max_steps(task_suite_name: str) -> int:
     if task_suite_name == "libero_spatial":
         return 220
@@ -604,6 +684,12 @@ def parse_args() -> Args:
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument(
+        "--resume-dir",
+        type=Path,
+        default=Args.resume_dir,
+        help="Resume an interrupted evaluation from an existing suite output directory.",
+    )
+    parser.add_argument(
         "--num-workers",
         type=int,
         default=Args.num_workers,
@@ -629,6 +715,10 @@ def parse_args() -> Args:
         parser.error("--control-freq must be positive")
     if ns.num_workers <= 0:
         parser.error("--num-workers must be positive")
+    if ns.num_trials_per_task <= 0:
+        parser.error("--num-trials-per-task must be positive")
+    if ns.resume_dir is not None and ns.no_save_video:
+        parser.error("--resume-dir cannot be combined with --no-save-video")
     return Args(
         host=ns.host,
         control_freq=ns.control_freq,
@@ -643,6 +733,7 @@ def parse_args() -> Args:
         save_video=not ns.no_save_video,
         action_delta=ns.action_delta,
         num_workers=ns.num_workers,
+        resume_dir=ns.resume_dir,
     )
 
 
@@ -658,6 +749,7 @@ def _evaluate_task(
     video_dir: Path,
     client: InferenceClient,
     overall_progress: OverallProgress,
+    existing_records: dict[tuple[int, int], Path],
 ) -> dict[str, Any]:
     worker_id = client.worker_id
     task = task_suite.get_task(task_id)
@@ -689,6 +781,27 @@ def _evaluate_task(
         episode_results: list[dict[str, Any]] = []
 
         for episode_idx, init_state_id in enumerate(init_state_ids):
+            existing_path = existing_records.get((task_id, episode_idx))
+            if existing_path is not None:
+                episode_result = _restore_episode_result(
+                    existing_path,
+                    env=env,
+                    initial_state=initial_states[init_state_id],
+                    task_id=task_id,
+                    episode_idx=episode_idx,
+                    init_state_id=init_state_id,
+                )
+                episode_results.append(episode_result)
+                task_episodes += 1
+                task_successes += int(episode_result["success"])
+                task_server_successes += int(episode_result["server_success"])
+                task_progress += float(episode_result["progress"])
+                cs.print(
+                    f"{_worker_prefix(worker_id)} [magenta]resumed task={task_id} "
+                    f"episode={episode_idx} from {existing_path.name}[/magenta]"
+                )
+                continue
+
             logging.info("[worker %s] Task %s episode %s: %s", worker_id, task_id, episode_idx, task_description)
             cs.print(
                 f"{_worker_prefix(worker_id)} [cyan]task {task_order}/{total_tasks}[/cyan] "
@@ -815,6 +928,16 @@ def _evaluate_task(
                 completed_goal_states,
             ) = _goal_progress(env)
             task_progress += progress
+            episode_result = {
+                "episode_id": episode_idx,
+                "init_state_id": init_state_id,
+                "success": env_success,
+                "server_success": server_done,
+                "interrupted": interrupted,
+                "progress": progress,
+                "completed_subtasks": completed_subtasks,
+                "completed_goals": completed_goal_states,
+            }
 
             if args.save_video:
                 env_result = "success" if env_success else "failure"
@@ -837,26 +960,16 @@ def _evaluate_task(
                     },
                     "steps": step_records,
                     "inferences": inference_records,
+                    "result": episode_result,
                 }
                 json_path = video_dir / f"{artifact_stem}.json"
-                json_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+                _write_json_atomic(json_path, record)
                 cs.print(
                     f"{_worker_prefix(worker_id)} saved execution record to: "
                     f"{json_path} ({len(step_records)} frames)"
                 )
 
-            episode_results.append(
-                {
-                    "episode_id": episode_idx,
-                    "init_state_id": init_state_id,
-                    "success": env_success,
-                    "server_success": server_done,
-                    "interrupted": interrupted,
-                    "progress": progress,
-                    "completed_subtasks": completed_subtasks,
-                    "completed_goals": completed_goal_states,
-                }
-            )
+            episode_results.append(episode_result)
 
             cs.print(
                 f"{_worker_prefix(worker_id)} task={task_id} episode={episode_idx} "
@@ -890,6 +1003,7 @@ def _evaluate_task_group(
     progress_threshold: float,
     video_dir: Path,
     overall_progress: OverallProgress,
+    existing_records: dict[tuple[int, int], Path],
 ) -> list[dict[str, Any]]:
     from libero.libero import benchmark
 
@@ -907,6 +1021,7 @@ def _evaluate_task_group(
             video_dir=video_dir,
             client=client,
             overall_progress=overall_progress,
+            existing_records=existing_records,
         )
         for task_order, task_id in task_entries
     ]
@@ -931,10 +1046,25 @@ def main() -> None:
             )
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
-    timestamp = datetime.now().strftime("%m%d-%H%M")
     ckpt_path, progress_threshold = _server_info(host=args.host, port=args.port)
     ckpt_dir_name = _ckpt_dir_name(ckpt_path)
-    suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
+    if args.resume_dir is None:
+        timestamp = datetime.now().strftime("%m%d-%H%M")
+        suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
+    else:
+        suite_output_dir = args.resume_dir.resolve()
+        if not suite_output_dir.is_dir():
+            raise FileNotFoundError(f"resume directory does not exist: {suite_output_dir}")
+        if suite_output_dir.parent.name != ckpt_dir_name:
+            raise ValueError(
+                f"resume directory belongs to {suite_output_dir.parent.name!r}, "
+                f"but server is running {ckpt_dir_name!r}"
+            )
+        if not suite_output_dir.name.startswith(f"{args.task_suite_name}-"):
+            raise ValueError(
+                f"resume directory {suite_output_dir.name!r} does not match "
+                f"suite {args.task_suite_name!r}"
+            )
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -945,7 +1075,20 @@ def main() -> None:
         if args.trials_init_state is not None
         else args.num_trials_per_task
     )
-    overall_progress = OverallProgress(len(task_entries) * episodes_per_task)
+    existing_records = _load_episode_records(video_dir) if args.resume_dir is not None else {}
+    requested_keys = {
+        (task_id, episode_idx)
+        for task_id in task_ids
+        for episode_idx in range(episodes_per_task)
+    }
+    resumed_episodes = len(requested_keys.intersection(existing_records))
+    total_requested_episodes = len(task_entries) * episodes_per_task
+    overall_progress = OverallProgress(total_requested_episodes, resumed_episodes)
+    if args.resume_dir is not None:
+        cs.print(
+            f"{_worker_prefix(0)} [bold magenta]Resuming {resumed_episodes}/"
+            f"{total_requested_episodes} completed episodes from {suite_output_dir}[/bold magenta]"
+        )
     worker_count = min(args.num_workers, len(task_entries)) if task_entries else 1
     groups = [task_entries[index::worker_count] for index in range(worker_count)]
     if worker_count == 1:
@@ -958,6 +1101,7 @@ def main() -> None:
             progress_threshold,
             video_dir,
             overall_progress,
+            existing_records,
         )
     else:
         cs.print(f"{_worker_prefix(0)} running {len(task_entries)} tasks across {worker_count} concurrent workers")
@@ -973,6 +1117,7 @@ def main() -> None:
                     progress_threshold,
                     video_dir,
                     overall_progress,
+                    existing_records,
                 )
                 for worker_id, group in enumerate(groups)
             ]
@@ -1001,7 +1146,7 @@ def main() -> None:
         "total_episodes": total_episodes,
         "tasks": task_results,
     }
-    result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _write_json_atomic(result_path, result)
     cs.print(f"{_worker_prefix(0)} saved results to: {result_path}")
 
 
