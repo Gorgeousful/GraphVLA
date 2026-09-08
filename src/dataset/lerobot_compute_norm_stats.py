@@ -246,6 +246,35 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
+_CAMERA_XYZ_NODE_FIELDS = {
+    "camera_xyz": "node_points_xyz",
+    "camera_xyz_track": "node_points_xyz_track",
+}
+
+
+def _extract_camera_xyz_by_sample(
+    field: str,
+    batch: dict[str, Any],
+) -> list[np.ndarray]:
+    node_field = _CAMERA_XYZ_NODE_FIELDS[field]
+    required = {node_field, "valid_node_mask", "gripper_points_xyz"}
+    missing = required.difference(batch)
+    if missing:
+        raise KeyError(f"{field} stats require fields: {sorted(missing)}")
+    node_xyz = _to_numpy(batch[node_field]).astype(np.float64, copy=False)
+    node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
+    gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
+    if node_xyz.shape[:2] != node_mask.shape or node_xyz.shape[-1] != 3:
+        raise ValueError(f"{node_field} {node_xyz.shape} and mask {node_mask.shape} mismatch")
+
+    values = []
+    for points, mask, gripper in zip(node_xyz, node_mask, gripper_points_xyz, strict=True):
+        valid = np.broadcast_to(mask[..., None], points.shape[:-1]) & np.isfinite(points).all(-1)
+        gripper_valid = np.isfinite(gripper).all(-1)
+        values.append(np.concatenate([points[valid], gripper[gripper_valid]], axis=0))
+    return values
+
+
 def _extract_special_field_values(
     field: str,
     batch: dict[str, Any],
@@ -255,21 +284,8 @@ def _extract_special_field_values(
     if field == "tcp_relative_xyz":
         values = _extract_tcp_relative_xyz_by_sample(batch, current_index=current_index)
         return np.concatenate(values, axis=0)
-    if field == "camera_xyz":
-        required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
-        missing = required.difference(batch)
-        if missing:
-            raise KeyError(f"camera_xyz stats require fields: {sorted(missing)}")
-        node_xyz = _to_numpy(batch["node_points_xyz"]).astype(np.float64, copy=False)
-        node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
-        gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
-        if node_xyz.shape[:2] != node_mask.shape or node_xyz.shape[-1] != 3:
-            raise ValueError(f"node_points_xyz {node_xyz.shape} and mask {node_mask.shape} mismatch")
-        node_valid = np.broadcast_to(node_mask[..., None], node_xyz.shape[:-1]) & np.isfinite(node_xyz).all(-1)
-        gripper_valid = np.isfinite(gripper_points_xyz).all(-1)
-        return np.concatenate([node_xyz[node_valid], gripper_points_xyz[gripper_valid]], axis=0)
-
-
+    if field in _CAMERA_XYZ_NODE_FIELDS:
+        return np.concatenate(_extract_camera_xyz_by_sample(field, batch), axis=0)
     return None
 
 
@@ -281,22 +297,8 @@ def _extract_special_field_values_by_sample(
 ) -> list[np.ndarray] | None:
     if field == "tcp_relative_xyz":
         return _extract_tcp_relative_xyz_by_sample(batch, current_index=current_index)
-    if field == "camera_xyz":
-        required = {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"}
-        missing = required.difference(batch)
-        if missing:
-            raise KeyError(f"camera_xyz stats require fields: {sorted(missing)}")
-        node_xyz = _to_numpy(batch["node_points_xyz"]).astype(np.float64, copy=False)
-        node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
-        gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
-        values = []
-        for points, mask, gripper in zip(node_xyz, node_mask, gripper_points_xyz, strict=True):
-            valid = np.broadcast_to(mask[:, None], points.shape[:-1]) & np.isfinite(points).all(-1)
-            grip_valid = np.isfinite(gripper).all(-1)
-            values.append(np.concatenate([points[valid], gripper[grip_valid]], axis=0))
-        return values
-
-
+    if field in _CAMERA_XYZ_NODE_FIELDS:
+        return _extract_camera_xyz_by_sample(field, batch)
     return None
 
 
@@ -371,6 +373,9 @@ def _extract_tcp_relative_xyz_by_sample(
 def _numeric_columns(feature_map: dict[str, str], level: str) -> list[str]:
     dependencies = {
         "camera_xyz": {"node_points_xyz", "valid_node_mask", "gripper_points_xyz"},
+        "camera_xyz_track": {
+            "node_points_xyz_track", "valid_node_mask", "gripper_points_xyz",
+        },
         "tcp_relative_xyz": {
             "node_points_xyz", "valid_node_mask", "subtask_node_mask",
             "gripper_points_xyz", "subtask_id",
@@ -426,8 +431,10 @@ def _relative_delta_timestamps(
             "gripper_points_xyz", "subtask_id",
         )
     }
+    if "camera_xyz_track" in feature_map.values():
+        delta_timestamps["node_points_xyz_track"] = [offset / fps for offset in offsets]
     for field in feature_map.values():
-        if field != "tcp_relative_xyz":
+        if field not in {"tcp_relative_xyz", "camera_xyz", "camera_xyz_track"}:
             delta_timestamps.setdefault(field, [0.0])
     return delta_timestamps
 
