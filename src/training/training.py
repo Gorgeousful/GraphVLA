@@ -61,14 +61,56 @@ def amp_context(device: torch.device, enabled: bool):
     return torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=True)
 
 
+def resolve_experiment_dir(training_config: Any) -> Path | None:
+    if training_config.save_dir is None:
+        return None
+    if not training_config.wandb_name:
+        raise ValueError("wandb_name is required when save_dir is set")
+    save_dir = Path(training_config.save_dir)
+    return save_dir if save_dir.name == training_config.wandb_name else save_dir / training_config.wandb_name
+
+
+def resolve_resume_configs(
+    data_config: Any,
+    model_config: Any,
+    training_config: Any,
+) -> tuple[Any, Any, Any]:
+    experiment_dir = resolve_experiment_dir(training_config)
+    if not training_config.resume or experiment_dir is None:
+        return data_config, model_config, training_config
+
+    config_dir = experiment_dir / "configs"
+    snapshot_paths = [
+        config_dir / filename
+        for filename in ("data_config.py", "model_config.py", "training_config.py")
+    ]
+    existing_snapshots = [path for path in snapshot_paths if path.is_file()]
+    if not existing_snapshots:
+        return data_config, model_config, training_config
+    if len(existing_snapshots) != len(snapshot_paths):
+        missing = [str(path) for path in snapshot_paths if not path.is_file()]
+        raise FileNotFoundError(f"resume config snapshots are incomplete; missing: {missing}")
+
+    loaded_data, loaded_model, loaded_training = TrainingCheckpoint.load_config_snapshots(
+        experiment_dir / "checkpoints" / "resume.pt"
+    )
+    loaded_experiment_dir = resolve_experiment_dir(loaded_training)
+    if loaded_experiment_dir != experiment_dir:
+        raise ValueError(
+            f"resume training snapshot points to {loaded_experiment_dir}, "
+            f"expected {experiment_dir}"
+        )
+    loaded_training.resume = True
+    loaded_training.max_steps = training_config.max_steps
+    cs.print(f"[green]loaded resume config snapshots from {config_dir}[/green]")
+    return loaded_data, loaded_model, loaded_training
+
+
 def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn.Module:
     training_config = copy(training_config)
     if bool(getattr(data_config, "action_delta", True)) != bool(getattr(model_config, "action_delta", True)):
         raise ValueError("data_config.action_delta must match model_config.action_delta")
-    if training_config.save_dir is not None:
-        if not training_config.wandb_name:
-            raise ValueError("wandb_name is required when save_dir is set")
-        training_config.save_dir = Path(training_config.save_dir) / training_config.wandb_name
+    training_config.save_dir = resolve_experiment_dir(training_config)
 
     distributed = TrainingDistributed(
         enabled=getattr(training_config, "use_ddp", True),
@@ -220,6 +262,11 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
     data_config, model_config, training_config = load_example_configs(args.example)
+    data_config, model_config, training_config = resolve_resume_configs(
+        data_config,
+        model_config,
+        training_config,
+    )
     train(
         data_config=data_config,
         model_config=model_config,

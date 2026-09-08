@@ -25,7 +25,7 @@ class ModelConfig:
     # global_layer_types: tuple[int, ...] = (1,1,1,1,1,1,1,1)
     global_layer_types: tuple[int, ...] = (0,0,0,0,0,0,0,0)
     # full: unrestricted global attention; role_chain: node tokens follow actor-patient-target edges.
-    node_attention_mode: str = "full"
+    node_attention_mode: str = "role_chain"
     flow_layers: int = 6 # 6
     num_heads: int = 8
     mlp_ratio: float = 4.0

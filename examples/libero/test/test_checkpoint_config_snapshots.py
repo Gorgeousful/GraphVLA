@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.training.checkpoint import TrainingCheckpoint
+from src.training.training import resolve_resume_configs
 
 
 CONFIG_SOURCE = '''\
@@ -45,6 +46,8 @@ class ModelConfig:
 class TrainingConfig:
     max_steps: int = 10
     save_dir: Path | None = None
+    resume: bool = True
+    wandb_name: str | None = None
 
 
 LIBERO_DATA_CONFIG = DataConfig(dataset_dir=Path(LIBERO_DATASET_DIR))
@@ -114,3 +117,64 @@ def test_config_snapshots_replace_original_assignments_with_resolved_values(tmp_
 def test_load_config_snapshots_requires_experiment_configs(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="data_config.py"):
         TrainingCheckpoint.load_config_snapshots(tmp_path / "checkpoints" / "step_1.pt")
+
+
+def test_resume_without_snapshots_uses_current_configs(tmp_path: Path) -> None:
+    source_path = tmp_path / "source_config.py"
+    source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
+    source = load_module(source_path, "test_resume_current_config_source")
+    configs = (
+        source.DataConfig(dataset_dir=Path("/current/dataset")),
+        source.ModelConfig(hidden_dim=128),
+        source.TrainingConfig(save_dir=tmp_path, wandb_name="run"),
+    )
+
+    assert resolve_resume_configs(*configs) == configs
+
+
+def test_resume_with_snapshots_uses_saved_configs_and_current_max_steps(tmp_path: Path) -> None:
+    source_path = tmp_path / "source_config.py"
+    source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
+    source = load_module(source_path, "test_resume_saved_config_source")
+    experiment_dir = tmp_path / "run"
+    checkpoint = TrainingCheckpoint(experiment_dir, resume=True, keep_period=100)
+    checkpoint.save_config_snapshots(
+        data_config=source.DataConfig(dataset_dir=Path("/saved/dataset"), tasks=[3]),
+        model_config=source.ModelConfig(hidden_dim=512),
+        training_config=source.TrainingConfig(
+            max_steps=30_000,
+            save_dir=experiment_dir,
+            resume=False,
+            wandb_name="run",
+        ),
+    )
+    current_configs = (
+        source.DataConfig(dataset_dir=Path("/current/dataset"), tasks=[9]),
+        source.ModelConfig(hidden_dim=128),
+        source.TrainingConfig(max_steps=60_000, save_dir=tmp_path, wandb_name="run"),
+    )
+
+    data_config, model_config, training_config = resolve_resume_configs(*current_configs)
+
+    assert data_config.dataset_dir == Path("/saved/dataset")
+    assert data_config.tasks == [3]
+    assert model_config.hidden_dim == 512
+    assert training_config.max_steps == 60_000
+    assert training_config.save_dir == experiment_dir
+    assert training_config.resume is True
+
+
+def test_resume_with_partial_snapshots_fails(tmp_path: Path) -> None:
+    source_path = tmp_path / "source_config.py"
+    source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
+    source = load_module(source_path, "test_resume_partial_config_source")
+    config_dir = tmp_path / "run" / "configs"
+    config_dir.mkdir(parents=True)
+    (config_dir / "data_config.py").write_text(CONFIG_SOURCE, encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match="snapshots are incomplete"):
+        resolve_resume_configs(
+            source.DataConfig(dataset_dir=Path("/current/dataset")),
+            source.ModelConfig(),
+            source.TrainingConfig(save_dir=tmp_path, wandb_name="run"),
+        )
