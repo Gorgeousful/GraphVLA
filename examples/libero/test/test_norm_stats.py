@@ -29,6 +29,16 @@ def test_camera_xyz_track_uses_tracked_nodes_and_gripper_points(tmp_path) -> Non
         tracked[0, 0], gripper[0], tracked[1, 1], gripper[1],
     ])
     np.testing.assert_allclose(values, expected)
+
+    window_values = _extract_special_field_values(
+        "camera_xyz_track",
+        {
+            "node_points_xyz_track": tracked[:, None],
+            "valid_node_mask": valid[:, None],
+            "gripper_points_xyz": gripper[:, None],
+        },
+    )
+    np.testing.assert_allclose(window_values, expected)
     assert _numeric_columns({"track": "camera_xyz_track"}, "suite") == [
         "gripper_points_xyz", "node_points_xyz_track", "valid_node_mask",
     ]

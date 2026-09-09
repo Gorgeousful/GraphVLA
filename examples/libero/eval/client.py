@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import collections
 import concurrent.futures
 import dataclasses
 import json
@@ -70,6 +71,51 @@ class Args:
     action_delta: bool = False
     num_workers: int = 1
     resume_dir: Path | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class EpisodeJob:
+    task_order: int
+    task_id: int
+    episode_idx: int
+
+
+class EpisodeScheduler:
+    """Prefer idle tasks, then balance concurrent episodes across tasks."""
+
+    def __init__(self, task_entries: list[tuple[int, int]], episodes_per_task: int) -> None:
+        self.pending = {
+            task_id: collections.deque(
+                EpisodeJob(task_order, task_id, episode_idx)
+                for episode_idx in range(episodes_per_task)
+            )
+            for task_order, task_id in task_entries
+        }
+        self.task_order = {task_id: task_order for task_order, task_id in task_entries}
+        self.active = {task_id: 0 for _, task_id in task_entries}
+        self.lock = threading.Lock()
+
+    def acquire(self) -> EpisodeJob | None:
+        with self.lock:
+            available = [task_id for task_id, jobs in self.pending.items() if jobs]
+            if not available:
+                return None
+            task_id = min(
+                available,
+                key=lambda item: (
+                    self.active[item],
+                    self.pending[item][0].episode_idx,
+                    self.task_order[item],
+                ),
+            )
+            self.active[task_id] += 1
+            return self.pending[task_id].popleft()
+
+    def release(self, job: EpisodeJob) -> None:
+        with self.lock:
+            if self.active[job.task_id] <= 0:
+                raise RuntimeError(f"task {job.task_id} has no active episode to release")
+            self.active[job.task_id] -= 1
 
 
 class OverallProgress:
@@ -686,7 +732,7 @@ def parse_args() -> Args:
         "--num-workers",
         type=int,
         default=Args.num_workers,
-        help="Number of task groups evaluated concurrently against the same server.",
+        help="Number of episodes evaluated concurrently against the same server.",
     )
     parser.add_argument("--no-save-video", action="store_true")
     action_group = parser.add_mutually_exclusive_group()
@@ -743,6 +789,7 @@ def _evaluate_task(
     client: InferenceClient,
     overall_progress: OverallProgress,
     existing_records: dict[tuple[int, int], Path],
+    episode_indices: list[int] | None = None,
 ) -> dict[str, Any]:
     worker_id = client.worker_id
     task = task_suite.get_task(task_id)
@@ -758,9 +805,24 @@ def _evaluate_task(
             f"initial state indices {invalid_init_state_ids} out of range for task {task_id}; "
             f"available range is 0-{len(initial_states) - 1}"
         )
+    selected_episode_indices = (
+        list(range(len(init_state_ids))) if episode_indices is None else episode_indices
+    )
+    if len(set(selected_episode_indices)) != len(selected_episode_indices):
+        raise ValueError(f"duplicate episode indices for task {task_id}: {selected_episode_indices}")
+    invalid_episode_indices = [
+        episode_idx
+        for episode_idx in selected_episode_indices
+        if episode_idx < 0 or episode_idx >= len(init_state_ids)
+    ]
+    if invalid_episode_indices:
+        raise ValueError(
+            f"episode indices {invalid_episode_indices} out of range for task {task_id}; "
+            f"available range is 0-{len(init_state_ids) - 1}"
+        )
     missing_episode_indices = [
         episode_idx
-        for episode_idx in range(len(init_state_ids))
+        for episode_idx in selected_episode_indices
         if (task_id, episode_idx) not in existing_records
     ]
     env = None
@@ -783,7 +845,8 @@ def _evaluate_task(
         task_progress = 0.0
         episode_results: list[dict[str, Any]] = []
 
-        for episode_idx, init_state_id in enumerate(init_state_ids):
+        for episode_idx in selected_episode_indices:
+            init_state_id = init_state_ids[episode_idx]
             existing_path = existing_records.get((task_id, episode_idx))
             if existing_path is not None:
                 episode_result = _restore_episode_result(
@@ -1002,7 +1065,7 @@ def _evaluate_task(
 def _evaluate_task_group(
     args: Args,
     worker_id: int,
-    task_entries: list[tuple[int, int]],
+    scheduler: EpisodeScheduler,
     total_tasks: int,
     max_steps: int,
     progress_threshold: float,
@@ -1014,22 +1077,65 @@ def _evaluate_task_group(
 
     task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
     client = InferenceClient(host=args.host, port=args.port, worker_id=worker_id)
-    return [
-        _evaluate_task(
-            args=args,
-            task_suite=task_suite,
-            task_order=task_order,
-            total_tasks=total_tasks,
-            task_id=task_id,
-            max_steps=max_steps,
-            progress_threshold=progress_threshold,
-            video_dir=video_dir,
-            client=client,
-            overall_progress=overall_progress,
-            existing_records=existing_records,
+    results = []
+    while (job := scheduler.acquire()) is not None:
+        try:
+            results.append(
+                _evaluate_task(
+                    args=args,
+                    task_suite=task_suite,
+                    task_order=job.task_order,
+                    total_tasks=total_tasks,
+                    task_id=job.task_id,
+                    max_steps=max_steps,
+                    progress_threshold=progress_threshold,
+                    video_dir=video_dir,
+                    client=client,
+                    overall_progress=overall_progress,
+                    existing_records=existing_records,
+                    episode_indices=[job.episode_idx],
+                )
+            )
+        finally:
+            scheduler.release(job)
+    return results
+
+
+def _merge_task_results(
+    partial_results: list[dict[str, Any]], task_ids: list[int],
+) -> list[dict[str, Any]]:
+    by_task: dict[int, list[dict[str, Any]]] = {task_id: [] for task_id in task_ids}
+    for result in partial_results:
+        by_task[result["task_id"]].append(result)
+
+    merged_results = []
+    for task_id in task_ids:
+        parts = by_task[task_id]
+        episodes = sorted(
+            (episode for part in parts for episode in part["episodes"]),
+            key=lambda episode: episode["episode_id"],
         )
-        for task_order, task_id in task_entries
-    ]
+        episode_ids = [episode["episode_id"] for episode in episodes]
+        if len(set(episode_ids)) != len(episode_ids):
+            raise ValueError(f"duplicate episode results for task {task_id}: {episode_ids}")
+        num_episodes = len(episodes)
+        merged_results.append({
+            "task_id": task_id,
+            "task_desc": parts[0]["task_desc"],
+            "total_goals": max(part["total_goals"] for part in parts),
+            "success_rate": (
+                sum(episode["success"] for episode in episodes) / num_episodes
+            ),
+            "server_success_rate": (
+                sum(episode["server_success"] for episode in episodes) / num_episodes
+            ),
+            "progress_rate": (
+                sum(episode["progress"] for episode in episodes) / num_episodes
+            ),
+            "num_episodes": num_episodes,
+            "episodes": episodes,
+        })
+    return merged_results
 
 
 def main() -> None:
@@ -1094,13 +1200,13 @@ def main() -> None:
             f"{_worker_prefix(0)} [bold magenta]Resuming {resumed_episodes}/"
             f"{total_requested_episodes} completed episodes from {suite_output_dir}[/bold magenta]"
         )
-    worker_count = min(args.num_workers, len(task_entries)) if task_entries else 1
-    groups = [task_entries[index::worker_count] for index in range(worker_count)]
+    worker_count = min(args.num_workers, total_requested_episodes) if task_entries else 1
+    scheduler = EpisodeScheduler(task_entries, episodes_per_task)
     if worker_count == 1:
-        task_results = _evaluate_task_group(
+        partial_results = _evaluate_task_group(
             args,
             0,
-            groups[0],
+            scheduler,
             len(task_entries),
             max_steps,
             progress_threshold,
@@ -1109,14 +1215,17 @@ def main() -> None:
             existing_records,
         )
     else:
-        cs.print(f"{_worker_prefix(0)} running {len(task_entries)} tasks across {worker_count} concurrent workers")
+        cs.print(
+            f"{_worker_prefix(0)} running {total_requested_episodes} episodes from "
+            f"{len(task_entries)} tasks across {worker_count} concurrent workers"
+        )
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
                 executor.submit(
                     _evaluate_task_group,
                     args,
                     worker_id,
-                    group,
+                    scheduler,
                     len(task_entries),
                     max_steps,
                     progress_threshold,
@@ -1124,11 +1233,10 @@ def main() -> None:
                     overall_progress,
                     existing_records,
                 )
-                for worker_id, group in enumerate(groups)
+                for worker_id in range(worker_count)
             ]
-            task_results = [result for future in futures for result in future.result()]
-        task_order = {task_id: index for index, task_id in enumerate(task_ids)}
-        task_results.sort(key=lambda result: task_order[result["task_id"]])
+            partial_results = [result for future in futures for result in future.result()]
+    task_results = _merge_task_results(partial_results, task_ids)
 
     total_episodes = sum(result["num_episodes"] for result in task_results)
     total_successes = sum(

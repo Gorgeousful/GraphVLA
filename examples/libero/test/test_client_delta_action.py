@@ -6,9 +6,11 @@ import numpy as np
 import pytest
 
 from examples.libero.eval.client import (
+    EpisodeScheduler,
     InferenceClient,
     _draw_response_points,
     _dummy_action,
+    _merge_task_results,
     parse_args,
     _to_libero_action,
 )
@@ -25,6 +27,56 @@ def test_tasks_cli_rejects_comma_separated_values(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(SystemExit):
         parse_args()
+
+
+def test_episode_scheduler_prefers_distinct_tasks_then_balances() -> None:
+    scheduler = EpisodeScheduler([(1, 10), (2, 20)], episodes_per_task=3)
+
+    jobs = [scheduler.acquire() for _ in range(4)]
+
+    assert [(job.task_id, job.episode_idx) for job in jobs] == [
+        (10, 0), (20, 0), (10, 1), (20, 1),
+    ]
+    for job in jobs:
+        scheduler.release(job)
+
+    scheduler = EpisodeScheduler([(1, 10), (2, 20), (3, 30)], episodes_per_task=2)
+    first = scheduler.acquire()
+    second = scheduler.acquire()
+    scheduler.release(first)
+
+    third = scheduler.acquire()
+
+    assert (first.task_id, second.task_id, third.task_id) == (10, 20, 30)
+
+
+def test_merge_task_results_restores_task_and_episode_order() -> None:
+    def partial(task_id: int, episode_id: int, success: bool) -> dict[str, object]:
+        episode = {
+            "episode_id": episode_id,
+            "success": success,
+            "server_success": success,
+            "progress": float(success),
+        }
+        return {
+            "task_id": task_id,
+            "task_desc": f"task {task_id}",
+            "total_goals": 1,
+            "success_rate": float(success),
+            "server_success_rate": float(success),
+            "progress_rate": float(success),
+            "num_episodes": 1,
+            "episodes": [episode],
+        }
+
+    merged = _merge_task_results(
+        [partial(20, 1, False), partial(10, 0, True), partial(20, 0, True)],
+        [10, 20],
+    )
+
+    assert [result["task_id"] for result in merged] == [10, 20]
+    assert [episode["episode_id"] for episode in merged[1]["episodes"]] == [0, 1]
+    assert merged[1]["success_rate"] == 0.5
 
 
 def test_wait_action_is_zero_delta_with_open_gripper() -> None:

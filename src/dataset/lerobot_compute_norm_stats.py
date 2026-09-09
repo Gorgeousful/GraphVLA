@@ -264,8 +264,12 @@ def _extract_camera_xyz_by_sample(
     node_xyz = _to_numpy(batch[node_field]).astype(np.float64, copy=False)
     node_mask = _to_numpy(batch["valid_node_mask"]).astype(bool, copy=False)
     gripper_points_xyz = _to_numpy(batch["gripper_points_xyz"]).astype(np.float64, copy=False)
-    if node_xyz.shape[:2] != node_mask.shape or node_xyz.shape[-1] != 3:
+    if node_xyz.shape[:-2] != node_mask.shape or node_xyz.shape[-1] != 3:
         raise ValueError(f"{node_field} {node_xyz.shape} and mask {node_mask.shape} mismatch")
+    if gripper_points_xyz.shape[:-2] != node_mask.shape[:-1] or gripper_points_xyz.shape[-1] != 3:
+        raise ValueError(
+            f"gripper_points_xyz {gripper_points_xyz.shape} and mask {node_mask.shape} mismatch"
+        )
 
     values = []
     for points, mask, gripper in zip(node_xyz, node_mask, gripper_points_xyz, strict=True):
