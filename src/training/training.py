@@ -1,4 +1,4 @@
-"""Training loop for GraphVLA models."""
+"""Training loop for GraphVLA policies."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import torch
 from rich.console import Console
 
 from src.dataset.dataset import GenericDataLoader
-from src.model.model import GraphFlowModel
+from src.policy.registry import SUPPORTED_POLICIES, build_policy
 from src.training.checkpoint import TrainingCheckpoint
 from src.training.distributed import TrainingDistributed
 from src.training.logger import TrainingLogger
@@ -47,7 +47,7 @@ def move_to_device(value: Any, device: torch.device) -> Any:
 
 
 def build_model(model_config: Any, training_config: Any, device: torch.device) -> torch.nn.Module:
-    model = GraphFlowModel(**model_config.to_kwargs()).to(device)
+    model = build_policy(model_config).to(device)
     if getattr(training_config, "gradient_checkpointing", False):
         model.set_gradient_checkpointing(True)
     if getattr(training_config, "compile_model", False):
@@ -110,6 +110,10 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     training_config = copy(training_config)
     if bool(getattr(data_config, "action_delta", True)) != bool(getattr(model_config, "action_delta", True)):
         raise ValueError("data_config.action_delta must match model_config.action_delta")
+    data_camera_keys = getattr(data_config, "camera_keys", None)
+    model_camera_keys = getattr(model_config, "camera_keys", None)
+    if data_camera_keys is not None and tuple(data_camera_keys) != tuple(model_camera_keys or ()):
+        raise ValueError("data_config.camera_keys must match model_config.camera_keys")
     training_config.save_dir = resolve_experiment_dir(training_config)
 
     distributed = TrainingDistributed(
@@ -238,14 +242,23 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
     return model
 
 
-def load_example_configs(example: str) -> tuple[Any, Any, Any]:
+def load_example_configs(example: str, policy: str) -> tuple[Any, Any, Any]:
     example = example.lower()
-    if example == "libero":
-        from examples.libero.config.data_config import LIBERO_DATA_CONFIG
-        from examples.libero.config.model_config import LIBERO_MODEL_CONFIG
-        from examples.libero.config.training_config import LIBERO_TRAINING_CONFIG
+    policy = policy.lower()
+    if (example, policy) == ("libero", "graphpoint"):
+        from examples.libero.config.graphpoint.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.graphpoint.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.graphpoint.training_config import (
+            LIBERO_TRAINING_CONFIG,
+        )
         return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
-    raise ValueError(f"Unsupported example: {example}")
+    if (example, policy) == ("libero", "act"):
+        from examples.libero.config.act.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.act.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.act.training_config import LIBERO_TRAINING_CONFIG
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
+    raise ValueError(f"Unsupported example/policy combination: {(example, policy)!r}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -256,12 +269,18 @@ def parse_args() -> argparse.Namespace:
         choices=("libero",),
         help="Example config to train with.",
     )
+    parser.add_argument(
+        "--policy",
+        default="graphpoint",
+        choices=SUPPORTED_POLICIES,
+        help="Policy configuration to train.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    data_config, model_config, training_config = load_example_configs(args.example)
+    data_config, model_config, training_config = load_example_configs(args.example, args.policy)
     data_config, model_config, training_config = resolve_resume_configs(
         data_config,
         model_config,

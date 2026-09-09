@@ -11,8 +11,25 @@ import torch
 class TrainingOptimizer:
     def __init__(self, model: torch.nn.Module, config: Any) -> None:
         self.config = config
+        backbone_lr = getattr(config, "backbone_lr", None)
+        parameters: Any = model.parameters()
+        if backbone_lr is not None:
+            regular = []
+            backbone = []
+            for name, parameter in model.named_parameters():
+                if not parameter.requires_grad:
+                    continue
+                (backbone if "backbone" in name else regular).append(parameter)
+            parameters = [
+                {"params": regular, "lr_scale": 1.0},
+                {
+                    "params": backbone,
+                    "lr": backbone_lr,
+                    "lr_scale": backbone_lr / config.peak_lr,
+                },
+            ]
         self.optimizer = torch.optim.AdamW(
-            model.parameters(),
+            parameters,
             lr=config.peak_lr,
             betas=config.betas,
             weight_decay=config.weight_decay,
@@ -21,7 +38,7 @@ class TrainingOptimizer:
     def set_step_lr(self, step: int) -> float:
         lr = self.lr_at_step(step)
         for group in self.optimizer.param_groups:
-            group["lr"] = lr
+            group["lr"] = lr * group.get("lr_scale", 1.0)
         return lr
 
     def lr_at_step(self, step: int) -> float:

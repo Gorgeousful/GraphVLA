@@ -1,4 +1,4 @@
-"""Rectified-flow utilities following OpenPI's PyTorch implementation."""
+"""Rectified-flow utilities for GraphPoint."""
 
 from __future__ import annotations
 

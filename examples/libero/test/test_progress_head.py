@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from src.model.model import GraphFlowModel
+from src.policy.graphpoint.model import GraphFlowModel
 
 
 def _model(

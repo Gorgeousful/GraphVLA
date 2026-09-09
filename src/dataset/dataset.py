@@ -1,28 +1,64 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import torch
+from datasets import load_dataset
 from torch.utils.data import DataLoader as TorchDataLoader
-from torch.utils.data import Dataset
-from torch.utils.data import Sampler
+from torch.utils.data import Dataset, Sampler
 
 try:
-    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+    import lerobot.common.datasets.lerobot_dataset as lerobot_dataset_module
+    from lerobot.common.datasets.lerobot_dataset import (
+        LeRobotDataset,
+        LeRobotDatasetMetadata,
+        hf_transform_to_torch,
+    )
 except ModuleNotFoundError:
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    import lerobot.datasets.lerobot_dataset as lerobot_dataset_module
+    from lerobot.datasets.lerobot_dataset import (
+        LeRobotDataset,
+        LeRobotDatasetMetadata,
+        hf_transform_to_torch,
+    )
 
 from .transform import Compose
 
 
-class _FeatureOnlyLeRobotDataset(LeRobotDataset):
-    """LeRobot integration hook that skips camera decoding for feature-only training."""
+class _MetadataWithoutEpisodeStats(LeRobotDatasetMetadata):
+    def load_metadata(self) -> None:
+        self.info = lerobot_dataset_module.load_info(self.root)
+        lerobot_dataset_module.check_version_compatibility(
+            self.repo_id, self._version, lerobot_dataset_module.CODEBASE_VERSION,
+        )
+        self.tasks, self.task_to_task_index = lerobot_dataset_module.load_tasks(self.root)
+        self.episodes = lerobot_dataset_module.load_episodes(self.root)
+        self.episodes_stats = {episode_index: {} for episode_index in self.episodes}
+        self.stats = {}
+
+
+_METADATA_CLASS_LOCK = threading.Lock()
+
+
+class _EpisodeIndexedLeRobotDataset(LeRobotDataset):
+    """Keep LeRobot's episode index addressable by original episode id."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+        load_episode_stats = kwargs.pop("load_episode_stats", True)
+        if load_episode_stats:
+            super().__init__(*args, **kwargs)
+        else:
+            with _METADATA_CLASS_LOCK:
+                original = lerobot_dataset_module.LeRobotDatasetMetadata
+                lerobot_dataset_module.LeRobotDatasetMetadata = _MetadataWithoutEpisodeStats
+                try:
+                    super().__init__(*args, **kwargs)
+                finally:
+                    lerobot_dataset_module.LeRobotDatasetMetadata = original
         if self.episodes:
             compact_index = self.episode_data_index
             index_size = max(self.meta.total_episodes, max(self.episodes) + 1)
@@ -31,9 +67,16 @@ class _FeatureOnlyLeRobotDataset(LeRobotDataset):
                 for key, value in compact_index.items()
             }
             for subset_index, episode_index in enumerate(self.episodes):
-                for key in expanded_index:
-                    expanded_index[key][episode_index] = compact_index[key][subset_index]
+                for key, value in expanded_index.items():
+                    value[episode_index] = compact_index[key][subset_index]
             self.episode_data_index = expanded_index
+
+
+class _FeatureOnlyLeRobotDataset(_EpisodeIndexedLeRobotDataset):
+    """LeRobot integration hook that skips camera decoding for feature-only training."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
         requested = set(self.delta_indices or {})
         requested.update({"episode_index", "frame_index", "task_index", "timestamp", "index"})
         unused = [name for name in self.hf_dataset.column_names if name not in requested]
@@ -63,14 +106,76 @@ class _FeatureOnlyLeRobotDataset(LeRobotDataset):
         return {key: materialized[key] for key in query_indices if key in materialized}
 
 
+class _FeatureSubsetLeRobotDataset(_EpisodeIndexedLeRobotDataset):
+    """Load only requested parquet columns while retaining video decoding."""
+
+    def __init__(
+        self,
+        *args: Any,
+        feature_keys: tuple[str, ...],
+        video_keys: tuple[str, ...] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.feature_keys = feature_keys
+        self.selected_video_keys = set(video_keys) if video_keys is not None else None
+        super().__init__(*args, **kwargs)
+
+    def _query_videos(
+        self,
+        query_timestamps: dict[str, list[float]],
+        ep_idx: int,
+    ) -> dict[str, torch.Tensor]:
+        if self.selected_video_keys is not None:
+            query_timestamps = {
+                key: value
+                for key, value in query_timestamps.items()
+                if key in self.selected_video_keys
+            }
+        return super()._query_videos(query_timestamps, ep_idx)
+
+    def load_hf_dataset(self):
+        required = {
+            *self.feature_keys,
+            "episode_index",
+            "frame_index",
+            "task_index",
+            "timestamp",
+            "index",
+        }
+        if self.episodes is None:
+            data_files: Any = str(self.root / "data")
+            dataset = load_dataset(
+                "parquet", data_dir=data_files, split="train", columns=sorted(required),
+            )
+        else:
+            data_files = [
+                str(self.root / self.meta.get_data_file_path(episode_index))
+                for episode_index in self.episodes
+            ]
+            dataset = load_dataset(
+                "parquet", data_files=data_files, split="train", columns=sorted(required),
+            )
+        dataset.set_transform(hf_transform_to_torch)
+        return dataset
+
+
 def make_lerobot_dataset(
     dataset_dir: Path,
     *,
     load_videos: bool = True,
+    video_keys: tuple[str, ...] | None = None,
+    feature_keys: tuple[str, ...] | None = None,
+    load_episode_stats: bool = True,
     **kwargs: Any,
 ) -> LeRobotDataset:
     dataset_dir = Path(dataset_dir)
-    dataset_cls = LeRobotDataset if load_videos else _FeatureOnlyLeRobotDataset
+    kwargs["load_episode_stats"] = load_episode_stats
+    if feature_keys is not None:
+        dataset_cls = _FeatureSubsetLeRobotDataset
+        kwargs["feature_keys"] = feature_keys
+        kwargs["video_keys"] = video_keys
+    else:
+        dataset_cls = _EpisodeIndexedLeRobotDataset if load_videos else _FeatureOnlyLeRobotDataset
     try:
         return dataset_cls(repo_id=dataset_dir.name, root=dataset_dir, **kwargs)
     except TypeError:
@@ -159,6 +264,9 @@ class GenericDataset(Dataset):
         self.dataset = make_lerobot_dataset(
             self.dataset_dir,
             load_videos=getattr(data_config, "load_videos", True),
+            video_keys=getattr(data_config, "camera_keys", None),
+            feature_keys=getattr(data_config, "feature_keys", None),
+            load_episode_stats=getattr(data_config, "load_episode_stats", True),
             episodes=data_config.episodes,
             video_backend=data_config.video_backend,
             delta_timestamps=self._build_delta_timestamps(getattr(data_config, "horizon", None)),

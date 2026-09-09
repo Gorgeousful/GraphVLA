@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.checkpoint import checkpoint
 
 from src.common.schema import NUM_ENTITIES, POINT_FEATURE_DIM
-from src.model.temporal import AdaptiveLayerNorm, RotaryEncoderBlock
+from src.policy.graphpoint.temporal import AdaptiveLayerNorm, RotaryEncoderBlock
 
 
 class ConditionedEncoderBlock(nn.Module):

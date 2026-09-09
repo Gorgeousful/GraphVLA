@@ -1,12 +1,12 @@
-"""RoPE attention and time-conditioned normalization shared by GraphVLA."""
+"""RoPE attention and time-conditioned normalization for GraphPoint."""
 
 from __future__ import annotations
 
 import math
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 def apply_rope(x: torch.Tensor, positions: torch.Tensor, max_wavelength: float = 10_000.0) -> torch.Tensor:

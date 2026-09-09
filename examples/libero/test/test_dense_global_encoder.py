@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.model.encoder import EntityEncoder
+from src.policy.graphpoint.encoder import EntityEncoder
 
 
 def _make_encoder(

@@ -1,18 +1,26 @@
-"""Entity-centric camera-XYZ Flow Matching model for GraphVLA."""
+"""Entity-centric flow-matching model for GraphPoint."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from torch.utils.checkpoint import checkpoint
 
 from src.common.schema import NUM_ENTITIES, validate_actor_point_indices
-from src.model.encoder import EntityEncoder
-from src.model.flow_matching import make_scheduler, sample_time, training_path
-from src.model.temporal import AdaRMSNorm, AdaptiveLayerNorm, RotaryFlowBlock
+from src.policy.graphpoint.encoder import EntityEncoder
+from src.policy.graphpoint.flow_matching import (
+    make_scheduler,
+    sample_time,
+    training_path,
+)
+from src.policy.graphpoint.temporal import (
+    AdaptiveLayerNorm,
+    AdaRMSNorm,
+    RotaryFlowBlock,
+)
 
 
 def _sinusoidal_time(time: torch.Tensor, dim: int) -> torch.Tensor:

@@ -16,7 +16,6 @@ import dataclasses
 import json
 import logging
 import pathlib
-import cv2
 import re
 import subprocess
 import sys
@@ -27,20 +26,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import cv2
+
 LIBERO_ROOT = Path("/data0/luokang/research/LIBERO")
 if str(LIBERO_ROOT) not in sys.path:
     sys.path.insert(0, str(LIBERO_ROOT))
 
 import numpy as np
+import websockets
 from rich.console import Console
-from scipy.spatial.transform import Rotation as R
 from robosuite.utils.camera_utils import (
     get_camera_extrinsic_matrix,
     get_camera_intrinsic_matrix,
     get_real_depth_map,
 )
-import websockets
-
+from scipy.spatial.transform import Rotation as R
 
 cs = Console()
 
@@ -149,16 +149,19 @@ class OverallProgress:
 class ObservationDeltaBuffer:
     def __init__(self) -> None:
         self.images: list[np.ndarray] = []
+        self.wrist_images: list[np.ndarray] = []
         self.metric_depths: list[np.ndarray] = []
         self.states: list[np.ndarray] = []
 
     def reset(self) -> None:
         self.images.clear()
+        self.wrist_images.clear()
         self.metric_depths.clear()
         self.states.clear()
 
     def append(self, observation: dict[str, Any]) -> None:
         self.images.append(np.asarray(observation["agentview_image"], dtype=np.uint8))
+        self.wrist_images.append(np.asarray(observation["wrist_image"], dtype=np.uint8))
         self.metric_depths.append(np.asarray(observation["agentview_metric_depth"], dtype=np.float32))
         self.states.append(np.asarray(observation["state"], dtype=np.float64))
 
@@ -168,6 +171,7 @@ class ObservationDeltaBuffer:
         count = len(self.images)
         return {
             "observation.images.image": [image.tolist() for image in self.images],
+            "observation.images.wrist_image": [image.tolist() for image in self.wrist_images],
             "observation.depth.metric": [depth.tolist() for depth in self.metric_depths],
             "observation.state": [state.tolist() for state in self.states],
             "camera.intrinsics": [np.asarray(intrinsic, dtype=np.float64).tolist()] * count,
@@ -333,6 +337,7 @@ def _prepare_observation(obs: dict[str, Any], env: Any) -> dict[str, Any]:
         raise ValueError(f"Expected agentview metric depth [H,W], got {metric_depth.shape}")
     return {
         "agentview_image": np.ascontiguousarray(obs["agentview_image"][::-1, :]),
+        "wrist_image": np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, :]),
         "agentview_metric_depth": np.ascontiguousarray(metric_depth[::-1, :]),
         "state": np.concatenate(
             (

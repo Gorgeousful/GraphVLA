@@ -7,7 +7,7 @@ import torch
 
 from examples.libero.config.model_config import ModelConfig
 from src.common.schema import ACTION_DIM, GRIPPER_TCP_POINT_INDEX
-from src.model.model import GraphFlowModel
+from src.policy.graphpoint.model import GraphFlowModel
 from src.dataset.transform import (
     CenterOnCurrentTCP,
     CustomTransform,

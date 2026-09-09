@@ -13,26 +13,20 @@ import gc
 import json
 import random
 import threading
-import cv2
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-import websockets
+
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+import websockets
 from PIL import Image
 from rich.console import Console
 
-from src.model.model import GraphFlowModel
-from src.training.checkpoint import TrainingCheckpoint
-from src.module.task_analyzer import TaskAnalyzer
-from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
-from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
-from src.module.point_tracker import PointTracker
 from src.common.geom_utils import sample_points_from_mask
-from src.dataset.transform import load_norm_stats
 from src.common.schema import (
     ACTION_DIM,
     GRIPPER_NUM_POINTS,
@@ -42,7 +36,13 @@ from src.common.schema import (
     taskstructure_to_json,
     validate_actor_point_indices,
 )
-
+from src.dataset.transform import load_norm_stats
+from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
+from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
+from src.module.point_tracker import PointTracker
+from src.module.task_analyzer import TaskAnalyzer
+from src.policy.registry import build_policy, resolve_policy_name
+from src.training.checkpoint import TrainingCheckpoint
 
 cs = Console()
 _WORKER_CONTEXT = threading.local()
@@ -1067,7 +1067,7 @@ class InferenceModel:
     def __init__(
         self,
         *,
-        model_kwargs: Mapping[str, Any],
+        model_config: Any,
         data_kwargs: Mapping[str, Any] | None = None,
         ckpt_path: str | Path,
         bge_path: str | Path | None = None,
@@ -1083,9 +1083,7 @@ class InferenceModel:
         self.embedding_cache: dict[str, torch.Tensor] = {}
         self._embedding_lock = threading.Lock()
 
-        model_kwargs = dict(model_kwargs)
-        model_kwargs.pop("include_future_object_point", None)
-        self.model = GraphFlowModel(**model_kwargs).to(device)
+        self.model = build_policy(model_config).to(device)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
         self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
         cs.print(f"{_worker_prefix()} [green]loaded checkpoint from {ckpt_path}[/green]")
@@ -1246,15 +1244,18 @@ class InferenceServer:
                 worker_id = int(request.get("worker_id", 0))
                 cs.print(f"\\[worker {worker_id}] {peer} - connected")
                 if request.get("type") == "server_info":
-                    response = {
-                        "ckpt_path": self.ckpt_path,
-                        "progress_threshold": self.planner.progress_threshold,
-                    }
+                    response = self.server_info()
                 else:
                     response = await asyncio.to_thread(self._infer_locked, request)
             except Exception as exc:
                 response = {"error": str(exc)}
             await websocket.send(json.dumps(response))
+
+    def server_info(self) -> dict[str, Any]:
+        return {
+            "ckpt_path": self.ckpt_path,
+            "progress_threshold": self.planner.progress_threshold,
+        }
 
     def _infer_locked(self, request: Mapping[str, Any]) -> dict[str, Any]:
         session_id = str(request.get("session_id", ""))
@@ -1452,6 +1453,90 @@ class InferenceServer:
         return session
 
 
+class ACTInferenceServer(InferenceServer):
+    """Stateless ACT inference using the common WebSocket server lifecycle."""
+
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        execute_chunk_len: int,
+        model_config: Any,
+        data_config: Any,
+        ckpt_path: str | Path,
+        device: torch.device,
+    ) -> None:
+        chunk_size = int(model_config.chunk_size)
+        if not 1 <= execute_chunk_len <= chunk_size:
+            raise ValueError(
+                f"execute_chunk_len must be in [1, {chunk_size}], got {execute_chunk_len}"
+            )
+        self.host = host
+        self.port = port
+        self.execute_chunk_len = int(execute_chunk_len)
+        self.ckpt_path = str(Path(ckpt_path).resolve())
+        self.device = device
+        self.camera_keys = tuple(model_config.camera_keys)
+        self.out_transforms = tuple(data_config.out_transforms)
+        self.model = build_policy(model_config).to(device)
+        state = torch.load(ckpt_path, map_location=device, weights_only=False)
+        self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
+        self.model.eval()
+        self.sessions = {}
+        self.session_locks = {}
+        self.session_locks_guard = threading.Lock()
+        self.idle_timeout = 180.0
+        self.last_message_time = 0.0
+        cs.print(f"{_worker_prefix()} [green]loaded ACT checkpoint from {ckpt_path}[/green]")
+
+    def server_info(self) -> dict[str, Any]:
+        return {
+            "ckpt_path": self.ckpt_path,
+            "progress_threshold": 0.9,
+            "action_delta": True,
+        }
+
+    @torch.inference_mode()
+    def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        required = (
+            "benchmark",
+            "session_id",
+            *self.camera_keys,
+            "observation.state",
+        )
+        missing = [key for key in required if key not in request]
+        if missing:
+            raise KeyError(f"Missing required ACT request fields: {missing}")
+        if request["benchmark"] != "libero":
+            raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
+
+        def latest(name: str, shape: tuple[int, ...]) -> np.ndarray:
+            values = np.asarray(request[name])
+            value = values[-1] if values.ndim == len(shape) + 1 else values
+            if value.shape != shape:
+                raise ValueError(f"{name} must have shape {shape} or Tx{shape}, got {values.shape}")
+            return value
+
+        state = latest("observation.state", (8,))
+        images = np.stack(
+            [latest(camera_key, (256, 256, 3)) for camera_key in self.camera_keys],
+            axis=0,
+        )
+        batch = {
+            "images": torch.as_tensor(images, device=self.device, dtype=torch.float32)
+            .permute(0, 3, 1, 2)
+            .unsqueeze(0)
+            / 255.0,
+            "state": torch.as_tensor(state, device=self.device, dtype=torch.float32).unsqueeze(0),
+        }
+        output_data = {"action": self.model.predict_action(batch)}
+        for transform in self.out_transforms:
+            output_data = transform(output_data)
+        actions = output_data["action"][0, : self.execute_chunk_len]
+        return {"action": actions.cpu().tolist(), "episode_done": False}
+
+
 def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
     devices = {
         "default": default_device,
@@ -1576,13 +1661,29 @@ def main() -> None:
         data_config, model_config, _ = TrainingCheckpoint.load_config_snapshots(args.ckpt_path)
         model_kwargs = model_config.to_kwargs()
         data_kwargs = data_config.to_kwargs()
-        history_horizon = int(model_config.history_horizon)
-        history_frames = getattr(model_config, "history_frames", None)
-        future_horizon = int(model_config.future_horizon)
-        actor_point_indices = validate_actor_point_indices(model_config.actor_point_indices)
     else:
         raise ValueError(f"Unsupported example: {args.example}")
-        
+
+    policy_name = resolve_policy_name(model_config)
+    if policy_name == "act":
+        server = ACTInferenceServer(
+            host=args.host,
+            port=args.port,
+            execute_chunk_len=args.execute_chunk_len,
+            model_config=model_config,
+            data_config=data_config,
+            ckpt_path=args.ckpt_path,
+            device=torch.device(args.devices["inference"]),
+        )
+        server.serve_forever()
+        return
+    if policy_name != "graphpoint":
+        raise ValueError(f"Unsupported inference policy: {policy_name!r}")
+
+    history_horizon = int(model_config.history_horizon)
+    history_frames = getattr(model_config, "history_frames", None)
+    future_horizon = int(model_config.future_horizon)
+    actor_point_indices = validate_actor_point_indices(model_config.actor_point_indices)
     server = InferenceServer(
         host=args.host,
         port=args.port,
@@ -1611,7 +1712,7 @@ def main() -> None:
             devices=args.devices,
         ),
         inference = InferenceModel(
-            model_kwargs=model_kwargs,
+            model_config=model_config,
             data_kwargs=data_kwargs,
             ckpt_path=args.ckpt_path,
             device=torch.device(args.devices["inference"]),
