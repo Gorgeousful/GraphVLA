@@ -33,7 +33,9 @@ class ModelConfig:
     dropout: float = 0.1
     sample_steps: int = 10
     action_delta: bool = False
-    point_coordinate_frame: str = "tcp_relative"
+    point_coordinate_frame: str = "tcp_absolute" # "tcp_relative"
+    # Current-frame entity CLS tokens, concatenated in this order.
+    progresshead_input: list[str] = field(default_factory=lambda: ["patient", "target"])
     gripper_flow_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
         "loss_flow": 1.0,

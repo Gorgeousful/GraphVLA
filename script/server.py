@@ -14,6 +14,7 @@ import json
 import random
 import threading
 from collections.abc import Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ from src.common.schema import (
     taskstructure_to_json,
     validate_actor_point_indices,
 )
-from src.dataset.transform import load_norm_stats
+from src.dataset.transform import Normalize, load_norm_stats
 from src.module.node_locator import NodeLocatorLA, NodeLocatorRobo
 from src.module.node_segmenter import NodeSegmenter, NodeSegmenterSAM2
 from src.module.point_tracker import PointTracker
@@ -886,6 +887,43 @@ class InputPreprocessor:
         return array
 
 
+class PointPolicyPreprocessor(InputPreprocessor):
+    """Keep TAPNext identities across frames and include every task object slot."""
+
+    def __init__(self, *, point_transform, **kwargs):
+        if kwargs.get("sam_only", False):
+            raise ValueError("Point-Policy requires TAPNext tracking; do not use --sam-only")
+        super().__init__(**kwargs)
+        self.point_transform = point_transform
+
+    def _build_model_input(self, session, frames, subtaskstructure):
+        count = len(session.object_nodes)
+        if count > self.point_transform.max_objects:
+            raise ValueError("Task has more object slots than the trained Point-Policy supports")
+        objects = np.zeros((len(frames), self.point_transform.max_objects, self.num_points, 3), dtype=np.float32)
+        masks = np.zeros(objects.shape[:-1], dtype=bool)
+        for index, frame in enumerate(frames):
+            tracks = frame["tracks"]
+            if tracks.shape != (count, self.num_points, 3):
+                raise ValueError("Tracked point identities/count changed during the episode")
+            uv = tracks[..., :2]
+            height, width = frame["metric_depth"].shape
+            depth, in_bounds = self._sample_depth(frame["metric_depth"], uv, height, width)
+            z = depth[..., 0]
+            # pipeline_track.py stores all projectable tracks, even when TAPNext
+            # reports low visibility; no per-point visibility field is saved.
+            valid = in_bounds[..., 0].astype(bool) & np.isfinite(z) & (z > 0)
+            k = frame["intrinsic"]
+            xyz = np.stack(((uv[..., 0] - k[0, 2]) / k[0, 0] * z,
+                            (uv[..., 1] - k[1, 2]) / k[1, 1] * z, z), axis=-1)
+            # Never compact/resample visible points: token i must stay track i.
+            objects[index, :count] = np.where(valid[..., None], xyz, 0.0)
+            masks[index, :count] = valid
+        batch = self.point_transform.observations(
+            objects, masks, np.stack([frame["gripper_points_xyz"] for frame in frames]))
+        return {**{k: v.unsqueeze(0).tolist() for k, v in batch.items()}, "language": [session.language]}
+
+
 class EmbodimentAdapter:
     """Convert routed model plans into executable LIBERO world-frame actions."""
 
@@ -1084,6 +1122,7 @@ class InferenceModel:
         self._embedding_lock = threading.Lock()
 
         self.model = build_policy(model_config).to(device)
+        self.policy_name = resolve_policy_name(model_config)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
         self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
         cs.print(f"{_worker_prefix()} [green]loaded checkpoint from {ckpt_path}[/green]")
@@ -1098,6 +1137,19 @@ class InferenceModel:
     ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
+
+        if getattr(self, "policy_name", "graphpoint") == "point_policy":
+            infer_inputs = {name: tensor(name, dtype) for name, dtype in (
+                ("point_tracks", torch.float32), ("point_mask", torch.bool),
+                ("gripper_history", torch.float32))}
+            infer_inputs["language"] = input_data["language"]
+            if "language_embedding" in input_data:
+                infer_inputs["language_embedding"] = tensor("language_embedding", torch.float32)
+            output_data = {"outputs": self.model.sample(infer_inputs), "batch": infer_inputs}
+            for transform in self.out_transforms:
+                output_data = transform(output_data)
+            outputs = self.to_json(output_data["outputs"])
+            return (outputs, self.to_json(infer_inputs)) if return_model_input else outputs
 
         scene_condition = input_data.get("scene_condition")
         if scene_condition is None:
@@ -1453,8 +1505,30 @@ class InferenceServer:
         return session
 
 
-class ACTInferenceServer(InferenceServer):
-    """Stateless ACT inference using the common WebSocket server lifecycle."""
+class PointPolicyInferenceServer(InferenceServer):
+    """Environment-controlled termination; no learned progress or subtask switch."""
+
+    def server_info(self):
+        return {"ckpt_path": self.ckpt_path, "policy_name": "point_policy", "action_delta": False,
+                "progress_threshold": 1.0}
+
+    def infer_from_observation(self, request):
+        self._validate_request(request)
+        session = self._session_for(request)
+        if session.taskstructure is None:
+            session.taskstructure = self.planner._taskstructure(session.language)
+        model_input = self.preprocessor.build(request, session, {})
+        capture = bool(request.get("return_model_input", False))
+        outputs, captured = self._infer_model(model_input, return_model_input=capture)
+        actions = self.embodiment.to_action(outputs, request, session)
+        response = {**outputs, "action": actions[:self.execute_chunk_len], "episode_done": False}
+        if capture:
+            response["model_input"] = captured
+        return response
+
+
+class ImagePolicyInferenceServer(InferenceServer):
+    """Image-policy inference using the common WebSocket server lifecycle."""
 
     def __init__(
         self,
@@ -1467,7 +1541,9 @@ class ACTInferenceServer(InferenceServer):
         ckpt_path: str | Path,
         device: torch.device,
     ) -> None:
-        chunk_size = int(model_config.chunk_size)
+        chunk_size = int(
+            getattr(model_config, "chunk_size", getattr(model_config, "action_steps", 0))
+        )
         if not 1 <= execute_chunk_len <= chunk_size:
             raise ValueError(
                 f"execute_chunk_len must be in [1, {chunk_size}], got {execute_chunk_len}"
@@ -1477,18 +1553,35 @@ class ACTInferenceServer(InferenceServer):
         self.execute_chunk_len = int(execute_chunk_len)
         self.ckpt_path = str(Path(ckpt_path).resolve())
         self.device = device
-        self.camera_keys = tuple(model_config.camera_keys)
+        self.policy_name = resolve_policy_name(model_config)
+        self.obs_steps = int(getattr(model_config, "obs_steps", 1))
+        self.camera_keys = tuple(getattr(model_config, "camera_keys", ()))
+        self.point_cloud_max_candidates = int(getattr(data_config, "point_cloud_max_candidates", 8192))
+        state_normalizers = [
+            transform for transform in data_config.transforms
+            if isinstance(transform, Normalize)
+        ]
+        if len(state_normalizers) != 1:
+            raise ValueError("Direct-action policies require exactly one Normalize transform")
+        self.state_normalizer = copy(state_normalizers[0])
+        self.state_normalizer.field_map = {"state": "state"}
         self.out_transforms = tuple(data_config.out_transforms)
         self.model = build_policy(model_config).to(device)
         state = torch.load(ckpt_path, map_location=device, weights_only=False)
-        self.model.load_state_dict(TrainingCheckpoint.unwrap_model_state(state), strict=True)
+        self.model.load_state_dict(
+            TrainingCheckpoint.unwrap_model_state(state),
+            strict=True,
+        )
         self.model.eval()
         self.sessions = {}
         self.session_locks = {}
         self.session_locks_guard = threading.Lock()
         self.idle_timeout = 180.0
         self.last_message_time = 0.0
-        cs.print(f"{_worker_prefix()} [green]loaded ACT checkpoint from {ckpt_path}[/green]")
+        cs.print(
+            f"{_worker_prefix()} [green]loaded {self.policy_name} checkpoint "
+            f"from {ckpt_path}[/green]"
+        )
 
     def server_info(self) -> dict[str, Any]:
         return {
@@ -1505,31 +1598,43 @@ class ACTInferenceServer(InferenceServer):
             *self.camera_keys,
             "observation.state",
         )
+        if self.policy_name in ("act", "dp"):
+            required += ("language",)
         missing = [key for key in required if key not in request]
         if missing:
-            raise KeyError(f"Missing required ACT request fields: {missing}")
+            raise KeyError(f"Missing required {self.policy_name} request fields: {missing}")
         if request["benchmark"] != "libero":
             raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
 
-        def latest(name: str, shape: tuple[int, ...]) -> np.ndarray:
+        def history(name: str, shape: tuple[int, ...]) -> np.ndarray:
             values = np.asarray(request[name])
-            value = values[-1] if values.ndim == len(shape) + 1 else values
-            if value.shape != shape:
+            if values.ndim == len(shape):
+                values = values[None]
+            if values.ndim != len(shape) + 1 or values.shape[1:] != shape:
                 raise ValueError(f"{name} must have shape {shape} or Tx{shape}, got {values.shape}")
-            return value
+            if values.shape[0] < self.obs_steps:
+                padding = np.repeat(values[:1], self.obs_steps - values.shape[0], axis=0)
+                values = np.concatenate((padding, values), axis=0)
+            return values[-self.obs_steps :]
 
-        state = latest("observation.state", (8,))
+        state = history("observation.state", (8,))
         images = np.stack(
-            [latest(camera_key, (256, 256, 3)) for camera_key in self.camera_keys],
-            axis=0,
+            [history(camera_key, (256, 256, 3)) for camera_key in self.camera_keys],
+            axis=1,
         )
         batch = {
             "images": torch.as_tensor(images, device=self.device, dtype=torch.float32)
-            .permute(0, 3, 1, 2)
+            .permute(0, 1, 4, 2, 3)
             .unsqueeze(0)
             / 255.0,
             "state": torch.as_tensor(state, device=self.device, dtype=torch.float32).unsqueeze(0),
         }
+        if self.policy_name in ("act", "dp"):
+            batch["language"] = [str(request["language"])]
+        batch["state"] = self.state_normalizer({"state": batch["state"]})["state"]
+        if self.obs_steps == 1:
+            batch["images"] = batch["images"][:, 0]
+            batch["state"] = batch["state"][:, 0]
         output_data = {"action": self.model.predict_action(batch)}
         for transform in self.out_transforms:
             output_data = transform(output_data)
@@ -1552,6 +1657,53 @@ def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
         raise TypeError("--devices must be a JSON object")
     devices.update({str(key): str(device) for key, device in overrides.items()})
     return devices
+
+
+class DP3InferenceServer(ImagePolicyInferenceServer):
+    """Scene point-cloud histories; direct delta actions from trained weights."""
+
+    @torch.inference_mode()
+    def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        from src.policy.dp3.data import depth_to_point_cloud
+
+        required = ("benchmark", "session_id", "language", "observation.state",
+                    "observation.depth.metric", "camera.intrinsics")
+        missing = [key for key in required if key not in request]
+        if missing:
+            raise KeyError(f"Missing required DP3 request fields: {missing}")
+        if request["benchmark"] != "libero":
+            raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
+
+        def history(key, ndim):
+            values = np.asarray(request[key])
+            if values.ndim == ndim:
+                values = values[None]
+            if values.ndim != ndim + 1 or values.shape[0] == 0:
+                raise ValueError(f"Invalid observation history for {key}: {values.shape}")
+            if values.shape[0] < self.obs_steps:
+                values = np.concatenate((np.repeat(values[:1], self.obs_steps - values.shape[0], axis=0), values))
+            return values[-self.obs_steps:]
+
+        depths = history("observation.depth.metric", 2)
+        intrinsics = history("camera.intrinsics", 2)
+        points = torch.stack([
+            depth_to_point_cloud(depth, intrinsic, num_points=self.model.num_points,
+                                 max_candidates=self.point_cloud_max_candidates, device=self.device)
+            for depth, intrinsic in zip(depths, intrinsics)
+        ])
+        batch = {
+            "point_cloud": points[None],
+            "state": torch.as_tensor(history("observation.state", 1), dtype=torch.float32, device=self.device)[None],
+            "language": [str(request["language"])],
+        }
+        batch = self.state_normalizer(batch)
+        output = {"action": self.model.predict_action(batch)}
+        for transform in self.out_transforms:
+            output = transform(output)
+        actions = output["action"][0, :self.execute_chunk_len]
+        if not torch.isfinite(actions).all():
+            raise ValueError("DP3 produced non-finite actions")
+        return {"action": actions.cpu().tolist(), "episode_done": False}
 
 
 def parse_args() -> Args:
@@ -1665,8 +1817,9 @@ def main() -> None:
         raise ValueError(f"Unsupported example: {args.example}")
 
     policy_name = resolve_policy_name(model_config)
-    if policy_name == "act":
-        server = ACTInferenceServer(
+    if policy_name in ("act", "dp", "dp3"):
+        server_class = DP3InferenceServer if policy_name == "dp3" else ImagePolicyInferenceServer
+        server = server_class(
             host=args.host,
             port=args.port,
             execute_chunk_len=args.execute_chunk_len,
@@ -1677,14 +1830,26 @@ def main() -> None:
         )
         server.serve_forever()
         return
-    if policy_name != "graphpoint":
+    if policy_name not in ("graphpoint", "point_policy"):
         raise ValueError(f"Unsupported inference policy: {policy_name!r}")
 
     history_horizon = int(model_config.history_horizon)
     history_frames = getattr(model_config, "history_frames", None)
     future_horizon = int(model_config.future_horizon)
     actor_point_indices = validate_actor_point_indices(model_config.actor_point_indices)
-    server = InferenceServer(
+    server_class = InferenceServer
+    preprocessor_class = InputPreprocessor
+    preprocessor_kwargs = {}
+    if policy_name == "point_policy":
+        from src.policy.point_policy.data import PointPolicyTransform
+
+        server_class = PointPolicyInferenceServer
+        preprocessor_class = PointPolicyPreprocessor
+        transforms = [t for t in data_config.transforms if isinstance(t, PointPolicyTransform)]
+        if len(transforms) != 1:
+            raise ValueError("Point-Policy needs exactly one PointPolicyTransform")
+        preprocessor_kwargs["point_transform"] = transforms[0]
+    server = server_class(
         host=args.host,
         port=args.port,
         execute_chunk_len=args.execute_chunk_len,
@@ -1694,7 +1859,8 @@ def main() -> None:
             progress_threshold=args.progress_threshold,
             progress_window=args.progress_window,
         ),
-        preprocessor=InputPreprocessor(
+        preprocessor=preprocessor_class(
+            **preprocessor_kwargs,
             history_horizon=history_horizon,
             history_frames=history_frames,
             future_horizon=future_horizon,

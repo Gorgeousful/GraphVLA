@@ -1,4 +1,4 @@
-"""Data configuration for task-specific LIBERO ACT training."""
+"""Data configuration for multi-task LIBERO official ACT training."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from examples.libero.config.act.model_config import LIBERO_MODEL_CONFIG
-from src.dataset.transform import Normalize, Unnormalize
+from src.dataset.transform import Normalize, PromptFromTask, Unnormalize
 from src.policy.act.data import ACTBatchTransform
 
 
@@ -34,6 +34,11 @@ class DataConfig:
         norm_stats_path = self.dataset_dir / "meta" / "norm_stats_suite.json"
         if not self.transforms:
             self.transforms = (
+                PromptFromTask(
+                    tasks=load_lerobot_tasks(self.dataset_dir),
+                    task_index_path=("task_index",),
+                    output_key="language",
+                ),
                 ACTBatchTransform(image_keys=self.camera_keys),
                 Normalize(
                     norm_stats=norm_stats_path,
@@ -66,40 +71,55 @@ class DataConfig:
         }
 
 
-def select_task_episodes(
-    dataset_dir: str | Path,
-    task_index: int,
-    count: int,
-) -> list[int]:
+def load_lerobot_tasks(dataset_dir: str | Path) -> dict[int, str]:
     dataset_dir = Path(dataset_dir)
     with (dataset_dir / "meta" / "tasks.jsonl").open(encoding="utf-8") as handle:
-        task_names = {
+        return {
             int(row["task_index"]): str(row["task"])
             for row in map(json.loads, handle)
         }
-    task_name = task_names[task_index]
-    episodes = []
+
+
+def select_first_episodes_per_task(
+    dataset_dir: str | Path,
+    task_indices: list[int],
+    count: int,
+) -> list[int]:
+    dataset_dir = Path(dataset_dir)
+    task_names = load_lerobot_tasks(dataset_dir)
+    selected = {task_index: [] for task_index in task_indices}
+    task_by_name = {task: task_index for task_index, task in task_names.items()}
     with (dataset_dir / "meta" / "episodes.jsonl").open(encoding="utf-8") as handle:
         for row in map(json.loads, handle):
-            if task_name in row["tasks"]:
-                episodes.append(int(row["episode_index"]))
-                if len(episodes) == count:
-                    return episodes
-    raise ValueError(f"Task {task_index} has only {len(episodes)} episodes, expected {count}")
+            task_index = task_by_name[str(row["tasks"][0])]
+            if task_index in selected and len(selected[task_index]) < count:
+                selected[task_index].append(int(row["episode_index"]))
+    incomplete = {
+        task_index: len(episodes)
+        for task_index, episodes in selected.items()
+        if len(episodes) != count
+    }
+    if incomplete:
+        raise ValueError(f"Expected {count} episodes per task, got {incomplete}")
+    return [episode for task_index in task_indices for episode in selected[task_index]]
 
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
     "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
 )
-LIBERO_TASK_INDEX = 1
-LIBERO_EPISODES = select_task_episodes(LIBERO_DATASET_DIR, LIBERO_TASK_INDEX, count=10)
+LIBERO_TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+LIBERO_EPISODES = select_first_episodes_per_task(
+    LIBERO_DATASET_DIR,
+    LIBERO_TASKS,
+    count=10,
+)
 LIBERO_HORIZON = {"action": list(range(LIBERO_MODEL_CONFIG.chunk_size))}
 
 LIBERO_DATA_CONFIG = DataConfig(
     dataset_dir=Path(LIBERO_DATASET_DIR),
     episodes=LIBERO_EPISODES,
-    tasks=None,
+    tasks=LIBERO_TASKS,
     horizon=LIBERO_HORIZON,
     load_videos=True,
     camera_keys=LIBERO_MODEL_CONFIG.camera_keys,

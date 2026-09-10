@@ -20,7 +20,10 @@ def make_policy() -> ACTPolicy:
         latent_dim=4,
         kl_weight=1.0,
         num_cameras=1,
+        img_size=64,
         pretrained_backbone=False,
+        language_model_path=None,
+        language_dim=8,
     )
 
 
@@ -31,10 +34,16 @@ def test_act_forward_and_predict_action() -> None:
         "images": torch.rand(2, 1, 3, 64, 64),
         "actions": torch.randn(2, 3, 7),
         "is_pad": torch.tensor([[False, False, False], [False, True, True]]),
+        "language_embedding": torch.randn(2, 8),
     }
 
     loss, metrics = policy(batch)
     loss.backward()
+    assert all(
+        parameter.grad is not None
+        for parameter in policy.parameters()
+        if parameter.requires_grad
+    )
     actions = policy.eval().predict_action(batch)
 
     assert loss.ndim == 0
@@ -50,6 +59,7 @@ def test_act_batch_transform() -> None:
             "observation.state": torch.zeros(8),
             "action": torch.zeros(3, 7),
             "action_is_pad": torch.tensor([False, False, True]),
+            "language": "put the bowl on the stove",
         }
     )
 
@@ -57,3 +67,4 @@ def test_act_batch_transform() -> None:
     assert result["images"].dtype == torch.float32
     assert result["images"].max() == 0
     assert result["is_pad"].tolist() == [False, False, True]
+    assert result["language"] == "put the bowl on the stove"

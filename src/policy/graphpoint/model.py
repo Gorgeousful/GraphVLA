@@ -7,7 +7,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.utils.checkpoint import checkpoint
+from src.policy.checkpointing import GradientCheckpointingMixin, checkpoint_module
 
 from src.common.schema import NUM_ENTITIES, validate_actor_point_indices
 from src.policy.graphpoint.encoder import EntityEncoder
@@ -114,12 +114,8 @@ class JointTrajectoryFlow(nn.Module):
             device=memory.device, dtype=token_positions.dtype,
         )
         for block in self.blocks:
-            token = checkpoint(
+            token = checkpoint_module(
                 block, token, memory, time_condition, task_condition, token_positions,
-                memory_positions, self.self_attention_mask,
-                use_reentrant=False, preserve_rng_state=True,
-            ) if self.gradient_checkpointing and self.training else block(
-                token, memory, time_condition, task_condition, token_positions,
                 memory_positions, self.self_attention_mask,
             )
         hidden, _ = self.norm(token, time_condition, task_condition)
@@ -142,7 +138,7 @@ class ConditionedProgressHead(nn.Module):
         return self.output_projection(hidden)
 
 
-class GraphFlowModel(nn.Module):
+class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
     """Single joint trajectory flow with a progress head."""
 
     def __init__(
@@ -165,6 +161,7 @@ class GraphFlowModel(nn.Module):
         sample_steps: int = 10,
         gripper_flow_weight: float = 1.0,
         weights: dict[str, float] | None = None,
+        progresshead_input: list[str] | tuple[str, ...] = ("patient", "target"),
     ) -> None:
         super().__init__()
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
@@ -194,20 +191,17 @@ class GraphFlowModel(nn.Module):
             global_layer_types=global_layer_types,
             node_attention_mode=node_attention_mode,
             encoder_output_type=encoder_output_type,
+            progresshead_input=progresshead_input,
         )
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
         )
         self.progress_head = ConditionedProgressHead(
-            relation_dim=hidden_dim * 2 * cls_token_num,
+            relation_dim=hidden_dim * len(self.encoder.progresshead_indices) * cls_token_num,
             hidden_dim=hidden_dim,
             task_condition_dim=hidden_dim * 2,
         )
-
-    def set_gradient_checkpointing(self, enabled: bool = True) -> None:
-        self.encoder.gradient_checkpointing = enabled
-        self.flow.gradient_checkpointing = enabled
 
     def _encode(
         self, batch: dict[str, Any],

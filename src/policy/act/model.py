@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Sequence
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from src.policy.checkpointing import GradientCheckpointingMixin
 
 from src.policy.act.backbone import ACTBackbone
+from src.policy.language import FrozenBgeClsEncoder
 from src.policy.act.transformer import ACTTransformer, make_latent_encoder
 
 
@@ -25,7 +28,7 @@ def _kl_divergence(mean: Tensor, log_variance: Tensor) -> Tensor:
     return (-0.5 * (1 + log_variance - mean.square() - log_variance.exp())).sum(1).mean()
 
 
-class ACTPolicy(nn.Module):
+class ACTPolicy(GradientCheckpointingMixin, nn.Module):
     def __init__(
         self,
         *,
@@ -41,7 +44,11 @@ class ACTPolicy(nn.Module):
         latent_dim: int = 32,
         kl_weight: float = 10.0,
         num_cameras: int = 2,
+        img_size: int = 224,
         pretrained_backbone: bool = True,
+        pretrained_backbone_path: str | Path | None = None,
+        language_model_path: str | Path | None = None,
+        language_dim: int = 384,
         pre_norm: bool = False,
     ) -> None:
         super().__init__()
@@ -52,11 +59,27 @@ class ACTPolicy(nn.Module):
         self.chunk_size = chunk_size
         self.kl_weight = kl_weight
         self.num_cameras = num_cameras
+        self.img_size = img_size
         self.latent_dim = latent_dim
+        self.language_dim = language_dim
 
-        self.backbone = ACTBackbone(hidden_dim, pretrained=pretrained_backbone)
-        self.input_projection = nn.Conv2d(self.backbone.num_channels, hidden_dim, 1)
+        self.backbones = nn.ModuleList(
+            ACTBackbone(
+                hidden_dim,
+                pretrained=pretrained_backbone,
+                weights_path=pretrained_backbone_path,
+            )
+            for _ in range(1)
+        )
+        object.__setattr__(
+            self,
+            "_language_encoder",
+            FrozenBgeClsEncoder(language_model_path)
+            if language_model_path is not None else None,
+        )
+        self.input_projection = nn.Conv2d(self.backbones[0].num_channels, hidden_dim, 1)
         self.proprio_projection = nn.Linear(state_dim, hidden_dim)
+        self.language_projection = nn.Linear(language_dim, hidden_dim)
         self.transformer = ACTTransformer(
             hidden_dim=hidden_dim,
             num_heads=num_heads,
@@ -67,9 +90,8 @@ class ACTPolicy(nn.Module):
             pre_norm=pre_norm,
         )
         self.query_embedding = nn.Embedding(chunk_size, hidden_dim)
-        self.additional_position = nn.Embedding(2, hidden_dim)
+        self.additional_position = nn.Embedding(3, hidden_dim)
         self.action_head = nn.Linear(hidden_dim, action_dim)
-        self.padding_head = nn.Linear(hidden_dim, 1)
 
         self.latent_encoder = make_latent_encoder(
             hidden_dim=hidden_dim,
@@ -91,7 +113,7 @@ class ACTPolicy(nn.Module):
         )
 
     def forward(self, batch: dict[str, Any]) -> tuple[Tensor, dict[str, Tensor]]:
-        state, images = self._inputs(batch)
+        state, images, language = self._inputs(batch)
         actions = batch["actions"]
         is_pad = batch["is_pad"].bool()
         if actions.shape[1:] != (self.chunk_size, self.action_dim):
@@ -101,8 +123,8 @@ class ACTPolicy(nn.Module):
         if is_pad.shape != actions.shape[:2]:
             raise ValueError(f"Expected is_pad {actions.shape[:2]}, got {is_pad.shape}")
 
-        predicted, _, mean, log_variance = self._predict(
-            state, images, actions=actions, is_pad=is_pad,
+        predicted, mean, log_variance = self._predict(
+            state, images, language, actions=actions, is_pad=is_pad,
         )
         valid = (~is_pad).unsqueeze(-1)
         loss_l1 = (F.l1_loss(predicted, actions, reduction="none") * valid).mean()
@@ -112,11 +134,11 @@ class ACTPolicy(nn.Module):
 
     @torch.inference_mode()
     def predict_action(self, batch: dict[str, Any]) -> Tensor:
-        state, images = self._inputs(batch)
-        predicted, _, _, _ = self._predict(state, images)
+        state, images, language = self._inputs(batch)
+        predicted, _, _ = self._predict(state, images, language)
         return predicted
 
-    def _inputs(self, batch: dict[str, Any]) -> tuple[Tensor, Tensor]:
+    def _inputs(self, batch: dict[str, Any]) -> tuple[Tensor, Tensor, Tensor]:
         state = batch["state"]
         images = batch["images"]
         if state.shape[-1] != self.state_dim:
@@ -125,18 +147,51 @@ class ACTPolicy(nn.Module):
             raise ValueError(
                 f"Expected images [B,{self.num_cameras},C,H,W], got {images.shape}"
             )
+        if images.shape[-2:] != (self.img_size, self.img_size):
+            batch_size, cameras = images.shape[:2]
+            images = F.interpolate(
+                images.flatten(0, 1),
+                size=(self.img_size, self.img_size),
+                mode="bilinear",
+                align_corners=False,
+            ).reshape(batch_size, cameras, 3, self.img_size, self.img_size)
         mean = images.new_tensor((0.485, 0.456, 0.406))[None, None, :, None, None]
         std = images.new_tensor((0.229, 0.224, 0.225))[None, None, :, None, None]
-        return state, (images - mean) / std
+        language = self._language_features(batch, state.device)
+        if language.shape[0] != state.shape[0]:
+            raise ValueError(
+                f"Language batch size {language.shape[0]} does not match {state.shape[0]}"
+            )
+        return state, (images - mean) / std, language
+
+    def _language_features(self, batch: dict[str, Any], device: torch.device) -> Tensor:
+        if "language_embedding" in batch:
+            features = torch.as_tensor(batch["language_embedding"], device=device).float()
+        else:
+            texts = batch.get("language")
+            if isinstance(texts, str):
+                texts = [texts]
+            if not isinstance(texts, Sequence):
+                raise TypeError("ACT requires language strings or language_embedding")
+            encoder = self._language_encoder
+            if encoder is None:
+                raise RuntimeError("language_model_path is required to encode language strings")
+            features = encoder.encode(texts, device=device)
+        if features.ndim != 2 or features.shape[-1] != self.language_dim:
+            raise ValueError(
+                f"Expected language embedding [B,{self.language_dim}], got {features.shape}"
+            )
+        return features
 
     def _predict(
         self,
         state: Tensor,
         images: Tensor,
+        language: Tensor,
         *,
         actions: Tensor | None = None,
         is_pad: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor, Tensor | None, Tensor | None]:
+    ) -> tuple[Tensor, Tensor | None, Tensor | None]:
         batch_size = state.shape[0]
         if actions is None:
             mean = log_variance = None
@@ -164,7 +219,7 @@ class ACTPolicy(nn.Module):
         camera_features = []
         camera_positions = []
         for camera_index in range(self.num_cameras):
-            features, position = self.backbone(images[:, camera_index])
+            features, position = self.backbones[0](images[:, camera_index])
             camera_features.append(self.input_projection(features))
             camera_positions.append(position)
         source = torch.cat(camera_features, dim=3)
@@ -175,6 +230,7 @@ class ACTPolicy(nn.Module):
             self.query_embedding.weight,
             self.latent_output_projection(latent),
             self.proprio_projection(state),
+            self.language_projection(language),
             self.additional_position.weight,
         )
-        return self.action_head(hidden), self.padding_head(hidden), mean, log_variance
+        return self.action_head(hidden), mean, log_variance

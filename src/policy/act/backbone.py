@@ -1,50 +1,15 @@
-"""ResNet image backbone and sine position embedding for ACT."""
+"""ResNet18 image backbone adapted from the official ACT repository."""
 
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import torch
 from torch import Tensor, nn
+from src.policy.checkpointing import checkpoint_module
 from torchvision.models import ResNet18_Weights, resnet18
-from torchvision.models._utils import IntermediateLayerGetter
-
-
-class FrozenBatchNorm2d(nn.Module):
-    def __init__(self, channels: int) -> None:
-        super().__init__()
-        self.register_buffer("weight", torch.ones(channels))
-        self.register_buffer("bias", torch.zeros(channels))
-        self.register_buffer("running_mean", torch.zeros(channels))
-        self.register_buffer("running_var", torch.ones(channels))
-
-    def _load_from_state_dict(
-        self,
-        state_dict,
-        prefix,
-        local_metadata,
-        strict,
-        missing_keys,
-        unexpected_keys,
-        error_messages,
-    ) -> None:
-        state_dict.pop(prefix + "num_batches_tracked", None)
-        super()._load_from_state_dict(
-            state_dict,
-            prefix,
-            local_metadata,
-            strict,
-            missing_keys,
-            unexpected_keys,
-            error_messages,
-        )
-
-    def forward(self, value: Tensor) -> Tensor:
-        weight = self.weight.reshape(1, -1, 1, 1)
-        bias = self.bias.reshape(1, -1, 1, 1)
-        scale = weight * (self.running_var.reshape(1, -1, 1, 1) + 1e-5).rsqrt()
-        offset = bias - self.running_mean.reshape(1, -1, 1, 1) * scale
-        return value * scale + offset
+from torchvision.ops.misc import FrozenBatchNorm2d
 
 
 class PositionEmbeddingSine(nn.Module):
@@ -78,15 +43,26 @@ class PositionEmbeddingSine(nn.Module):
 
 
 class ACTBackbone(nn.Module):
+    """Official ACT ResNet18 with frozen batch normalization, shared by cameras."""
+
     num_channels = 512
 
-    def __init__(self, hidden_dim: int, pretrained: bool = True) -> None:
+    def __init__(self, hidden_dim: int, pretrained: bool = True,
+                 weights_path: str | Path | None = None) -> None:
         super().__init__()
-        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        weights = ResNet18_Weights.IMAGENET1K_V1 if pretrained and weights_path is None else None
         network = resnet18(weights=weights, norm_layer=FrozenBatchNorm2d)
-        self.body = IntermediateLayerGetter(network, return_layers={"layer4": "features"})
+        if pretrained and weights_path is not None:
+            network.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
+        # Checkpoint boundaries retain activations consumed by the next layer.
+        for module in network.modules():
+            if isinstance(module, nn.ReLU):
+                module.inplace = False
+        self.features = nn.Sequential(*list(network.children())[:-2])
         self.position_embedding = PositionEmbeddingSine(hidden_dim // 2)
 
     def forward(self, image: Tensor) -> tuple[Tensor, Tensor]:
-        features = self.body(image)["features"]
+        features = image
+        for layer in self.features:
+            features = checkpoint_module(layer, features)
         return features, self.position_embedding(features).to(features.dtype)

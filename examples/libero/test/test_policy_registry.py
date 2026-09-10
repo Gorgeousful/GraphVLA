@@ -48,3 +48,11 @@ def test_unknown_policy_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="Unsupported policy"):
         build_policy(UnknownConfig())
+
+
+def test_dp_is_registered() -> None:
+    from examples.libero.config.dp.model_config import ModelConfig
+    from src.policy.dp.model import DiffusionPolicy
+
+    config = ModelConfig(down_dims=(16, 32), diffusion_step_embed_dim=16, num_groups=8)
+    assert isinstance(build_policy(config), DiffusionPolicy)

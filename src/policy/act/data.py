@@ -13,8 +13,9 @@ class ACTBatchTransform:
     image_keys: tuple[str, ...]
     state_key: str = "observation.state"
     action_key: str = "action"
+    language_key: str = "language"
 
-    def __call__(self, data: dict[str, Any]) -> dict[str, torch.Tensor]:
+    def __call__(self, data: dict[str, Any]) -> dict[str, Any]:
         images = [self._image_tensor(data[key]) for key in self.image_keys]
         state = torch.as_tensor(data[self.state_key], dtype=torch.float32)
         actions = torch.as_tensor(data[self.action_key], dtype=torch.float32)
@@ -30,6 +31,7 @@ class ACTBatchTransform:
             "state": state,
             "actions": actions,
             "is_pad": is_pad,
+            "language": str(data[self.language_key]),
         }
 
     @staticmethod

@@ -10,6 +10,7 @@ import copy
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from src.policy.checkpointing import checkpoint_module
 
 
 def _with_pos(tensor: Tensor, position: Tensor | None) -> Tensor:
@@ -75,7 +76,7 @@ class Encoder(nn.Module):
         position: Tensor | None = None,
     ) -> Tensor:
         for layer in self.layers:
-            source = layer(source, padding_mask=padding_mask, position=position)
+            source = checkpoint_module(layer, source, padding_mask=padding_mask, position=position)
         return self.norm(source) if self.norm is not None else source
 
 
@@ -159,8 +160,8 @@ class Decoder(nn.Module):
     ) -> Tensor:
         outputs = []
         for layer in self.layers:
-            target = layer(
-                target,
+            target = checkpoint_module(
+                layer, target,
                 memory,
                 memory_padding_mask=memory_padding_mask,
                 position=position,
@@ -205,6 +206,7 @@ class ACTTransformer(nn.Module):
         query_embed: Tensor,
         latent: Tensor,
         proprio: Tensor,
+        language: Tensor,
         additional_position: Tensor,
     ) -> Tensor:
         batch_size = source.shape[0]
@@ -212,7 +214,7 @@ class ACTTransformer(nn.Module):
         position = position.flatten(2).permute(2, 0, 1).repeat(1, batch_size, 1)
         extra_position = additional_position[:, None].repeat(1, batch_size, 1)
         position = torch.cat((extra_position, position), dim=0)
-        source = torch.cat((torch.stack((latent, proprio)), source), dim=0)
+        source = torch.cat((torch.stack((latent, proprio, language)), source), dim=0)
         query_position = query_embed[:, None].repeat(1, batch_size, 1)
         target = torch.zeros_like(query_position)
         memory = self.encoder(source, position=position)
@@ -222,7 +224,7 @@ class ACTTransformer(nn.Module):
             position=position,
             query_position=query_position,
         )
-        return decoded[-1].transpose(0, 1)
+        return decoded[0].transpose(0, 1)  # Official DETRVAE consumes hs[0].
 
 
 def make_latent_encoder(

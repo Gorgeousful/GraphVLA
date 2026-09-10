@@ -6,7 +6,7 @@ from typing import Any
 
 from torch import nn
 
-SUPPORTED_POLICIES = ("graphpoint", "act")
+SUPPORTED_POLICIES = ("graphpoint", "act", "dp", "dp3", "point_policy")
 
 
 def resolve_policy_name(model_config: Any) -> str:
@@ -27,4 +27,16 @@ def build_policy(model_config: Any) -> nn.Module:
         from src.policy.act.model import ACTPolicy
 
         return ACTPolicy(**model_config.to_kwargs())
+    if policy_name == "dp":
+        from src.policy.dp.model import DiffusionPolicy
+
+        return DiffusionPolicy(**model_config.to_kwargs())
+    if policy_name == "dp3":
+        from src.policy.dp3.model import DP3Policy
+
+        return DP3Policy(**model_config.to_kwargs())
+    if policy_name == "point_policy":
+        from src.policy.point_policy.model import PointPolicy
+
+        return PointPolicy(**model_config.to_kwargs())
     raise ValueError(f"Unsupported policy: {policy_name!r}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import pytest
 
 from src.policy.graphpoint.model import GraphFlowModel
 
@@ -8,6 +9,7 @@ from src.policy.graphpoint.model import GraphFlowModel
 def _model(
     *, cls_token_num: int = 1,
     gripper_flow_weight: float = 1.0,
+    progresshead_input=("patient", "target"),
 ) -> GraphFlowModel:
     return GraphFlowModel(
         actor_point_indices=(0, 1),
@@ -25,6 +27,7 @@ def _model(
         dropout=0.0,
         sample_steps=2,
         gripper_flow_weight=gripper_flow_weight,
+        progresshead_input=progresshead_input,
     )
 
 
@@ -96,3 +99,22 @@ def test_gripper_flow_weight_reweights_only_the_last_trajectory_dimension() -> N
         ) / (point_dimensions + gripper_flow_weight)
 
         torch.testing.assert_close(losses["loss_flow"], expected)
+
+
+@pytest.mark.parametrize("roles", [["actor"], ["target", "patient"], ["actor", "patient", "target"]])
+def test_progress_role_selection(roles):
+    model = _model(cls_token_num=2, progresshead_input=roles)
+    batch = _batch()
+    memory, selected, _ = model._encode(batch)
+    indices = [("actor", "patient", "target").index(role) for role in roles]
+    expected = memory.reshape(2, 3, 2, 32)[:, indices].flatten(1, 2)
+    torch.testing.assert_close(selected, expected)
+    assert model.progress_head.input_projection.in_features == len(roles) * 2 * 32
+    model(batch)[0].backward()
+    assert torch.isfinite(model.eval().sample(batch)["subtask_progress"]).all()
+
+
+@pytest.mark.parametrize("roles", [[], ["actor", "actor"], ["unknown"], "patient"])
+def test_invalid_progress_roles(roles):
+    with pytest.raises(ValueError, match="progresshead_input"):
+        _model(progresshead_input=roles)

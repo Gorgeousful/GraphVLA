@@ -1,4 +1,4 @@
-"""Training configuration for the task-specific LIBERO ACT baseline."""
+"""Training configuration for the multi-task LIBERO official ACT baseline."""
 
 from __future__ import annotations
 
@@ -9,17 +9,17 @@ from typing import Any
 
 @dataclass
 class TrainingConfig:
-    resume: bool = True
+    resume: bool = False
     max_steps: int = 30_000
-    batch_size: int = 8
+    batch_size: int = 64
     gradient_accumulation_steps: int = 1
-    gradient_checkpointing: bool = False
-    gradient_clip_norm: float | None = 0.1
-    warmup_steps: int = 0
-    peak_lr: float = 1e-4
+    gradient_checkpointing: bool = True
+    gradient_clip_norm: float | None = None
+    warmup_steps: int = 500
+    peak_lr: float = 1e-5
     backbone_lr: float = 1e-5
-    decay_steps: int = 1
-    decay_lr: float = 1e-4
+    decay_steps: int = 1_000_000
+    decay_lr: float = 1e-5
     weight_decay: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
     ckpt_path: str | Path | None = None
@@ -38,7 +38,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "act-task01-ep10-chunk10"
+    wandb_name: str | None = "act_official_bge_custom0902"
 
     def to_kwargs(self) -> dict[str, Any]:
         return asdict(self)

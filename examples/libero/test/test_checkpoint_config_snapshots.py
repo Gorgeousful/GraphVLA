@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from torch.utils.data import DataLoader, Dataset
 
 from src.training.checkpoint import TrainingCheckpoint
 from src.training.training import resolve_resume_configs
@@ -119,6 +120,35 @@ def test_load_config_snapshots_requires_experiment_configs(tmp_path: Path) -> No
         TrainingCheckpoint.load_config_snapshots(tmp_path / "checkpoints" / "step_1.pt")
 
 
+class SnapshotDataset(Dataset):
+    def __init__(self, config):
+        self.config = config
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, index):
+        return {"path": str(self.config.dataset_dir),
+                "enabled": self.config.nested.enabled,
+                "task": self.config.to_kwargs()["tasks"][0]}
+
+
+def test_snapshot_config_survives_spawn_dataloader(tmp_path: Path) -> None:
+    path = tmp_path / "data_config.py"
+    path.write_text(CONFIG_SOURCE, encoding="utf-8")
+    config = TrainingCheckpoint.load_config_symbol(path, "LIBERO_DATA_CONFIG")
+    # Runtime changes must survive too, rather than reloading the saved instance.
+    config.dataset_dir = Path("/runtime/dataset")
+    config.tasks = [7]
+    config.nested.enabled = False
+    loader = DataLoader(SnapshotDataset(config), num_workers=1,
+                        multiprocessing_context="spawn", timeout=30)
+    batches = list(loader)
+    assert batches[0]["path"] == ["/runtime/dataset"]
+    assert batches[0]["task"].item() == 7
+    assert not batches[0]["enabled"].item()
+
+
 def test_resume_without_snapshots_uses_current_configs(tmp_path: Path) -> None:
     source_path = tmp_path / "source_config.py"
     source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
@@ -132,7 +162,8 @@ def test_resume_without_snapshots_uses_current_configs(tmp_path: Path) -> None:
     assert resolve_resume_configs(*configs) == configs
 
 
-def test_resume_with_snapshots_uses_saved_configs_and_current_max_steps(tmp_path: Path) -> None:
+@pytest.mark.parametrize("has_checkpoint", [False, True])
+def test_resume_with_snapshots_requires_weights(tmp_path: Path, has_checkpoint: bool) -> None:
     source_path = tmp_path / "source_config.py"
     source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
     source = load_module(source_path, "test_resume_saved_config_source")
@@ -153,6 +184,14 @@ def test_resume_with_snapshots_uses_saved_configs_and_current_max_steps(tmp_path
         source.ModelConfig(hidden_dim=128),
         source.TrainingConfig(max_steps=60_000, save_dir=tmp_path, wandb_name="run"),
     )
+    # Only step-numbered checkpoint files participate in automatic resume.
+    (checkpoint.ckpt_dir / "step_invalid.pt").touch()
+    (checkpoint.ckpt_dir / "step_2.pt").mkdir()
+    if has_checkpoint:
+        (checkpoint.ckpt_dir / "step_1.pt").touch()
+    else:
+        assert resolve_resume_configs(*current_configs) == current_configs
+        return
 
     data_config, model_config, training_config = resolve_resume_configs(*current_configs)
 
@@ -164,17 +203,24 @@ def test_resume_with_snapshots_uses_saved_configs_and_current_max_steps(tmp_path
     assert training_config.resume is True
 
 
-def test_resume_with_partial_snapshots_fails(tmp_path: Path) -> None:
+@pytest.mark.parametrize("has_checkpoint", [False, True])
+def test_resume_with_partial_snapshots_fails_only_with_weights(tmp_path: Path, has_checkpoint: bool) -> None:
     source_path = tmp_path / "source_config.py"
     source_path.write_text(CONFIG_SOURCE, encoding="utf-8")
     source = load_module(source_path, "test_resume_partial_config_source")
     config_dir = tmp_path / "run" / "configs"
     config_dir.mkdir(parents=True)
     (config_dir / "data_config.py").write_text(CONFIG_SOURCE, encoding="utf-8")
-
+    configs = (
+        source.DataConfig(dataset_dir=Path("/current/dataset")),
+        source.ModelConfig(),
+        source.TrainingConfig(save_dir=tmp_path, wandb_name="run"),
+    )
+    if not has_checkpoint:
+        assert resolve_resume_configs(*configs) == configs
+        return
+    ckpt_dir = tmp_path / "run" / "checkpoints"
+    ckpt_dir.mkdir()
+    (ckpt_dir / "step_1.pt").touch()
     with pytest.raises(FileNotFoundError, match="snapshots are incomplete"):
-        resolve_resume_configs(
-            source.DataConfig(dataset_dir=Path("/current/dataset")),
-            source.ModelConfig(),
-            source.TrainingConfig(save_dir=tmp_path, wandb_name="run"),
-        )
+        resolve_resume_configs(*configs)

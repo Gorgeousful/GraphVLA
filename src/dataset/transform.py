@@ -453,6 +453,7 @@ class Normalize(TransformFn):
     field_map: Mapping[str, str] | None = None
     use_quantiles: bool = True
     quantile_to_neg_one_one: bool = True
+    clip_quantiles: bool = False
     eps: float = 1e-6
     task_index_path: tuple[str, ...] = ("task_index",)
     episode_index_path: tuple[str, ...] = ("episode_index",)
@@ -510,6 +511,11 @@ class Normalize(TransformFn):
         q01 = self._match_last_dim(q01, value.shape[-1])
         q99 = self._match_last_dim(q99, value.shape[-1])
         normalized = (value - q01) / (q99 - q01 + self.eps)
+        if self.clip_quantiles:
+            if isinstance(normalized, torch.Tensor):
+                normalized = normalized.clamp(0.0, 1.0)
+            else:
+                normalized = np.clip(normalized, 0.0, 1.0)
         if self.quantile_to_neg_one_one:
             return normalized * 2.0 - 1.0
         return normalized

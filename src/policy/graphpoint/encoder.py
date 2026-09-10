@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-from torch.utils.checkpoint import checkpoint
+from src.policy.checkpointing import checkpoint_module
 
 from src.common.schema import NUM_ENTITIES, POINT_FEATURE_DIM
 from src.policy.graphpoint.temporal import AdaptiveLayerNorm, RotaryEncoderBlock
@@ -66,8 +66,15 @@ class EntityEncoder(nn.Module):
         global_layer_types: tuple[int, ...] | list[int] | None = None,
         node_attention_mode: str = "full",
         encoder_output_type: str = "current",
+        progresshead_input: list[str] | tuple[str, ...] = ("patient", "target"),
     ) -> None:
         super().__init__()
+        roles = ("actor", "patient", "target")
+        if (not isinstance(progresshead_input, (list, tuple)) or not progresshead_input
+                or any(role not in roles for role in progresshead_input)
+                or len(set(progresshead_input)) != len(progresshead_input)):
+            raise ValueError("progresshead_input must be a non-empty, unique list of actor/patient/target")
+        self.progresshead_indices = tuple(roles.index(role) for role in progresshead_input)
         if actor_num_points < 1:
             raise ValueError(f"actor_num_points must be at least 1, got {actor_num_points}")
         if cls_token_num < 1:
@@ -205,13 +212,7 @@ class EntityEncoder(nn.Module):
             ], dim=3).reshape(
                 batch * steps * entities, num_points + self.cls_token_num
             )
-            if self.gradient_checkpointing and self.training:
-                local = checkpoint(
-                    local_block, local, role_condition, padding,
-                    use_reentrant=False, preserve_rng_state=True,
-                )
-            else:
-                local = local_block(local, role_condition, padding)
+            local = checkpoint_module(local_block, local, role_condition, padding)
             local = local.view(
                 batch, steps, entities, num_points + self.cls_token_num, -1
             )
@@ -219,39 +220,21 @@ class EntityEncoder(nn.Module):
             tokens = local[:, :, :, self.cls_token_num:]
             if self.global_layer_types[layer_index] == 0:
                 global_cls = cls.reshape(batch, global_entity_tokens, -1)
-                if self.gradient_checkpointing and self.training:
-                    global_cls = checkpoint(
-                        global_block, global_cls, global_positions, None, False,
-                        register_attention_mask, task_condition,
-                        use_reentrant=False, preserve_rng_state=True,
-                    )
-                else:
-                    global_cls = global_block(
-                        global_cls, global_positions,
-                        attention_mask=register_attention_mask,
-                        condition=task_condition,
-                    )
+                global_cls = checkpoint_module(
+                    global_block, global_cls, global_positions,
+                    attention_mask=register_attention_mask, condition=task_condition,
+                )
                 cls = global_cls.view(
                     batch, steps, entities, self.cls_token_num, -1
                 )
                 continue
 
             dense = torch.cat([cls, tokens], dim=3).reshape(batch, dense_entity_tokens, -1)
-            if self.gradient_checkpointing and self.training:
-                dense = checkpoint(
-                    global_block, dense, dense_positions, dense_key_mask,
-                    dense_attention_mask is None, dense_attention_mask, task_condition,
-                    use_reentrant=False, preserve_rng_state=True,
-                )
-            else:
-                dense = global_block(
-                    dense,
-                    dense_positions,
-                    key_mask=dense_key_mask,
-                    use_sdpa=dense_attention_mask is None,
-                    attention_mask=dense_attention_mask,
-                    condition=task_condition,
-                )
+            dense = checkpoint_module(
+                global_block, dense, dense_positions, key_mask=dense_key_mask,
+                use_sdpa=dense_attention_mask is None, attention_mask=dense_attention_mask,
+                condition=task_condition,
+            )
             dense_entities = dense.view(
                 batch, steps, entities, self.cls_token_num + num_points, -1
             )
@@ -260,7 +243,7 @@ class EntityEncoder(nn.Module):
             tokens = tokens.masked_fill(~point_mask.bool().unsqueeze(-1), 0.0)
 
         current_cls = cls[:, -1]
-        relation_local = current_cls[:, 1:3].flatten(1, 2)
+        relation_local = current_cls[:, self.progresshead_indices].flatten(1, 2)
         entity_memory = (
             current_cls.flatten(1, 2)
             if self.encoder_output_type == "current"

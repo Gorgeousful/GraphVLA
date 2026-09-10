@@ -79,6 +79,13 @@ def resolve_resume_configs(
     if not training_config.resume or experiment_dir is None:
         return data_config, model_config, training_config
 
+    has_checkpoint = any(
+        path.is_file() and TrainingCheckpoint.step_from_path(path) is not None
+        for path in (experiment_dir / "checkpoints").glob("step_*.pt")
+    )
+    if not has_checkpoint:
+        return data_config, model_config, training_config
+
     config_dir = experiment_dir / "configs"
     snapshot_paths = [
         config_dir / filename
@@ -172,7 +179,11 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         cs.print("Logger init!")
 
     base_model = build_model(model_config, training_config, device)
-    checkpoint.load_pretrained(getattr(training_config, "ckpt_path", None), base_model, device)
+    checkpoint.load_pretrained(
+        getattr(training_config, "ckpt_path", None),
+        base_model,
+        device,
+    )
     model = distributed.wrap_model(base_model, device)
     train_optimizer = TrainingOptimizer(model, training_config)
     model.train()
@@ -181,7 +192,9 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
         cs.print("Model and Optimizer init!")
 
 
-    step = checkpoint.load_latest(model, train_optimizer, device, seed=training_config.seed) if training_config.resume else 0
+    step = checkpoint.load_latest(
+        model, train_optimizer, device, seed=training_config.seed,
+    ) if training_config.resume else 0
     accum_steps = max(1, training_config.gradient_accumulation_steps)
     micro_step = step * accum_steps
     data_epoch, batch_offset = dataloader.resume_position(micro_step)
@@ -245,6 +258,12 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
 def load_example_configs(example: str, policy: str) -> tuple[Any, Any, Any]:
     example = example.lower()
     policy = policy.lower()
+    if (example, policy) == ("libero", "point_policy"):
+        from examples.libero.config.point_policy.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.point_policy.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.point_policy.training_config import LIBERO_TRAINING_CONFIG
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
     if (example, policy) == ("libero", "graphpoint"):
         from examples.libero.config.graphpoint.data_config import LIBERO_DATA_CONFIG
         from examples.libero.config.graphpoint.model_config import LIBERO_MODEL_CONFIG
@@ -256,6 +275,24 @@ def load_example_configs(example: str, policy: str) -> tuple[Any, Any, Any]:
         from examples.libero.config.act.data_config import LIBERO_DATA_CONFIG
         from examples.libero.config.act.model_config import LIBERO_MODEL_CONFIG
         from examples.libero.config.act.training_config import LIBERO_TRAINING_CONFIG
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
+    if (example, policy) == ("libero", "dp"):
+        from examples.libero.config.dp.data_config import (
+            LIBERO_DATA_CONFIG,
+        )
+        from examples.libero.config.dp.model_config import (
+            LIBERO_MODEL_CONFIG,
+        )
+        from examples.libero.config.dp.training_config import (
+            LIBERO_TRAINING_CONFIG,
+        )
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
+    if (example, policy) == ("libero", "dp3"):
+        from examples.libero.config.dp3.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.dp3.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.dp3.training_config import LIBERO_TRAINING_CONFIG
 
         return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
     raise ValueError(f"Unsupported example/policy combination: {(example, policy)!r}")

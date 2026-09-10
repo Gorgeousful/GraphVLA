@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import copyreg
 import hashlib
 import importlib.util
 import inspect
@@ -21,6 +22,26 @@ import torch
 from rich.console import Console
 
 cs = Console()
+
+
+def _restore_snapshot_instance(path: str, module_name: str, class_name: str) -> Any:
+    module = sys.modules.get(module_name)
+    config_type = (
+        getattr(module, class_name) if module is not None
+        else TrainingCheckpoint.load_config_symbol(Path(path), class_name)
+    )
+    # Pickle restores the saved instance state; do not rerun __init__/__post_init__.
+    return config_type.__new__(config_type)
+
+
+def _reduce_snapshot_instance(config: Any):
+    config_type = type(config)
+    return (
+        _restore_snapshot_instance,
+        (str(TrainingCheckpoint.config_source_path(config).resolve()),
+         config_type.__module__, config_type.__name__),
+        vars(config),
+    )
 
 
 class TrainingCheckpoint:
@@ -240,9 +261,19 @@ class TrainingCheckpoint:
             raise
         if not hasattr(module, symbol):
             raise AttributeError(f"Config snapshot {path} does not define {symbol}")
+        # Spawn workers cannot import the synthetic module name. Include the
+        # source path when pickling snapshot dataclasses, including nested ones.
+        for value in vars(module).values():
+            if isinstance(value, type) and is_dataclass(value) and value.__module__ == module_name:
+                copyreg.pickle(value, _reduce_snapshot_instance)
         return getattr(module, symbol)
 
-    def load_pretrained(self, ckpt_path: str | Path | None, model: torch.nn.Module, device: torch.device) -> None:
+    def load_pretrained(
+        self,
+        ckpt_path: str | Path | None,
+        model: torch.nn.Module,
+        device: torch.device,
+    ) -> None:
         if ckpt_path is None:
             return
         path = Path(ckpt_path)
@@ -250,11 +281,20 @@ class TrainingCheckpoint:
             raise FileNotFoundError(f"Pretrained checkpoint not found: {path}")
 
         state = torch.load(path, map_location=device, weights_only=False)
-        self.model_for_state(model).load_state_dict(self.unwrap_model_state(state), strict=True)
+        self.model_for_state(model).load_state_dict(
+            self.unwrap_model_state(state), strict=True,
+        )
         if self.is_main_process:
             cs.print(f"[green]loaded pretrained weights from {path}[/green]")
 
-    def load_latest(self, model: torch.nn.Module, optimizer: Any, device: torch.device, *, seed: int) -> int:
+    def load_latest(
+        self,
+        model: torch.nn.Module,
+        optimizer: Any,
+        device: torch.device,
+        *,
+        seed: int,
+    ) -> int:
         path = self.latest_checkpoint()
         if path is None:
             return 0

@@ -1,5 +1,5 @@
-1. Motivation and Key Idea
-2. GraphPoint Architecture
-3. CROP-18 Benchmark and Split
-4. Point-Based Cross-Embodiment Transfer
-5. Long-Horizon Composition and Qualitative Rollouts
+1. Motivation and Key Idea []
+2. GraphPoint Architecture [ok]
+3. CROP-18 Benchmark and Split [ok]
+4. Point-Based Cross-Embodiment Transfer []
+5. Long-Horizon Composition and Qualitative Rollouts []
