@@ -258,10 +258,22 @@ def train(data_config: Any, model_config: Any, training_config: Any) -> torch.nn
 def load_example_configs(example: str, policy: str) -> tuple[Any, Any, Any]:
     example = example.lower()
     policy = policy.lower()
+    if (example, policy) == ("libero", "point_bridge"):
+        from examples.libero.config.point_bridge.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.point_bridge.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.point_bridge.training_config import LIBERO_TRAINING_CONFIG
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
     if (example, policy) == ("libero", "point_policy"):
         from examples.libero.config.point_policy.data_config import LIBERO_DATA_CONFIG
         from examples.libero.config.point_policy.model_config import LIBERO_MODEL_CONFIG
         from examples.libero.config.point_policy.training_config import LIBERO_TRAINING_CONFIG
+
+        return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
+    if (example, policy) == ("libero", "graphpoint_gc"):
+        from examples.libero.config.graphpoint_gc.data_config import LIBERO_DATA_CONFIG
+        from examples.libero.config.graphpoint_gc.model_config import LIBERO_MODEL_CONFIG
+        from examples.libero.config.graphpoint_gc.training_config import LIBERO_TRAINING_CONFIG
 
         return LIBERO_DATA_CONFIG, LIBERO_MODEL_CONFIG, LIBERO_TRAINING_CONFIG
     if (example, policy) == ("libero", "graphpoint"):

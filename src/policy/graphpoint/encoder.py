@@ -137,6 +137,7 @@ class EntityEncoder(nn.Module):
         points: torch.Tensor,
         point_mask: torch.Tensor,
         scene_condition: torch.Tensor,
+        entity_presence: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
             raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
@@ -147,6 +148,16 @@ class EntityEncoder(nn.Module):
             raise ValueError(f"point mask {point_mask.shape} does not match points {points.shape}")
         if scene_condition.shape[:2] != (batch, 2):
             raise ValueError(f"Expected scene_condition [B,2,C], got {scene_condition.shape}")
+        if entity_presence is None:
+            entity_presence = torch.ones(batch, entities, dtype=torch.bool, device=points.device)
+        if entity_presence.shape != (batch, entities) or not entity_presence.any(dim=1).all():
+            raise ValueError("entity_presence must be [B,3] with at least one present role")
+        entity_presence = entity_presence.to(device=points.device, dtype=torch.bool)
+        point_mask = point_mask.bool() & entity_presence[:, None, :, None]
+        points = points.masked_fill(~point_mask[..., None], 0.0)
+        cls_presence = entity_presence[:, None, :, None].expand(
+            batch, steps, entities, self.cls_token_num,
+        )
 
         tokens = self.point_stem(points)
         actor_ids = torch.arange(self.actor_num_points, device=points.device)
@@ -174,10 +185,7 @@ class EntityEncoder(nn.Module):
         )
         dense_entity_tokens = steps * entities * (self.cls_token_num + num_points)
         dense_key_mask = torch.cat([
-            torch.ones(
-                batch, steps, entities, self.cls_token_num,
-                dtype=torch.bool, device=points.device,
-            ),
+            cls_presence,
             point_mask.bool(),
         ], dim=3).reshape(batch, dense_entity_tokens)
         register_attention_mask = None
@@ -223,6 +231,7 @@ class EntityEncoder(nn.Module):
                 global_cls = checkpoint_module(
                     global_block, global_cls, global_positions,
                     attention_mask=register_attention_mask, condition=task_condition,
+                    key_mask=cls_presence.reshape(batch, global_entity_tokens),
                 )
                 cls = global_cls.view(
                     batch, steps, entities, self.cls_token_num, -1
@@ -242,6 +251,7 @@ class EntityEncoder(nn.Module):
             tokens = dense_entities[:, :, :, self.cls_token_num:]
             tokens = tokens.masked_fill(~point_mask.bool().unsqueeze(-1), 0.0)
 
+        cls = self.norm(cls).masked_fill(~cls_presence[..., None], 0.0)
         current_cls = cls[:, -1]
         relation_local = current_cls[:, self.progresshead_indices].flatten(1, 2)
         entity_memory = (
@@ -250,7 +260,7 @@ class EntityEncoder(nn.Module):
             else cls.flatten(1, 3)
         )
         return (
-            self.norm(entity_memory),
-            self.norm(relation_local),
+            entity_memory,
+            relation_local,
             self.norm(semantic_memory),
         )

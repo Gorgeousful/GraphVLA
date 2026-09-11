@@ -994,6 +994,9 @@ class OfflineSAMPipeline:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-dir", required=True, type=Path)
+    parser.add_argument("--prepare-taskstructures-only", action="store_true",
+                        help="Build missing task structures without loading SAM or writing point annotations.")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--sam-version", choices=("sam2", "sam3"), default="sam3")
     parser.add_argument("--sam-device", default="cuda")
@@ -1004,7 +1007,7 @@ if __name__ == "__main__":
     api_key = os.environ.get("OPENAI_API_KEY")
 
     config = PipelineConfig(
-        dataset_dir="/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
+        dataset_dir=args.dataset_dir,
         dataset_type="libero",
         # episode_selector={
         #     0: ["*"],
@@ -1031,6 +1034,11 @@ if __name__ == "__main__":
         debug=args.debug,
         debug_dir=args.debug_dir,
     )
+    if args.prepare_taskstructures_only:
+        pipeline = OfflineSAMPipeline(config)
+        structures = pipeline.build_taskstructures(sorted(pipeline.task_index_to_desc))
+        cs.print(f"Prepared {len(structures)} task structures for {args.dataset_dir}")
+        raise SystemExit(0)
     devices = args.sam_devices or [args.sam_device]
     if args.workers_per_device <= 0:
         parser.error("--workers-per-device must be positive")

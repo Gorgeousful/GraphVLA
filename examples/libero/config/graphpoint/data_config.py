@@ -71,6 +71,7 @@ class DataConfig:
     transforms: tuple[Any, ...] = ()
     out_transforms: tuple[Any, ...] = ()
     action_delta: bool = True
+    graphpoint_subtask_start: bool = True
 
     def to_kwargs(self) -> dict[str, Any]:
         return {
@@ -82,6 +83,7 @@ class DataConfig:
             "load_videos": self.load_videos,
             "transforms": self.transforms,
             "out_transforms": self.out_transforms,
+            "graphpoint_subtask_start": self.graphpoint_subtask_start,
         }
 
 LIBERO_DATASET_DIR = os.environ.get(
@@ -122,6 +124,9 @@ LIBERO_REPACK = {
     "subtask_node_mask": "subtask_node_mask",
     "gripper_points_xyz": "gripper_points_xyz",
     "action": LIBERO_ACTION_FIELD,
+    "initial_node_points_xyz": "initial_node_points_xyz",
+    "initial_valid_node_mask": "initial_valid_node_mask",
+    "initial_subtask_node_mask": "initial_subtask_node_mask",
 }
 
 LIBERO_HISTORY_FRAMES = list(LIBERO_MODEL_CONFIG.history_frames)
@@ -164,6 +169,7 @@ LIBERO_TRANSFORM = (
         field_map={
             "node_points_xyz": LIBERO_POINT_STATS_FIELD,
             "gripper_points_xyz": LIBERO_POINT_STATS_FIELD,
+            "initial_node_points_xyz": LIBERO_POINT_STATS_FIELD,
         },
         use_quantiles=True,
         quantile_to_neg_one_one=True,

@@ -6,7 +6,7 @@ from typing import Any
 
 from torch import nn
 
-SUPPORTED_POLICIES = ("graphpoint", "act", "dp", "dp3", "point_policy")
+SUPPORTED_POLICIES = ("graphpoint", "graphpoint_gc", "act", "dp", "dp3", "point_policy", "point_bridge")
 
 
 def resolve_policy_name(model_config: Any) -> str:
@@ -17,6 +17,14 @@ def resolve_policy_name(model_config: Any) -> str:
 
 def build_policy(model_config: Any) -> nn.Module:
     policy_name = resolve_policy_name(model_config)
+    if policy_name == "point_bridge":
+        from src.policy.point_bridge.model import PointBridge
+
+        return PointBridge(**model_config.to_kwargs())
+    if policy_name == "graphpoint_gc":
+        from src.policy.graphpoint_gc.model import GraphFlowModel
+
+        return GraphFlowModel(**model_config.to_kwargs())
     if policy_name == "graphpoint":
         from src.policy.graphpoint.model import GraphFlowModel
 

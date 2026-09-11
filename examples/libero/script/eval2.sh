@@ -18,7 +18,7 @@ python -m script.server \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 0 4 7 11 14 15 \
---num-trials-per-task 50 \
+--num-trials-per-task 30 \
 --max-steps 1000 \
 --control-freq 20 \
 --port 8004 \
@@ -28,7 +28,7 @@ python -m examples.libero.eval.client \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 1 2 3 5 6 8 9 10 12 13 16 17  \
---num-trials-per-task 50 \
+--num-trials-per-task 30 \
 --max-steps 1000 \
 --control-freq 20 \
 --port 8004 \
@@ -53,7 +53,7 @@ python -m script.server \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 0 4 7 11 14 15 \
---num-trials-per-task 50 \
+--num-trials-per-task 30 \
 --max-steps 1000 \
 --control-freq 20 \
 --port 8004 \
@@ -63,7 +63,7 @@ python -m examples.libero.eval.client \
 python -m examples.libero.eval.client \
 --task-suite-name libero_custom_0902 \
 --tasks 1 2 3 5 6 8 9 10 12 13 16 17  \
---num-trials-per-task 50 \
+--num-trials-per-task 30 \
 --max-steps 1000 \
 --control-freq 20 \
 --port 8004 \
@@ -89,7 +89,7 @@ python -m script.server \
 python -m examples.libero.eval.client \
   --task-suite-name libero_custom_0902 \
   --tasks 0 4 7 11 14 15 \
-  --num-trials-per-task 50 \
+  --num-trials-per-task 30 \
   --max-steps 1000 \
   --control-freq 20 \
   --port 8004 \
@@ -99,7 +99,7 @@ python -m examples.libero.eval.client \
 python -m examples.libero.eval.client \
   --task-suite-name libero_custom_0902 \
   --tasks 1 2 3 5 6 8 9 10 12 13 16 17 \
-  --num-trials-per-task 50 \
+  --num-trials-per-task 30 \
   --max-steps 1000 \
   --control-freq 20 \
   --port 8004 \

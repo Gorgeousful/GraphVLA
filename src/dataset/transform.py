@@ -98,6 +98,14 @@ class CenterOnCurrentTCP(TransformFn):
 
         data["node_points_xyz"] = centered_nodes
         data["gripper_points_xyz"] = gripper_points - origin
+        if "initial_node_points_xyz" in data:
+            # Both observations use the current TCP, not their respective TCPs.
+            initial = data["initial_node_points_xyz"] - origin
+            mask = data["initial_valid_node_mask"][..., None, None]
+            data["initial_node_points_xyz"] = (
+                torch.where(mask.bool(), initial, torch.zeros_like(initial))
+                if isinstance(initial, torch.Tensor) else np.where(mask, initial, 0.0)
+            )
         data[self.origin_key] = origin
         return data
 
@@ -479,8 +487,9 @@ class Normalize(TransformFn):
                 if self.use_quantiles
                 else self._normalize(value, selected_stats)
             )
-            if key == "node_points_xyz" and "valid_node_mask" in data:
-                mask = data["valid_node_mask"]
+            mask_key = "initial_valid_node_mask" if key == "initial_node_points_xyz" else "valid_node_mask"
+            if key in ("node_points_xyz", "initial_node_points_xyz") and mask_key in data:
+                mask = data[mask_key]
                 if isinstance(value, torch.Tensor):
                     mask = torch.as_tensor(mask, dtype=torch.bool, device=value.device)
                     value = torch.where(mask[..., None, None], value, torch.zeros_like(value))
@@ -828,6 +837,10 @@ class CustomTransform(TransformFn):
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],
+            "entity_presence": torch.tensor(
+                [True, "patient" in object_roles, "target" in object_roles],
+                dtype=torch.bool, device=entity_points.device,
+            ),
             "scene_condition": scene_condition,
             "gripper_closedness_history": closedness[:input_horizon],
             "target": {
@@ -838,6 +851,23 @@ class CustomTransform(TransformFn):
                 )[history_horizon].reshape(1),
             },
         }
+        initial_patient = entity_points.new_zeros((points_per_entity, POINT_FEATURE_DIM))
+        initial_mask = torch.zeros(points_per_entity, dtype=torch.bool, device=entity_points.device)
+        if "patient" in object_roles and "target" not in object_roles:
+            if "initial_node_points_xyz" not in data:
+                raise ValueError("Binary GraphPoint tasks require the true subtask-initial observation")
+            patient_index = selected_node_indices[object_roles.index("patient")]
+            initial_valid = torch.as_tensor(data["initial_valid_node_mask"], device=entity_points.device)
+            initial_active = torch.as_tensor(data["initial_subtask_node_mask"], device=entity_points.device)
+            if not bool(initial_active[patient_index]):
+                raise ValueError("Initial patient does not belong to the current subtask")
+            initial_patient = torch.as_tensor(
+                data["initial_node_points_xyz"], device=entity_points.device, dtype=entity_points.dtype,
+            )[patient_index]
+            initial_mask[:] = initial_valid[patient_index]
+            initial_patient = initial_patient.masked_fill(~initial_mask[:, None], 0.0)
+        result["initial_patient_points"] = initial_patient
+        result["initial_patient_mask"] = initial_mask
         if "tcp_origin" in data:
             result["tcp_origin"] = torch.as_tensor(
                 data["tcp_origin"], device=entity_points.device, dtype=entity_points.dtype,

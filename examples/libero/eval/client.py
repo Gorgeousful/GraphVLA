@@ -15,6 +15,7 @@ import concurrent.futures
 import dataclasses
 import json
 import logging
+import os
 import pathlib
 import re
 import subprocess
@@ -43,6 +44,7 @@ from robosuite.utils.camera_utils import (
 from scipy.spatial.transform import Rotation as R
 
 cs = Console()
+PROFILE = os.environ.get("GRAPHVLA_PROFILE", "0") == "1"
 
 
 def _worker_prefix(worker_id: int) -> str:
@@ -71,6 +73,8 @@ class Args:
     action_delta: bool = False
     num_workers: int = 1
     resume_dir: Path | None = None
+    image_obs_steps: int | None = None  # Set from server_info for ACT/DP.
+    embodiment: str = "franka_panda"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -165,9 +169,19 @@ class ObservationDeltaBuffer:
         self.metric_depths.append(np.asarray(observation["agentview_metric_depth"], dtype=np.float32))
         self.states.append(np.asarray(observation["state"], dtype=np.float64))
 
-    def to_request_fields(self, *, intrinsic: np.ndarray, extrinsic: np.ndarray) -> dict[str, Any]:
+    def to_request_fields(
+        self, *, intrinsic: np.ndarray, extrinsic: np.ndarray,
+        image_obs_steps: int | None = None,
+        embodiment: str = "franka_panda",
+    ) -> dict[str, Any]:
         if not self.images:
             raise RuntimeError("observation delta buffer is empty")
+        if image_obs_steps is not None:
+            return {
+                "observation.images.image": [image.tolist() for image in self.images[-image_obs_steps:]],
+                "observation.images.wrist_image": [image.tolist() for image in self.wrist_images[-image_obs_steps:]],
+                "observation.state": [state.tolist() for state in self.states[-image_obs_steps:]],
+            }
         count = len(self.images)
         return {
             "observation.images.image": [image.tolist() for image in self.images],
@@ -180,10 +194,17 @@ class ObservationDeltaBuffer:
 
 
 class InferenceClient:
-    def __init__(self, *, host: str, port: int, worker_id: int = 0) -> None:
+    def __init__(
+        self, *, host: str, port: int, worker_id: int = 0,
+        image_obs_steps: int | None = None,
+        embodiment: str = "franka_panda",
+    ) -> None:
         self.host = host
         self.port = port
         self.worker_id = worker_id
+        self.image_obs_steps = image_obs_steps
+        self.embodiment = embodiment
+        self.profile = collections.defaultdict(float)
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
         self.extrinsic: np.ndarray | None = None
@@ -199,6 +220,7 @@ class InferenceClient:
         self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
 
     def reset_episode(self) -> None:
+        self.profile.clear()
         self.pending_observations.reset()
         self.action_chunk.clear()
         self.action_frame_ids.clear()
@@ -222,6 +244,7 @@ class InferenceClient:
         return np.asarray(self.action_chunk.pop(0), dtype=np.float32)
 
     def _call_server(self, task_description: str) -> dict[str, Any]:
+        started = time.perf_counter()
         if self.intrinsic is None or self.extrinsic is None:
             raise RuntimeError("camera matrices are not initialized; call reset_episode first")
         request = {
@@ -229,14 +252,30 @@ class InferenceClient:
             "session_id": self.session_id,
             "worker_id": self.worker_id,
             "language": task_description,
-            **self.pending_observations.to_request_fields(intrinsic=self.intrinsic, extrinsic=self.extrinsic),
+            **self.pending_observations.to_request_fields(
+                intrinsic=self.intrinsic, extrinsic=self.extrinsic,
+                image_obs_steps=self.image_obs_steps,
+            ),
         }
         if self.first_request:
             request["reset"] = True
             self.first_request = False
+        if self.embodiment != "franka_panda":
+            request["embodiment"] = self.embodiment
 
         uri = f"ws://{self.host}:{self.port}"
+        built = time.perf_counter()
         response = asyncio.run(self._websocket_json(uri, request))
+        if PROFILE:
+            self.profile["request_build_s"] = built - started
+            self.profile["request_roundtrip_s"] = time.perf_counter() - built
+            print("PROFILE " + json.dumps({
+                "session": self.session_id, "worker": self.worker_id,
+                "client": dict(self.profile),
+                "transport": response.pop("_client_timing", {}),
+                "server": response.pop("_timing", {}),
+            }), flush=True)
+            self.profile.clear()
         if "error" in response:
             raise RuntimeError(response["error"])
         self.pending_observations.reset()
@@ -258,19 +297,36 @@ class InferenceClient:
 
     @staticmethod
     async def _websocket_json(uri: str, data: dict[str, Any]) -> dict[str, Any]:
+        started = time.perf_counter()
         async with websockets.connect(
             uri, max_size=None, proxy=None, ping_interval=None, ping_timeout=None
         ) as websocket:
-            await websocket.send(json.dumps(data))
+            connected = time.perf_counter()
+            payload = json.dumps(data)
+            encoded = time.perf_counter()
+            await websocket.send(payload)
+            sent = time.perf_counter()
             message = await websocket.recv()
-        return json.loads(message)
+            received = time.perf_counter()
+        closed = time.perf_counter()
+        response = json.loads(message)
+        if PROFILE:
+            response["_client_timing"] = {
+                "connect_s": connected - started, "encode_s": encoded - connected,
+                "send_s": sent - encoded, "wait_response_s": received - sent,
+                "close_s": closed - received, "decode_s": time.perf_counter() - closed,
+                "request_chars": len(payload),
+            }
+        return response
 
 
-def _server_info(*, host: str, port: int) -> tuple[str, float]:
+def _server_info(*, host: str, port: int, embodiment: str = "franka_panda") -> tuple[str, float, int | None]:
     uri = f"ws://{host}:{port}"
     response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
     if "error" in response:
         raise RuntimeError(response["error"])
+    if response.get("embodiment", "franka_panda") != embodiment:
+        raise ValueError(f"Client/server embodiment mismatch: client={embodiment!r}, server={response.get('embodiment')!r}")
     ckpt_path = response.get("ckpt_path")
     if not isinstance(ckpt_path, str) or not ckpt_path:
         raise ValueError(f"server returned invalid ckpt_path: {ckpt_path!r}")
@@ -281,7 +337,12 @@ def _server_info(*, host: str, port: int) -> tuple[str, float]:
         or not np.isfinite(progress_threshold)
     ):
         raise ValueError(f"server returned invalid progress_threshold: {progress_threshold!r}")
-    return ckpt_path, float(progress_threshold)
+    image_obs_steps = None
+    if response.get("policy_name") in ("act", "dp"):
+        image_obs_steps = response.get("obs_steps")
+        if type(image_obs_steps) is not int or image_obs_steps < 1:
+            raise ValueError(f"server returned invalid obs_steps: {image_obs_steps!r}")
+    return ckpt_path, float(progress_threshold), image_obs_steps
 
 
 def _ckpt_dir_name(ckpt_path: str) -> str:
@@ -308,6 +369,7 @@ def camera_matrices_from_env(env: Any, *, camera_name: str) -> tuple[np.ndarray,
 
 def _get_libero_env(
     task: Any, resolution: int, seed: int, control_freq: int, *, action_delta: bool = True,
+    embodiment: str = "franka_panda",
 ) -> tuple[Any, str]:
     from libero.libero import get_libero_path
     from libero.libero.envs import OffScreenRenderEnv
@@ -323,29 +385,33 @@ def _get_libero_env(
         "control_freq": control_freq,
         "ignore_done": True,
     }
-    env = OffScreenRenderEnv(**env_args)
+    env_class = OffScreenRenderEnv
+    if embodiment == "ur5e":
+        if action_delta:
+            raise ValueError("UR5e GraphPoint evaluation requires absolute actions")
+        from examples.libero.embodiment.ur5e.integration import UR5eEnv
+        env_class = UR5eEnv
+    env = env_class(**env_args)
     env.seed(seed)
     return env, task_description
 
 
-def _prepare_observation(obs: dict[str, Any], env: Any) -> dict[str, Any]:
+def _prepare_observation(obs: dict[str, Any], env: Any, *, embodiment: str = "franka_panda") -> dict[str, Any]:
     sim = env.env.sim if hasattr(env, "env") and hasattr(env.env, "sim") else env.sim
     metric_depth = np.asarray(get_real_depth_map(sim, obs["agentview_depth"]), dtype=np.float32)
     if metric_depth.ndim == 3 and metric_depth.shape[-1] == 1:
         metric_depth = metric_depth[..., 0]
     if metric_depth.ndim != 2:
         raise ValueError(f"Expected agentview metric depth [H,W], got {metric_depth.shape}")
+    state = np.concatenate((obs["robot0_eef_pos"], _quat2axisangle(obs["robot0_eef_quat"]), obs["robot0_gripper_qpos"]))
+    if embodiment == "ur5e":
+        from examples.libero.embodiment.ur5e.integration import observation_state
+        state = observation_state(env)
     return {
         "agentview_image": np.ascontiguousarray(obs["agentview_image"][::-1, :]),
         "wrist_image": np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, :]),
         "agentview_metric_depth": np.ascontiguousarray(metric_depth[::-1, :]),
-        "state": np.concatenate(
-            (
-                obs["robot0_eef_pos"],
-                _quat2axisangle(obs["robot0_eef_quat"]),
-                obs["robot0_gripper_qpos"],
-            )
-        ),
+        "state": state,
     }
 
 
@@ -353,8 +419,17 @@ def _dummy_action(
     observation: dict[str, Any] | None = None,
     *,
     action_delta: bool = True,
+    embodiment: str = "franka_panda",
+    env: Any = None,
 ) -> np.ndarray:
     action = np.zeros(7, dtype=np.float32)
+    if embodiment == "ur5e":
+        if action_delta or env is None:
+            raise ValueError("UR5e wait action requires an environment and absolute control")
+        from examples.libero.embodiment.ur5e.integration import observation_state
+        action[:6] = observation_state(env)[:6]
+        action[6] = -1.0
+        return action
     if not action_delta:
         if observation is None:
             raise ValueError("absolute wait action requires the current observation")
@@ -370,11 +445,17 @@ def _dummy_action(
     return action
 
 
-def _to_libero_action(action: np.ndarray, *, action_delta: bool) -> np.ndarray:
+def _to_libero_action(action: np.ndarray, *, action_delta: bool,
+                      embodiment: str = "franka_panda", env: Any = None) -> np.ndarray:
     """Adapt a canonical world hand action to LIBERO's controller frame."""
     action = np.asarray(action, dtype=np.float64).copy()
     if action.shape != (7,):
         raise ValueError(f"LIBERO action must be 7-D, got {action.shape}")
+    if embodiment == "ur5e":
+        if action_delta or env is None:
+            raise ValueError("UR5e action conversion requires an environment and absolute control")
+        from examples.libero.embodiment.ur5e.integration import controller_action
+        return controller_action(action, env)
     if action_delta:
         return action.astype(np.float32)
     hand_to_site = np.asarray([
@@ -698,7 +779,7 @@ def _default_max_steps(task_suite_name: str) -> int:
         return 280
     if task_suite_name == "libero_goal":
         return 300
-    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom", "libero_custom_0902", "libero_swap_test"}:
+    if task_suite_name in {"libero_10", "libero_10_swap", "libero_custom", "libero_custom_0902", "libero_custom_0904", "libero_swap_test"}:
         return 520
     if task_suite_name == "libero_90":
         return 400
@@ -719,6 +800,7 @@ def parse_args() -> Args:
     parser = argparse.ArgumentParser(description="Evaluate GraphVLA through the observation-driven inference server on LIBERO.")
     parser.add_argument("--host", default=Args.host)
     parser.add_argument("--port", type=int, default=Args.port)
+    parser.add_argument("--embodiment", choices=("franka_panda", "ur5e"), default=Args.embodiment)
     parser.add_argument("--control-freq", type=int, default=Args.control_freq)
     parser.add_argument("--task-suite-name", default=Args.task_suite_name)
     parser.add_argument("--tasks", type=int, nargs="+", default=Args.tasks)
@@ -755,6 +837,8 @@ def parse_args() -> Args:
     )
     parser.set_defaults(action_delta=Args.action_delta)
     ns = parser.parse_args()
+    if ns.embodiment == "ur5e" and ns.action_delta:
+        parser.error("--embodiment ur5e requires --absolute-action")
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
     if ns.num_workers <= 0:
@@ -778,6 +862,7 @@ def parse_args() -> Args:
         action_delta=ns.action_delta,
         num_workers=ns.num_workers,
         resume_dir=ns.resume_dir,
+        embodiment=ns.embodiment,
     )
 
 
@@ -840,6 +925,7 @@ def _evaluate_task(
             seed=args.seed,
             control_freq=args.control_freq,
             action_delta=args.action_delta,
+            embodiment=args.embodiment,
         )
         total_goals = len(env.env.parsed_problem["goal_state"])
         client.set_camera(env=env)
@@ -899,7 +985,7 @@ def _evaluate_task(
                             f"episode {episode_idx + 1}/{len(init_state_ids)} "
                             f"wait_step {step + 1}/{args.num_steps_wait}[/dim]"
                         )
-                        action = _dummy_action(obs, action_delta=args.action_delta)
+                        action = _dummy_action(obs, action_delta=args.action_delta, embodiment=args.embodiment, env=env)
                         current_state = np.concatenate(
                             (
                                 obs["robot0_eef_pos"],
@@ -907,6 +993,9 @@ def _evaluate_task(
                                 obs["robot0_gripper_qpos"],
                             )
                         )
+                        if args.embodiment == "ur5e":
+                            from examples.libero.embodiment.ur5e.integration import observation_state
+                            current_state = observation_state(env)
                         policy_step = None
                     else:
                         policy_step = step - args.num_steps_wait + 1
@@ -915,7 +1004,10 @@ def _evaluate_task(
                             f"episode {episode_idx + 1}/{len(init_state_ids)} "
                             f"step {policy_step}/{max_steps}[/dim]"
                         )
-                        prepared_observation = _prepare_observation(obs, env)
+                        observation_started = time.perf_counter()
+                        prepared_observation = _prepare_observation(obs, env, embodiment=args.embodiment)
+                        if PROFILE:
+                            client.profile["observation_s"] += time.perf_counter() - observation_started
                         previous_response = client.last_response
                         action = client.infer(prepared_observation, task_description)
                         current_state = prepared_observation["state"]
@@ -941,6 +1033,7 @@ def _evaluate_task(
                             )
                             break
 
+                    visual_started = time.perf_counter()
                     frame = np.ascontiguousarray(obs["agentview_image"][::-1, :])
                     prediction_frame = _draw_response_points(
                         frame,
@@ -961,6 +1054,8 @@ def _evaluate_task(
                     controller_action = _to_libero_action(
                         action,
                         action_delta=args.action_delta,
+                        embodiment=args.embodiment,
+                        env=env,
                     )
                     step_records.append(
                         {
@@ -973,7 +1068,13 @@ def _evaluate_task(
                             "action_frame_id": client.last_action_frame_id if policy_step is not None else None,
                         }
                     )
+                    env_started = time.perf_counter()
+                    if PROFILE and policy_step is not None:
+                        client.profile["visual_record_s"] += env_started - visual_started
                     obs, _, done, _ = env.step(controller_action.tolist())
+                    if PROFILE and policy_step is not None:
+                        client.profile["env_s"] += time.perf_counter() - env_started
+                        client.profile["env_steps"] += 1
                     if done:
                         break
 
@@ -1017,16 +1118,19 @@ def _evaluate_task(
                 artifact_stem = (
                     f"task_{task_id:03d}_ep_{episode_idx:03d}_sec_{duration_seconds:03d}_{env_result}_{server_result}"
                 )
+                save_started = time.perf_counter()
                 _save_video_ffmpeg(
                     combined_frames, video_dir / f"{artifact_stem}.mp4",
                     fps=float(args.control_freq), worker_id=worker_id,
                 )
+                video_saved = time.perf_counter()
                 record = {
                     "metadata": {
                         "task_id": task_id,
                         "episode_id": episode_idx,
                         "init_state_id": init_state_id,
                         "task_description": task_description,
+                        "embodiment": args.embodiment,
                         "fps": args.control_freq,
                         "total_goals": total_goals,
                     },
@@ -1036,6 +1140,12 @@ def _evaluate_task(
                 }
                 json_path = video_dir / f"{artifact_stem}.json"
                 _write_json_atomic(json_path, record)
+                if PROFILE:
+                    print("PROFILE_SAVE " + json.dumps({
+                        "worker": worker_id, "frames": len(combined_frames),
+                        "video_s": video_saved - save_started,
+                        "json_s": time.perf_counter() - video_saved,
+                    }), flush=True)
                 cs.print(
                     f"{_worker_prefix(worker_id)} saved execution record to: "
                     f"{json_path} ({len(step_records)} frames)"
@@ -1081,7 +1191,11 @@ def _evaluate_task_group(
     from libero.libero import benchmark
 
     task_suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
-    client = InferenceClient(host=args.host, port=args.port, worker_id=worker_id)
+    client = InferenceClient(
+        host=args.host, port=args.port, worker_id=worker_id,
+        image_obs_steps=args.image_obs_steps,
+        embodiment=args.embodiment,
+    )
     results = []
     while (job := scheduler.acquire()) is not None:
         try:
@@ -1162,11 +1276,15 @@ def main() -> None:
             )
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
-    ckpt_path, progress_threshold = _server_info(host=args.host, port=args.port)
+    ckpt_path, progress_threshold, args.image_obs_steps = _server_info(
+        host=args.host, port=args.port, embodiment=args.embodiment)
     ckpt_dir_name = _ckpt_dir_name(ckpt_path)
+    if args.embodiment != "franka_panda":
+        ckpt_dir_name += f"-{args.embodiment}"
     if args.resume_dir is None:
-        timestamp = datetime.now().strftime("%m%d-%H%M")
+        timestamp = datetime.now().strftime("%m%d-%H%M%S-%f")
         suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
+        suite_output_dir.mkdir(parents=True, exist_ok=False)
     else:
         suite_output_dir = args.resume_dir.resolve()
         if not suite_output_dir.is_dir():
@@ -1256,6 +1374,7 @@ def main() -> None:
 
     result = {
         "task_suite": args.task_suite_name,
+        "embodiment": args.embodiment,
         "success_rate": float(total_successes) / float(total_episodes) if total_episodes else 0.0,
         "server_success_rate": (
             float(total_server_successes) / float(total_episodes) if total_episodes else 0.0

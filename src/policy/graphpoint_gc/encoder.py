@@ -1,0 +1,237 @@
+"""Single-node encoder for the GraphPoint graph-collapse ablation."""
+
+from __future__ import annotations
+
+import torch
+from torch import nn
+from src.policy.checkpointing import checkpoint_module
+
+from src.common.schema import NUM_ENTITIES, POINT_FEATURE_DIM
+from src.policy.graphpoint_gc.temporal import AdaptiveLayerNorm, RotaryEncoderBlock
+
+
+class ConditionedEncoderBlock(nn.Module):
+    """Pre-norm transformer block with condition-dependent normalization."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+        condition_dim: int,
+    ) -> None:
+        super().__init__()
+        self.attention_norm = AdaptiveLayerNorm(hidden_dim, condition_dim)
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout, batch_first=True)
+        self.ffn_norm = AdaptiveLayerNorm(hidden_dim, condition_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, int(hidden_dim * mlp_ratio)),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(int(hidden_dim * mlp_ratio), hidden_dim),
+        )
+        self.residual_dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        token: torch.Tensor,
+        condition: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        normalized = self.attention_norm(token, condition)
+        update = self.attention(
+            normalized, normalized, normalized,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )[0]
+        token = token + self.residual_dropout(update)
+        return token + self.residual_dropout(self.ffn(self.ffn_norm(token, condition)))
+
+
+class CollapsedEncoder(nn.Module):
+    """Alternate shared point-set attention with temporal summary attention."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        actor_num_points: int,
+        num_layers: int,
+        num_heads: int,
+        mlp_ratio: float,
+        condition_dim: int,
+        max_history: int,
+        cls_token_num: int = 1,
+        dropout: float = 0.0,
+        global_layer_types: tuple[int, ...] | list[int] | None = None,
+        encoder_output_type: str = "current",
+    ) -> None:
+        super().__init__()
+        if actor_num_points < 1:
+            raise ValueError(f"actor_num_points must be at least 1, got {actor_num_points}")
+        if cls_token_num < 1:
+            raise ValueError(f"cls_token_num must be at least 1, got {cls_token_num}")
+        if global_layer_types is None:
+            global_layer_types = (0,) * num_layers
+        self.global_layer_types = tuple(global_layer_types)
+        if len(self.global_layer_types) != num_layers:
+            raise ValueError(
+                f"global_layer_types must contain {num_layers} entries, "
+                f"got {len(self.global_layer_types)}"
+            )
+        if any(layer_type not in (0, 1) for layer_type in self.global_layer_types):
+            raise ValueError(
+                f"global_layer_types entries must be 0 (register) or 1 (dense), "
+                f"got {self.global_layer_types}"
+            )
+        if encoder_output_type not in ("current", "all"):
+            raise ValueError(
+                "encoder_output_type must be 'current' or 'all', "
+                f"got {encoder_output_type!r}"
+            )
+        self.actor_num_points = actor_num_points
+        self.cls_token_num = cls_token_num
+        self.encoder_output_type = encoder_output_type
+        self.point_stem = nn.Sequential(
+            nn.Linear(POINT_FEATURE_DIM, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+        )
+        self.max_history = max_history
+        self.actor_keypoint_embedding = nn.Embedding(actor_num_points, hidden_dim)
+        self.shared_condition = nn.Parameter(torch.zeros(1, hidden_dim))
+        self.action_projection = nn.Linear(condition_dim, hidden_dim)
+        self.degree_projection = nn.Linear(condition_dim, hidden_dim)
+        self.null_degree_token = nn.Parameter(torch.zeros(1, hidden_dim))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, 1, cls_token_num, hidden_dim))
+        self.local_blocks = nn.ModuleList([
+            ConditionedEncoderBlock(
+                hidden_dim, num_heads, mlp_ratio, dropout, condition_dim=hidden_dim,
+            ) for _ in range(num_layers)
+        ])
+        self.global_blocks = nn.ModuleList([
+            RotaryEncoderBlock(
+                hidden_dim, num_heads, mlp_ratio, dropout, condition_dim=hidden_dim * 2,
+            ) for _ in range(num_layers)
+        ])
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.gradient_checkpointing = False
+        nn.init.normal_(self.cls_token, std=0.02)
+
+    def forward(
+        self,
+        points: torch.Tensor,
+        point_mask: torch.Tensor,
+        scene_condition: torch.Tensor,
+        entity_presence: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if points.ndim != 5 or points.shape[2] != NUM_ENTITIES:
+            raise ValueError(f"Expected entity_points [B,T,{NUM_ENTITIES},P,3], got {points.shape}")
+        batch, steps, entities, num_points, _ = points.shape
+        if steps > self.max_history:
+            raise ValueError(f"Expected at most {self.max_history} history steps, got {steps}")
+        if point_mask.shape != points.shape[:-1]:
+            raise ValueError(f"point mask {point_mask.shape} does not match points {points.shape}")
+        if scene_condition.shape[:2] != (batch, 2):
+            raise ValueError(f"Expected scene_condition [B,2,C], got {scene_condition.shape}")
+        if entity_presence is None:
+            entity_presence = torch.ones(batch, entities, dtype=torch.bool, device=points.device)
+        if entity_presence.shape != (batch, entities) or not entity_presence.any(dim=1).all():
+            raise ValueError("entity_presence must be [B,3] with at least one present role")
+        entity_presence = entity_presence.to(device=points.device, dtype=torch.bool)
+        point_mask = point_mask.bool() & entity_presence[:, None, :, None]
+        points = points.masked_fill(~point_mask[..., None], 0.0)
+        tokens = self.point_stem(points)
+        actor_ids = torch.arange(self.actor_num_points, device=points.device)
+        tokens[:, :, 0, :self.actor_num_points] += self.actor_keypoint_embedding(actor_ids)[None, None]
+        # Collapse roles before the first attention operation. Padding stays masked.
+        tokens = tokens.flatten(2, 3).unsqueeze(2)
+        point_mask = point_mask.flatten(2, 3).unsqueeze(2)
+        num_points *= entities
+        entities = 1
+        cls_presence = torch.ones(
+            batch, steps, 1, self.cls_token_num, dtype=torch.bool, device=points.device,
+        )
+        cls = self.cls_token.expand(batch, steps, 1, -1, -1)
+        action_token = self.action_projection(scene_condition[:, 0])
+        projected_degree = self.degree_projection(scene_condition[:, 1])
+        has_degree = scene_condition[:, 1].abs().sum(dim=-1, keepdim=True) > 0
+        degree_token = torch.where(
+            has_degree,
+            projected_degree,
+            self.null_degree_token.expand(batch, -1),
+        )
+        semantic_memory = torch.stack([action_token, degree_token], dim=1)
+        task_condition = torch.cat([action_token, degree_token], dim=-1)
+        shared_condition = self.shared_condition.expand(batch * steps, -1)
+        history_positions = torch.arange(1 - steps, 1, device=points.device)
+        global_positions = history_positions.repeat_interleave(entities * self.cls_token_num)
+        global_entity_tokens = steps * entities * self.cls_token_num
+        dense_positions = history_positions.repeat_interleave(
+            entities * (self.cls_token_num + num_points)
+        )
+        dense_entity_tokens = steps * entities * (self.cls_token_num + num_points)
+        dense_key_mask = torch.cat([
+            cls_presence,
+            point_mask.bool(),
+        ], dim=3).reshape(batch, dense_entity_tokens)
+        for layer_index, (local_block, global_block) in enumerate(
+            zip(self.local_blocks, self.global_blocks, strict=True)
+        ):
+            local = torch.cat([cls, tokens], dim=3)
+            local = local.reshape(
+                batch * steps * entities, num_points + self.cls_token_num, -1
+            )
+            padding = torch.cat([
+                torch.zeros(
+                    batch, steps, entities, self.cls_token_num,
+                    dtype=torch.bool, device=points.device,
+                ),
+                ~point_mask.bool(),
+            ], dim=3).reshape(
+                batch * steps * entities, num_points + self.cls_token_num
+            )
+            local = checkpoint_module(local_block, local, shared_condition, padding)
+            local = local.view(
+                batch, steps, entities, num_points + self.cls_token_num, -1
+            )
+            cls = local[:, :, :, :self.cls_token_num]
+            tokens = local[:, :, :, self.cls_token_num:]
+            if self.global_layer_types[layer_index] == 0:
+                global_cls = cls.reshape(batch, global_entity_tokens, -1)
+                global_cls = checkpoint_module(
+                    global_block, global_cls, global_positions,
+                    condition=task_condition,
+                    key_mask=cls_presence.reshape(batch, global_entity_tokens),
+                )
+                cls = global_cls.view(
+                    batch, steps, entities, self.cls_token_num, -1
+                )
+                continue
+
+            dense = torch.cat([cls, tokens], dim=3).reshape(batch, dense_entity_tokens, -1)
+            dense = checkpoint_module(
+                global_block, dense, dense_positions, key_mask=dense_key_mask,
+                use_sdpa=True,
+                condition=task_condition,
+            )
+            dense_entities = dense.view(
+                batch, steps, entities, self.cls_token_num + num_points, -1
+            )
+            cls = dense_entities[:, :, :, :self.cls_token_num]
+            tokens = dense_entities[:, :, :, self.cls_token_num:]
+            tokens = tokens.masked_fill(~point_mask.bool().unsqueeze(-1), 0.0)
+
+        cls = self.norm(cls).masked_fill(~cls_presence[..., None], 0.0)
+        current_cls = cls[:, -1]
+        relation_local = current_cls.flatten(1, 2)
+        entity_memory = (
+            current_cls.flatten(1, 2)
+            if self.encoder_output_type == "current"
+            else cls.flatten(1, 3)
+        )
+        return (
+            entity_memory,
+            relation_local,
+            self.norm(semantic_memory),
+        )

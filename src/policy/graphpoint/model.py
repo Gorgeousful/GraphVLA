@@ -79,6 +79,7 @@ class JointTrajectoryFlow(nn.Module):
         task_condition: torch.Tensor,
         history_state: torch.Tensor,
         memory_positions: torch.Tensor,
+        memory_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if state.ndim != 3 or state.shape[1:] != (self.horizon, self.trajectory_dim):
             raise ValueError(
@@ -117,6 +118,7 @@ class JointTrajectoryFlow(nn.Module):
             token = checkpoint_module(
                 block, token, memory, time_condition, task_condition, token_positions,
                 memory_positions, self.self_attention_mask,
+                memory_mask,
             )
         hidden, _ = self.norm(token, time_condition, task_condition)
         return self.output_projection(hidden[:, self.history_steps:])
@@ -211,11 +213,46 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
             raise ValueError(
                 f"Expected entity points [B,{self.history_steps},3,{self.num_points},3], got {points.shape}"
             )
-        return self.encoder(
+        presence = batch.get("entity_presence")
+        memory, relation, semantic = self.encoder(
             points,
             batch["entity_point_mask"],
             batch["scene_condition"],
+            presence,
         )
+        if presence is not None and 2 in self.encoder.progresshead_indices:
+            binary = presence[:, 1].bool() & ~presence[:, 2].bool()
+            if binary.any():
+                if "initial_patient_points" not in batch or "initial_patient_mask" not in batch:
+                    raise ValueError("Binary progress requires the subtask-initial patient")
+                reference = batch["initial_patient_points"][binary]
+                reference_mask = batch["initial_patient_mask"][binary].bool()
+                expected = (int(binary.sum()), self.num_points, 3)
+                if reference.shape != expected or reference_mask.shape != expected[:-1]:
+                    raise ValueError("Invalid subtask-initial patient shape")
+                initial_points = points.new_zeros((reference.shape[0], 1, 3, self.num_points, 3))
+                initial_points[:, 0, 1] = reference
+                initial_mask = torch.zeros(initial_points.shape[:-1], dtype=torch.bool, device=points.device)
+                initial_mask[:, 0, 1] = reference_mask
+                initial_presence = torch.zeros(reference.shape[0], 3, dtype=torch.bool, device=points.device)
+                initial_presence[:, 1] = True
+                initial_memory, _, _ = self.encoder(
+                    initial_points, initial_mask, batch["scene_condition"][binary], initial_presence,
+                )
+                initial_patient = initial_memory.reshape(
+                    reference.shape[0], 3, self.cls_token_num, -1,
+                )[:, 1]
+                relation = relation.reshape(points.shape[0], len(self.encoder.progresshead_indices), self.cls_token_num, -1).clone()
+                relation[binary, self.encoder.progresshead_indices.index(2)] = initial_patient
+                relation = relation.flatten(1, 2)
+        return memory, relation, semantic
+
+    def _memory_mask(self, batch: dict[str, Any]) -> torch.Tensor | None:
+        presence = batch.get("entity_presence")
+        if presence is None:
+            return None
+        mask = presence.bool().repeat_interleave(self.cls_token_num, dim=1)
+        return mask if self.encoder_output_type == "current" else mask.repeat(1, self.history_steps)
 
     def _actor_history(self, batch: dict[str, Any]) -> torch.Tensor:
         actor_xyz = batch["entity_points"][:, :, 0, :self.actor_num_points].flatten(2)
@@ -252,6 +289,7 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
         velocity = self.flow(
             state, time, memory, self._task_condition(semantic_memory), actor_history,
             self._memory_positions(memory),
+            self._memory_mask(batch),
         )
         squared_error = (velocity - target_velocity).square()
         point_squared_error = squared_error[..., :-1]
@@ -312,6 +350,7 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
             velocity = self.flow(
                 state, time, memory, self._task_condition(semantic_memory), self._actor_history(batch),
                 self._memory_positions(memory),
+                self._memory_mask(batch),
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
 

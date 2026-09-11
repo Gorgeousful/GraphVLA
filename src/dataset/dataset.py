@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader as TorchDataLoader
@@ -273,6 +274,21 @@ class GenericDataset(Dataset):
         )
         self.indices = self._build_task_indices(getattr(data_config, "tasks", None))
         self.transform = Compose(getattr(data_config, "transforms", ()))
+        self.subtask_start_indices = None
+        if getattr(data_config, "graphpoint_subtask_start", False):
+            # Index contiguous subtask segments before task filtering or horizon sampling.
+            columns = self.dataset.hf_dataset.select_columns(
+                ["episode_index", "subtask_id"]
+            ).with_format("numpy")
+            episodes = np.asarray(columns["episode_index"]).reshape(-1)
+            subtasks = np.asarray(columns["subtask_id"]).reshape(-1)
+            boundaries = np.r_[True, (episodes[1:] != episodes[:-1]) | (subtasks[1:] != subtasks[:-1])]
+            self.subtask_start_indices = np.maximum.accumulate(
+                np.where(boundaries, np.arange(len(episodes)), 0)
+            )
+            self.subtask_start_features = self.dataset.hf_dataset.select_columns(
+                ["node_points_xyz", "valid_node_mask", "subtask_node_mask"]
+            )
 
     def __len__(self) -> int:
         if self.indices is not None:
@@ -282,7 +298,13 @@ class GenericDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         if self.indices is not None:
             index = self.indices[index]
-        return self.transform(self.dataset[index])
+        sample = self.dataset[index]
+        if self.subtask_start_indices is not None:
+            keys = ("node_points_xyz", "valid_node_mask", "subtask_node_mask")
+            initial = self.subtask_start_features[int(self.subtask_start_indices[index])]
+            for key in keys:
+                sample[f"initial_{key}"] = torch.as_tensor(initial[key]).clone()
+        return self.transform(sample)
 
     def _build_delta_timestamps(self, horizon: dict[str, list[int]] | None) -> dict[str, list[float]] | None:
         if not horizon:

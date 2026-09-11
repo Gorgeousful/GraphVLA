@@ -11,8 +11,10 @@ import argparse
 import asyncio
 import gc
 import json
+import os
 import random
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
@@ -47,6 +49,7 @@ from src.training.checkpoint import TrainingCheckpoint
 
 cs = Console()
 _WORKER_CONTEXT = threading.local()
+PROFILE = os.environ.get("GRAPHVLA_PROFILE", "0") == "1"
 
 
 def _worker_prefix() -> str:
@@ -86,6 +89,7 @@ class Args:
     progress_threshold: float = 0.9
     progress_window: int = 3
     devices: dict[str, str] = field(default_factory=dict)
+    embodiment: str = "franka_panda"
 
 
 @dataclass
@@ -118,6 +122,9 @@ class InferenceSession:
     tracked_points: np.ndarray | None = None
     initial_points: np.ndarray | None = None
     object_to_unique_indices: list[int] = field(default_factory=list)
+    subtask_initial_frame: dict[str, np.ndarray] | None = None
+    initial_patient_camera: np.ndarray | None = None
+    initial_patient_subtask: int | None = None
 
     def reset(self, *, benchmark: str, language: str, worker_id: int = 0) -> None:
         self.benchmark = benchmark
@@ -133,6 +140,9 @@ class InferenceSession:
 
     def reset_preprocessor(self) -> None:
         self.feature_history.clear()
+        self.subtask_initial_frame = None
+        self.initial_patient_camera = None
+        self.initial_patient_subtask = None
         self.frame_index = 0
         self.object_nodes.clear()
         self.active_object_indices.clear()
@@ -219,6 +229,9 @@ class TopLevelTaskPlanner:
         next_subtask = subtasks[session.subtask_index]
         session.current_subtask = str(next_subtask.get("subtask", ""))
         session.feature_history.clear()
+        session.subtask_initial_frame = None
+        session.initial_patient_camera = None
+        session.initial_patient_subtask = None
         return True
 
     def _load_taskstructure_cache(self) -> None:
@@ -283,6 +296,7 @@ class InputPreprocessor:
         actor_point_indices: tuple[int, ...],
         robot_cls: type[Any],
         dataset_dir: str | Path,
+        embodiment: str = "franka_panda",
         point_coordinate_frame: str = "camera",
         locator: str = "locateanything",
         locator_mode: str = "point",
@@ -310,6 +324,8 @@ class InputPreprocessor:
                 f"num_points must be at least {self.actor_num_points}, got {self.num_points}"
             )
         self.robot_cls = robot_cls
+        self.embodiment = embodiment
+        self._robot_local = threading.local()
         self.locator = locator
         self.locator_mode = locator_mode
         self.locator_scale = locator_scale
@@ -504,6 +520,8 @@ class InputPreprocessor:
 
     def _state_to_gripper_points_xyz(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
+        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+            return self._robot().project_observation_to_xyz(state, frame.extrinsic)
         if state.size < 8:
             raise ValueError(f"observation.state must contain at least 8 values, got {state.size}")
         gripper_width = abs(float(state[6])) + abs(float(state[7]))
@@ -568,14 +586,40 @@ class InputPreprocessor:
         gripper_width = np.linalg.norm(
             full_gripper_xyz[:, 3] - full_gripper_xyz[:, 4], axis=-1,
         )
-        openness = np.clip(gripper_width / LIBERO_GRIPPER_MAX_WIDTH, 0.0, 1.0)
+        max_width = (self._robot()._MAX_GRIPPER_WIDTH
+                     if getattr(self, "embodiment", "franka_panda") == "ur5e" else LIBERO_GRIPPER_MAX_WIDTH)
+        openness = np.clip(gripper_width / max_width, 0.0, 1.0)
         closedness = (1.0 - 2.0 * openness)[:, None].astype(np.float32)
         model_input = {
             "entity_points": entity_points[None].tolist(),
             "entity_point_mask": entity_mask[None].tolist(),
+            "entity_presence": [[True, "patient" in active_roles, "target" in active_roles]],
             "gripper_closedness_history": closedness[None].tolist(),
             "scene_condition_texts": scene_condition_texts,
         }
+        initial_patient = np.zeros((self.num_points, POINT_FEATURE_DIM), dtype=np.float32)
+        initial_mask = np.zeros(self.num_points, dtype=bool)
+        if "patient" in active_roles and "target" not in active_roles:
+            if (getattr(session, "initial_patient_subtask", None) != session.subtask_index
+                    or getattr(session, "initial_patient_camera", None) is None):
+                initial_frame = getattr(session, "subtask_initial_frame", None)
+                if initial_frame is None:
+                    initial_frame = frames[0]
+                initial_objects = self._object_feats(
+                    self._active_tracks(initial_frame["tracks"], session.active_object_indices),
+                    active_roles, initial_frame["metric_depth"], initial_frame["intrinsic"],
+                    *initial_frame["metric_depth"].shape,
+                )
+                session.initial_patient_camera = initial_objects[0].copy()
+                session.initial_patient_subtask = session.subtask_index
+            initial_raw = session.initial_patient_camera
+            initial_mask[:] = np.any(initial_raw != 0)
+            initial_patient = self._normalize_field(
+                initial_raw if tcp_origin is None else initial_raw - tcp_origin, point_stats_field,
+            )
+            initial_patient[~initial_mask] = 0.0
+        model_input["initial_patient_points"] = initial_patient[None].tolist()
+        model_input["initial_patient_mask"] = initial_mask[None].tolist()
         if tcp_origin is not None:
             model_input["tcp_origin"] = tcp_origin[None].tolist()
         return model_input
@@ -665,6 +709,11 @@ class InputPreprocessor:
         raise ValueError(f"{name} length {len(frames)} does not match history chunk length {target_len}")
 
     def _append_feature_history(self, session: InferenceSession, features: dict[str, np.ndarray]) -> None:
+        if getattr(session, "subtask_initial_frame", None) is None:
+            session.subtask_initial_frame = {
+                key: value.copy() if isinstance(value, np.ndarray) else value
+                for key, value in features.items()
+            }
         session.feature_history.append(features)
         max_history = 1 - min(self.history_frames, default=0)
         if len(session.feature_history) > max_history:
@@ -722,6 +771,10 @@ class InputPreprocessor:
         return ((value - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0).astype(np.float32)
 
     def _robot(self) -> Any:
+        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+            if not hasattr(self._robot_local, "robot"):
+                self._robot_local.robot = self.robot_cls(embodiment="ur5e", with_fingers=True)
+            return self._robot_local.robot
         if self.robot is None:
             self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
         return self.robot
@@ -924,6 +977,41 @@ class PointPolicyPreprocessor(InputPreprocessor):
         return {**{k: v.unsqueeze(0).tolist() for k, v in batch.items()}, "language": [session.language]}
 
 
+class PointBridgePreprocessor(InputPreprocessor):
+    """Reuse SAM mask sampling and depth projection for all task objects."""
+
+    def __init__(self, *, point_transform, **kwargs):
+        kwargs["sam_only"] = True
+        super().__init__(**kwargs)
+        self.point_transform = point_transform
+
+    def _build_model_input(self, session, frames, subtaskstructure):
+        count = len(session.object_nodes)
+        if count > self.point_transform.max_objects:
+            raise ValueError("Task exceeds Point Bridge's configured object capacity")
+        objects = np.zeros((len(frames), self.point_transform.max_objects, self.num_points, 3), dtype=np.float32)
+        masks = np.zeros(objects.shape[:-1], dtype=bool)
+        for index, frame in enumerate(frames):
+            tracks = frame["tracks"]
+            if tracks.shape != (count, self.num_points, 3):
+                raise ValueError("Unexpected SAM point shape")
+            uv = tracks[..., :2]
+            depth, bounds = self._sample_depth(frame["metric_depth"], uv, *frame["metric_depth"].shape)
+            z = depth[..., 0]
+            projectable = bounds[..., 0].astype(bool) & np.isfinite(z) & (z > 0)
+            # Match stored node validity and retain projectable points within valid nodes.
+            valid_node = ((tracks[..., 2] > 0.5) & projectable).any(-1)
+            valid = projectable & valid_node[:, None]
+            k = frame["intrinsic"]
+            xyz = np.stack(((uv[..., 0] - k[0, 2]) / k[0, 0] * z,
+                            (uv[..., 1] - k[1, 2]) / k[1, 1] * z, z), axis=-1)
+            objects[index, :count] = np.where(valid[..., None], xyz, 0.0)
+            masks[index, :count] = valid
+        batch = self.point_transform.observations(
+            objects, masks, np.stack([frame["gripper_points_xyz"] for frame in frames]))
+        return {**{k: v.unsqueeze(0).tolist() for k, v in batch.items()}, "language": [session.language]}
+
+
 class EmbodimentAdapter:
     """Convert routed model plans into executable LIBERO world-frame actions."""
 
@@ -935,6 +1023,7 @@ class EmbodimentAdapter:
         action_delta: bool = False,
         robot_cls: type[Any] | None = None,
         release_lift_height: float = 0.05,
+        embodiment: str = "franka_panda",
     ) -> None:
         if action_delta:
             raise ValueError("point-only server execution requires action_delta=False")
@@ -945,6 +1034,8 @@ class EmbodimentAdapter:
         self.actor_num_points = len(self.actor_point_indices)
         self.action_delta = bool(action_delta)
         self.robot_cls = robot_cls
+        self.embodiment = embodiment
+        self._robot_local = threading.local()
         if release_lift_height < 0:
             raise ValueError("release_lift_height must be non-negative")
         self.release_lift_height = float(release_lift_height)
@@ -1012,9 +1103,14 @@ class EmbodimentAdapter:
             raise ValueError(
                 f"point_only execution requires observation.state with gripper fingers, got {state.shape}"
             )
-        current_width = abs(float(state[6])) + abs(float(state[7]))
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
         robot = self._robot()
+        geometry_kwargs = {}
+        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+            current_width = robot.observation_gripper_width(state)
+            geometry_kwargs["gripper_qpos"] = state[6:]
+        else:
+            current_width = abs(float(state[6])) + abs(float(state[7]))
 
         actions = []
         for future_index, points in enumerate(actor_plan):
@@ -1023,6 +1119,7 @@ class EmbodimentAdapter:
                 gripper_width=current_width,
                 extrinsic=extrinsic,
                 actor_point_indices=self.actor_point_indices,
+                **geometry_kwargs,
             )
             action = np.asarray(pose, dtype=np.float64)
             if action.shape != (ACTION_DIM,) or not np.isfinite(action).all():
@@ -1036,6 +1133,10 @@ class EmbodimentAdapter:
         return actions
 
     def _robot(self) -> Any:
+        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+            if not hasattr(self._robot_local, "robot"):
+                self._robot_local.robot = self.robot_cls(embodiment="ur5e", with_fingers=True)
+            return self._robot_local.robot
         if self.robot is None:
             assert self.robot_cls is not None
             self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
@@ -1138,10 +1239,12 @@ class InferenceModel:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
 
-        if getattr(self, "policy_name", "graphpoint") == "point_policy":
-            infer_inputs = {name: tensor(name, dtype) for name, dtype in (
-                ("point_tracks", torch.float32), ("point_mask", torch.bool),
-                ("gripper_history", torch.float32))}
+        if getattr(self, "policy_name", "graphpoint") in ("point_policy", "point_bridge"):
+            fields = (("point_tracks", torch.float32), ("point_mask", torch.bool),
+                      ("gripper_history", torch.float32)) if self.policy_name == "point_policy" else (
+                          ("robot_points", torch.float32), ("object_points", torch.float32),
+                          ("object_mask", torch.bool))
+            infer_inputs = {name: tensor(name, dtype) for name, dtype in fields}
             infer_inputs["language"] = input_data["language"]
             if "language_embedding" in input_data:
                 infer_inputs["language_embedding"] = tensor("language_embedding", torch.float32)
@@ -1171,6 +1274,13 @@ class InferenceModel:
             "entity_point_mask": tensor("entity_point_mask", torch.bool),
             "scene_condition": scene_condition,
         }
+        for key, dtype in (
+            ("entity_presence", torch.bool),
+            ("initial_patient_points", torch.float32),
+            ("initial_patient_mask", torch.bool),
+        ):
+            if key in input_data:
+                infer_inputs[key] = tensor(key, dtype)
         if "gripper_closedness_history" in input_data:
             infer_inputs["gripper_closedness_history"] = tensor(
                 "gripper_closedness_history", torch.float32,
@@ -1290,7 +1400,9 @@ class InferenceServer:
         async for message in websocket:
             self.last_message_time = asyncio.get_running_loop().time()
             try:
+                parse_started = time.perf_counter()
                 request = json.loads(message)
+                parse_elapsed = time.perf_counter() - parse_started
                 if not isinstance(request, Mapping):
                     raise TypeError("request message must be a JSON object")
                 worker_id = int(request.get("worker_id", 0))
@@ -1298,7 +1410,11 @@ class InferenceServer:
                 if request.get("type") == "server_info":
                     response = self.server_info()
                 else:
+                    if PROFILE:
+                        request["_profile_queued_at"] = time.perf_counter()
                     response = await asyncio.to_thread(self._infer_locked, request)
+                    if PROFILE:
+                        response["_timing"]["parse_s"] = parse_elapsed
             except Exception as exc:
                 response = {"error": str(exc)}
             await websocket.send(json.dumps(response))
@@ -1307,21 +1423,35 @@ class InferenceServer:
         return {
             "ckpt_path": self.ckpt_path,
             "progress_threshold": self.planner.progress_threshold,
+            "embodiment": getattr(self.embodiment, "embodiment", "franka_panda"),
         }
 
     def _infer_locked(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        entered = time.perf_counter()
         session_id = str(request.get("session_id", ""))
         with self.session_locks_guard:
             session_lock = self.session_locks.setdefault(session_id, threading.Lock())
         with session_lock:
+            locked = time.perf_counter()
             _WORKER_CONTEXT.worker_id = int(request.get("worker_id", 0))
             try:
-                return self.infer_from_observation(request)
+                response = self.infer_from_observation(request)
+                if PROFILE:
+                    timing = response.setdefault("_timing", {})
+                    timing.update({
+                        "thread_queue_s": entered - request.get("_profile_queued_at", entered),
+                        "session_lock_s": locked - entered,
+                        "infer_total_s": time.perf_counter() - locked,
+                    })
+                return response
             finally:
                 del _WORKER_CONTEXT.worker_id
 
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
         self._validate_request(request)
+        expected_embodiment = getattr(self.embodiment, "embodiment", "franka_panda")
+        if request.get("embodiment", "franka_panda") != expected_embodiment:
+            raise ValueError(f"Client/server embodiment mismatch: expected {expected_embodiment!r}")
         session = self._session_for(request)
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
@@ -1513,18 +1643,58 @@ class PointPolicyInferenceServer(InferenceServer):
                 "progress_threshold": 1.0}
 
     def infer_from_observation(self, request):
+        started = time.perf_counter()
         self._validate_request(request)
         session = self._session_for(request)
         if session.taskstructure is None:
             session.taskstructure = self.planner._taskstructure(session.language)
         model_input = self.preprocessor.build(request, session, {})
+        prepared = time.perf_counter()
         capture = bool(request.get("return_model_input", False))
         outputs, captured = self._infer_model(model_input, return_model_input=capture)
+        inferred = time.perf_counter()
         actions = self.embodiment.to_action(outputs, request, session)
-        response = {**outputs, "action": actions[:self.execute_chunk_len], "episode_done": False}
+        session.active_object_indices = list(range(len(session.object_nodes)))
+        tracking_points, tracking_object_ids, tracking_active = self._tracking_response(
+            session, session.feature_history[-1]
+        )
+        response = {
+            **outputs,
+            "action": actions[:self.execute_chunk_len],
+            "episode_done": False,
+            "tracking_point": self.inference.to_json(tracking_points),
+            "tracking_object_id": self.inference.to_json(tracking_object_ids),
+            "tracking_point_active": self.inference.to_json(tracking_active),
+        }
         if capture:
             response["model_input"] = captured
+        if PROFILE:
+            response["_timing"] = {
+                "preprocess_s": prepared - started, "model_s": inferred - prepared,
+                "postprocess_s": time.perf_counter() - inferred,
+            }
         return response
+
+
+class PointBridgeEmbodimentAdapter(EmbodimentAdapter):
+    def to_action(self, outputs, request, session):
+        if "pose_plan" not in outputs:
+            return super().to_action(outputs, request, session)
+        from src.policy.point_bridge.data import camera_pose_to_world_action
+
+        if session.benchmark != "libero":
+            raise ValueError("Point Bridge supports LIBERO execution")
+        pose = np.asarray(outputs["pose_plan"], dtype=np.float64)
+        if pose.shape != (1, self.future_horizon, 10):
+            raise ValueError("Expected pose_plan [1,horizon,10]")
+        extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
+        return camera_pose_to_world_action(pose[0], extrinsic).tolist()
+
+
+class PointBridgeInferenceServer(PointPolicyInferenceServer):
+    def server_info(self):
+        return {"ckpt_path": self.ckpt_path, "policy_name": "point_bridge", "action_delta": False,
+                "action_mode": self.inference.model.action_mode, "progress_threshold": 1.0}
 
 
 class ImagePolicyInferenceServer(InferenceServer):
@@ -1588,10 +1758,13 @@ class ImagePolicyInferenceServer(InferenceServer):
             "ckpt_path": self.ckpt_path,
             "progress_threshold": 0.9,
             "action_delta": True,
+            "policy_name": self.policy_name,
+            "obs_steps": self.obs_steps,
         }
 
     @torch.inference_mode()
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        started = time.perf_counter()
         required = (
             "benchmark",
             "session_id",
@@ -1635,11 +1808,18 @@ class ImagePolicyInferenceServer(InferenceServer):
         if self.obs_steps == 1:
             batch["images"] = batch["images"][:, 0]
             batch["state"] = batch["state"][:, 0]
+        prepared = time.perf_counter()
         output_data = {"action": self.model.predict_action(batch)}
         for transform in self.out_transforms:
             output_data = transform(output_data)
         actions = output_data["action"][0, : self.execute_chunk_len]
-        return {"action": actions.cpu().tolist(), "episode_done": False}
+        response = {"action": actions.cpu().tolist(), "episode_done": False}
+        if PROFILE:
+            response["_timing"] = {
+                "preprocess_s": prepared - started,
+                "model_and_output_s": time.perf_counter() - prepared,
+            }
+        return response
 
 
 def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
@@ -1709,6 +1889,7 @@ class DP3InferenceServer(ImagePolicyInferenceServer):
 def parse_args() -> Args:
     parser = argparse.ArgumentParser(description="Serve GraphVLA observation inference over WebSocket.")
     parser.add_argument("--example", default="libero", choices=("libero",))
+    parser.add_argument("--embodiment", default="franka_panda", choices=("franka_panda", "ur5e"))
     parser.add_argument("--ckpt-path", required=True, help="Path to a training checkpoint.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8001)
@@ -1817,6 +1998,8 @@ def main() -> None:
         raise ValueError(f"Unsupported example: {args.example}")
 
     policy_name = resolve_policy_name(model_config)
+    if args.embodiment == "ur5e" and policy_name not in ("graphpoint", "graphpoint_gc"):
+        raise ValueError("UR5e inference currently requires a GraphPoint checkpoint")
     if policy_name in ("act", "dp", "dp3"):
         server_class = DP3InferenceServer if policy_name == "dp3" else ImagePolicyInferenceServer
         server = server_class(
@@ -1830,7 +2013,7 @@ def main() -> None:
         )
         server.serve_forever()
         return
-    if policy_name not in ("graphpoint", "point_policy"):
+    if policy_name not in ("graphpoint", "graphpoint_gc", "point_policy", "point_bridge"):
         raise ValueError(f"Unsupported inference policy: {policy_name!r}")
 
     history_horizon = int(model_config.history_horizon)
@@ -1840,6 +2023,17 @@ def main() -> None:
     server_class = InferenceServer
     preprocessor_class = InputPreprocessor
     preprocessor_kwargs = {}
+    embodiment_class = EmbodimentAdapter
+    if policy_name == "point_bridge":
+        from src.policy.point_bridge.data import PointBridgeTransform
+
+        server_class = PointBridgeInferenceServer
+        preprocessor_class = PointBridgePreprocessor
+        embodiment_class = PointBridgeEmbodimentAdapter
+        transforms = [t for t in data_config.transforms if isinstance(t, PointBridgeTransform)]
+        if len(transforms) != 1 or transforms[0].action_mode != model_config.action_mode:
+            raise ValueError("Point Bridge model/data action modes must match")
+        preprocessor_kwargs["point_transform"] = transforms[0]
     if policy_name == "point_policy":
         from src.policy.point_policy.data import PointPolicyTransform
 
@@ -1869,6 +2063,7 @@ def main() -> None:
             point_coordinate_frame=str(getattr(model_config, "point_coordinate_frame", "camera")),
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
+            embodiment=args.embodiment,
             locator=args.locator,
             locator_mode=args.locator_mode,
             locator_scale=args.locator_scale,
@@ -1884,12 +2079,13 @@ def main() -> None:
             device=torch.device(args.devices["inference"]),
             bge_path=args.bge_path,
         ),
-        embodiment=EmbodimentAdapter(
+        embodiment=embodiment_class(
             future_horizon=future_horizon,
             actor_point_indices=actor_point_indices,
             action_delta=bool(getattr(model_config, "action_delta", True)),
             robot_cls=GeomRobot,
             release_lift_height=args.release_lift_height,
+            embodiment=args.embodiment,
         ),
         ckpt_path=args.ckpt_path,
     )

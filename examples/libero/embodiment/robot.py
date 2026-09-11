@@ -26,6 +26,7 @@ class GeomFrankaPanda:
     """
 
     _FINGER_GEOM_NAMES = frozenset({"finger1_visual", "finger2_visual"})
+    _GRIPPER_GEOM_NAMES = ("hand_visual", "finger1_visual", "finger2_visual")
     _GRIPPER_FRAME_BODY = "right_hand"
     # Offline measurement of the center of the inner fingertip contact surface
     # in the right_hand frame. The fingers move symmetrically along local y.
@@ -46,7 +47,7 @@ class GeomFrankaPanda:
         self._raster_contexts: dict[str, object] = {}
 
         gripper_geom_names = (
-            ("hand_visual", "finger1_visual", "finger2_visual")
+            self._GRIPPER_GEOM_NAMES
             if with_fingers else ("hand_visual",)
         )
 
@@ -147,6 +148,8 @@ class GeomFrankaPanda:
         gripper_state: float | None = None,
     ) -> np.ndarray:
         """Return a point cloud (N, 3) in camera coordinates (FPS-sampled at init)."""
+        if gripper_state is not None:
+            self._set_finger_state(gripper_state)
         local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
 
         # Hand: rigid transform
@@ -207,13 +210,13 @@ class GeomFrankaPanda:
         world_transform: np.ndarray | None = None,
         gripper_width: float | None = None,
     ) -> dict:
-        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
         points_local = self._pose_keypoints_local
         point_names = ("root_uvd", "left_base_uvd", "right_base_uvd")
         if gripper_width is not None:
             points_local = self._gripper_keypoints_local(gripper_width)
             point_names += ("left_fingertip_uvd", "right_fingertip_uvd", "tcp_uvd")
 
+        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
         points_camera = transform_points(points_local, local_to_camera)
         intrinsic = np.asarray(intrinsic, dtype=np.float64)
         pixels_h = (intrinsic @ points_camera.T).T
@@ -229,10 +232,9 @@ class GeomFrankaPanda:
         world_transform: np.ndarray | None = None,
     ) -> np.ndarray:
         """Return all six gripper keypoints in camera coordinates."""
+        points_local = self._gripper_keypoints_local(gripper_width)
         local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
-        return transform_points(
-            self._gripper_keypoints_local(gripper_width), local_to_camera
-        )
+        return transform_points(points_local, local_to_camera)
 
     def project_uvd_to_gripper(
         self,
@@ -249,6 +251,7 @@ class GeomFrankaPanda:
         right_base_uvd = np.asarray(uvd_dict["right_base_uvd"], dtype=np.float64)
 
         uvd = np.stack([root_uvd, left_base_uvd, right_base_uvd])
+        self._gripper_keypoints_local(gripper_width)
         z = uvd[:, 2]
         points_camera = np.stack([
             (uvd[:, 0] - intrinsic[0, 2]) * z / intrinsic[0, 0],
@@ -276,7 +279,7 @@ class GeomFrankaPanda:
             raise ValueError(f"Expected four ray-depth keypoints [4,3], got {ray_depth.shape}")
         points_local = np.concatenate([
             self._pose_keypoints_local,
-            np.asarray([[0.0, 0.0, self._FINGERTIP_CONTACT_Z]], dtype=np.float64),
+            self._gripper_keypoints_local(gripper_width)[-1:],
         ])
         return self._fit_points_to_gripper(
             normalized_ray_depth_to_xyz(ray_depth),
@@ -440,10 +443,14 @@ class GeomFrankaPanda:
         for geom_name in geom_names:
             geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
             mesh_id = int(self.model.geom_dataid[geom_id])
-            if mesh_id < 0:
+            if self.model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_BOX:
+                from trimesh.creation import box
+                geometry = box(extents=2 * self.model.geom_size[geom_id])
+                vertices, faces = geometry.vertices, geometry.faces
+            elif mesh_id >= 0:
+                vertices, faces = self._mesh_vertices_faces(mesh_id)
+            else:
                 continue
-
-            vertices, faces = self._mesh_vertices_faces(mesh_id)
             if len(vertices) == 0 or len(faces) == 0:
                 continue
 
@@ -530,8 +537,8 @@ class GeomFrankaPanda:
         gripper_state: float | None,
     ) -> list[tuple[np.ndarray, np.ndarray]]:
         """Common pipeline: TCP → gripper → camera-space meshes."""
-        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
         meshes = self._get_meshes(gripper_state)
+        local_to_camera = self._camera_transform(tcp_state, extrinsic, world_transform)
         return [
             (transform_points(m["vertices"], local_to_camera), m["faces"])
             for m in meshes
@@ -555,12 +562,121 @@ class GeomFrankaPanda:
         return self._raster_contexts[key]
 
 
+class GeomUR5e(GeomFrankaPanda):
+    """UR5e + Robotiq85 geometry; TCP is the fingerpad contact-center midpoint.
+
+    The actor frame rotates the native adapter axes by pi around Z, so semantic
+    left is +Y as for Panda. Observation state is [midpoint pose(6), joints(6)].
+    Scalar geometry APIs take opening width in meters. Inference uses the actual
+    six joint positions, including asymmetric/contact-induced deviations.
+    """
+
+    _GRIPPER_FRAME_BODY = "actor_frame"
+    _FINGER_GEOM_NAMES = frozenset(
+        f"{side}_{part}_visual" for side in ("left", "right")
+        for part in ("outer_knuckle", "outer_finger", "inner_finger", "inner_knuckle", "fingertip")
+    )
+    _GRIPPER_GEOM_NAMES = ("hand_visual",) + tuple(sorted(_FINGER_GEOM_NAMES))
+    JOINT_NAMES = ("finger_joint", "left_inner_finger_joint", "left_inner_knuckle_joint",
+                   "right_outer_knuckle_joint", "right_inner_finger_joint", "right_inner_knuckle_joint")
+
+    def __init__(self, mjcf_path=file_dir / "ur5e" / "robot.xml", **kwargs):
+        super().__init__(mjcf_path=mjcf_path, **kwargs)
+        self._joint_addresses = [int(self.model.jnt_qposadr[self.model.joint(n).id]) for n in self.JOINT_NAMES]
+        self._set_qpos(np.zeros(6))
+        self._MAX_GRIPPER_WIDTH = self._current_width()
+        self._set_qpos(np.array([0.8, -0.8, 0.8] * 2))
+        self._min_gripper_width = self._current_width()
+        self._set_qpos(np.zeros(6))
+
+    def _build_pose_keypoints_local(self):
+        frame = self.model.body(self._GRIPPER_FRAME_BODY).id
+        rotation = self.data.xmat[frame].reshape(3, 3)
+        return np.stack([np.zeros(3)] + [
+            (self.data.xpos[self.model.body(f"{side}_outer_knuckle").id] - self.data.xpos[frame]) @ rotation
+            for side in ("left", "right")
+        ])
+
+    def _set_qpos(self, qpos):
+        qpos = np.asarray(qpos, dtype=np.float64)
+        if qpos.shape != (6,) or not np.isfinite(qpos).all():
+            raise ValueError("Robotiq85 requires six finite gripper joint positions")
+        self.data.qpos[self._joint_addresses] = qpos
+        mujoco.mj_forward(self.model, self.data)
+
+    def _current_keypoints_local(self):
+        frame = self.model.body(self._GRIPPER_FRAME_BODY).id
+        rotation = self.data.xmat[frame].reshape(3, 3)
+        tips = []
+        for side in ("left", "right"):
+            geom = self.model.geom(f"{side}_fingerpad_collision").id
+            contact = self.data.geom_xpos[geom] + self.data.geom_xmat[geom].reshape(3, 3) @ np.array(
+                [0.0, -self.model.geom_size[geom, 1], 0.0])
+            tips.append((contact - self.data.xpos[frame]) @ rotation)
+        return np.vstack([self._pose_keypoints_local, tips, np.mean(tips, axis=0)])
+
+    def _current_width(self):
+        points = self._current_keypoints_local()
+        return float(np.linalg.norm(points[3] - points[4]))
+
+    @property
+    def _TCP_OFFSET(self):
+        return -self._current_keypoints_local()[-1]
+
+    def _set_finger_state(self, gripper_state):
+        from scipy.optimize import brentq
+        width = float(gripper_state)
+        if not np.isfinite(width):
+            raise ValueError("gripper width must be finite")
+        width = float(np.clip(width, self._min_gripper_width, self._MAX_GRIPPER_WIDTH))
+
+        def error(q):
+            self._set_qpos(np.array([q, -q, q] * 2))
+            return self._current_width() - width
+
+        q = brentq(error, 0.0, 0.8, xtol=1e-12)
+        self._set_qpos(np.array([q, -q, q] * 2))
+
+    def _gripper_keypoints_local(self, gripper_width):
+        self._set_finger_state(gripper_width)
+        return self._current_keypoints_local()
+
+    def observation_gripper_width(self, state):
+        state = np.asarray(state, dtype=np.float64)
+        if state.shape != (12,) or not np.isfinite(state).all():
+            raise ValueError("UR5e observation.state must be [TCP pose(6), Robotiq joint positions(6)]")
+        self._set_qpos(state[6:])
+        return self._current_width()
+
+    def project_observation_to_xyz(self, state, extrinsic):
+        self.observation_gripper_width(state)
+        return transform_points(self._current_keypoints_local(), self._camera_transform(state[:6], extrinsic, None))
+
+    def project_actor_xyz_to_gripper(self, points_camera, gripper_width, extrinsic=None,
+                                     world_transform=None, *, actor_point_indices, return_residual=False,
+                                     gripper_qpos=None):
+        if gripper_qpos is None:
+            return super().project_actor_xyz_to_gripper(
+                points_camera, gripper_width, extrinsic, world_transform,
+                actor_point_indices=actor_point_indices, return_residual=return_residual)
+        self._set_qpos(gripper_qpos)
+        indices = validate_actor_point_indices(actor_point_indices)
+        points_camera = np.asarray(points_camera, dtype=np.float64)
+        if points_camera.shape != (len(indices), 3) or not np.isfinite(points_camera).all():
+            raise ValueError("Invalid UR5e actor keypoints")
+        return self._fit_points_to_gripper(
+            points_camera, self._current_keypoints_local()[list(indices)],
+            gripper_width=self._current_width(), extrinsic=extrinsic,
+            world_transform=world_transform, return_residual=return_residual)
+
+
 # 外部接口
 class GeomRobot:
     """Factory wrapper for embodiment-specific geometry helpers."""
 
     _REGISTRY = {
         "franka_panda": GeomFrankaPanda,
+        "ur5e": GeomUR5e,
     }
 
     def __new__(cls, embodiment="franka_panda", *args, **kwargs):
