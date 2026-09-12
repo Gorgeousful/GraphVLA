@@ -88,7 +88,7 @@ class DataConfig:
 
 LIBERO_DATASET_DIR = os.environ.get(
     "LIBERO_DATASET_DIR",
-    "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
+    "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0904_20hz",
 )
 LIBERO_NORM_STATS_PATH = Path(LIBERO_DATASET_DIR) / "meta" / "norm_stats_suite.json"
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
@@ -207,7 +207,12 @@ LIBERO_OUT_TRANSFORM = (
     ),
 )
 
-TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+# 0902 split:
+# TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+
+# 0904: put bowl->plate/stove, put cheese->plate, rotate knob,
+# sweep bowl->stove and cheese->plate/stove. OOD tasks: 3, 4, 6.
+TASKS = [0, 1, 2, 5, 7, 8, 9]
 EPISODES = select_first_episodes_per_task(
     LIBERO_DATASET_DIR,
     TASKS,

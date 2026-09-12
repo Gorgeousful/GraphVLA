@@ -10,8 +10,8 @@ from typing import Any
 @dataclass
 class TrainingConfig:
     # common
-    resume: bool = True
-    max_steps: int = 30_000
+    resume: bool = False
+    max_steps: int = 15_000 #!
     batch_size: int = 64
 
     # gradient
@@ -48,7 +48,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-relaction"
+    wandb_name: str | None = "0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0904-ep10-rel"
 
 
     def to_kwargs(self) -> dict[str, Any]:

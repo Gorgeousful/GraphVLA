@@ -29,6 +29,13 @@ class GraphVLAUR5e(UR5e):
         ManipulatorModel.__init__(self, str(ASSETS / "arm.xml"), idn=idn)
 
     @property
+    def init_qpos(self):
+        qpos = super().init_qpos.copy()
+        # Align actor-frame yaw with Panda demonstrations before control starts.
+        qpos[-1] += np.pi
+        return qpos
+
+    @property
     def default_gripper(self):
         return "GraphVLARobotiq85"
 
