@@ -1024,11 +1024,17 @@ class EmbodimentAdapter:
         robot_cls: type[Any] | None = None,
         release_lift_height: float = 0.05,
         embodiment: str = "franka_panda",
+        action_mode: str = "points",
     ) -> None:
-        if action_delta:
+        if action_mode not in ("points", "abs_action", "delta_action"):
+            raise ValueError("Invalid GraphPoint action_mode")
+        if action_mode == "points" and action_delta:
             raise ValueError("point-only server execution requires action_delta=False")
-        if robot_cls is None:
+        if action_mode != "points" and action_delta != (action_mode == "delta_action"):
+            raise ValueError("action_delta must match action_mode")
+        if robot_cls is None and action_mode == "points":
             raise ValueError("point-only server execution requires robot_cls")
+        self.action_mode = action_mode
         self.future_horizon = future_horizon
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
@@ -1049,6 +1055,16 @@ class EmbodimentAdapter:
     ) -> list[list[float]]:
         if session.benchmark != "libero":
             raise ValueError(f"Unsupported benchmark: {session.benchmark!r}")
+        if self.action_mode != "points":
+            actions = np.asarray(outputs["action_plan"], dtype=np.float64)
+            if actions.shape != (1, self.future_horizon, ACTION_DIM) or not np.isfinite(actions).all():
+                raise ValueError("Expected finite action_plan [1,horizon,7]")
+            actions = actions[0].copy()
+            if self.action_delta:
+                actions = np.clip(actions, -1.0, 1.0)
+            else:
+                actions[:, -1] = np.clip(actions[:, -1], -1.0, 1.0)
+            return actions.tolist()
         return self._point_plan_to_action(outputs, request, session)
 
     def _point_plan_to_action(
@@ -1424,6 +1440,8 @@ class InferenceServer:
             "ckpt_path": self.ckpt_path,
             "progress_threshold": self.planner.progress_threshold,
             "embodiment": getattr(self.embodiment, "embodiment", "franka_panda"),
+            "action_mode": getattr(self.embodiment, "action_mode", "points"),
+            "action_delta": getattr(self.embodiment, "action_delta", False),
         }
 
     def _infer_locked(self, request: Mapping[str, Any]) -> dict[str, Any]:
@@ -2024,6 +2042,11 @@ def main() -> None:
     preprocessor_class = InputPreprocessor
     preprocessor_kwargs = {}
     embodiment_class = EmbodimentAdapter
+    embodiment_kwargs = {}
+    if policy_name == "graphpoint":
+        embodiment_kwargs["action_mode"] = getattr(model_config, "action_mode", "points")
+        if args.embodiment == "ur5e" and embodiment_kwargs["action_mode"] != "points":
+            raise ValueError("GraphPoint action modes are trained for Franka; UR5e requires points")
     if policy_name == "point_bridge":
         from src.policy.point_bridge.data import PointBridgeTransform
 
@@ -2080,6 +2103,7 @@ def main() -> None:
             bge_path=args.bge_path,
         ),
         embodiment=embodiment_class(
+            **embodiment_kwargs,
             future_horizon=future_horizon,
             actor_point_indices=actor_point_indices,
             action_delta=bool(getattr(model_config, "action_delta", True)),

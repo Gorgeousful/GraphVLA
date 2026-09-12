@@ -150,14 +150,17 @@ def test_normalize_loads_stats_from_json_path(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])
-def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: tuple[int, ...]) -> None:
+@pytest.mark.parametrize("action_mode", ["points", "abs_action", "delta_action"])
+def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: tuple[int, ...], action_mode: str) -> None:
     num_frames = 4
     gripper = torch.zeros(num_frames, 6, 3)
     gripper[:, :, 0] = torch.arange(6)
     action = torch.arange(num_frames * ACTION_DIM, dtype=torch.float32).reshape(num_frames, ACTION_DIM)
+    action[:, -1] = torch.linspace(-1, 1, num_frames)
     transform = CustomTransform(
         mode="build_model_input",
         extra={
+            "action_mode": action_mode,
             "actor_point_indices": actor_point_indices,
             "norm_stats": {
                 "level": "suite",
@@ -166,6 +169,8 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
                         "q01": [0.0, 0.0, 0.0],
                         "q99": [1.0, 1.0, 1.0],
                     },
+                    "action": {"q01": [0.0] * 7, "q99": [2.0] * 7},
+                    "state": {"q01": [0.0] * 8, "q99": [2.0] * 8},
                 },
             },
         },
@@ -180,6 +185,7 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
         "history_horizon": 1,
         "future_horizon": 2,
         "action": action,
+        "state": torch.arange(num_frames * 8, dtype=torch.float32).reshape(num_frames, 8) / 10,
         "subtask_progress": torch.linspace(0.0, 1.0, num_frames),
     }
     result = transform.build_model_input(data)
@@ -191,10 +197,30 @@ def test_build_model_input_builds_dynamic_point_trajectory(actor_point_indices: 
     expected_trajectory = torch.cat(
         [expected_points.flatten(1), action[2:4, -1:]], dim=-1,
     )
-    torch.testing.assert_close(result["target"]["trajectory"], expected_trajectory)
-    assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1)
+    if action_mode == "delta_action":
+        expected_trajectory = action[1:3] - 1
+    elif action_mode == "abs_action":
+        expected_trajectory = torch.cat([
+            data["state"][2:4, :3] - 1,
+            data["state"][2:4, 3:6] / torch.pi,
+            action[1:3, -1:],
+        ], dim=-1)
+    torch.testing.assert_close(result["target"]["trajectory"], expected_trajectory, atol=2e-5, rtol=1e-5)
+    assert result["target"]["trajectory"].shape == (2, len(actor_point_indices) * 3 + 1 if action_mode == "points" else 7)
     assert result["gripper_closedness_history"].shape == (2, 1)
     torch.testing.assert_close(result["target"]["subtask_progress"], torch.tensor([1.0 / 3.0]))
+    if action_mode != "points":
+        output_transform = CustomTransform(mode="build_model_output", extra={
+            **transform.extra,
+            "action_field": "action" if action_mode == "delta_action" else None,
+        })
+        restored = output_transform({
+            "outputs": {"action_plan": result["target"]["trajectory"][None]},
+        })["outputs"]["action_plan"][0]
+        expected = action[1:3] if action_mode == "delta_action" else torch.cat([
+            data["state"][2:4, :6], action[1:3, -1:],
+        ], dim=-1)
+        torch.testing.assert_close(restored, expected)
 
 
 @pytest.mark.parametrize("actor_point_indices", [(0, 1, 2, 5), (0, 1, 2, 3, 4, 5)])

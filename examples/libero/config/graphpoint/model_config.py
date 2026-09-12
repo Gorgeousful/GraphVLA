@@ -11,6 +11,9 @@ from src.common.schema import validate_actor_point_indices
 @dataclass
 class ModelConfig:
     policy_name: str = "graphpoint"
+    # abs_action: future measured world XYZ + axis-angle + gripper (7D).
+    # delta_action: recorded LIBERO delta commands + gripper (7D).
+    action_mode: str = "points"  # points, abs_action, delta_action
     actor_point_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
     num_points: int = 32
     cls_token_num: int = 4
@@ -32,7 +35,7 @@ class ModelConfig:
     mlp_ratio: float = 4.0
     dropout: float = 0.1
     sample_steps: int = 10
-    action_delta: bool = False
+    action_delta: bool = False  # Derived from action_mode in __post_init__.
     point_coordinate_frame: str = "tcp_relative" # "tcp_relative"
     # A missing target is replaced by the subtask-initial patient, for progress only.
     progresshead_input: list[str] = field(default_factory=lambda: ["patient", "target"])
@@ -43,6 +46,9 @@ class ModelConfig:
     })
 
     def __post_init__(self) -> None:
+        if self.action_mode not in ("points", "abs_action", "delta_action"):
+            raise ValueError("action_mode must be 'points', 'abs_action', or 'delta_action'")
+        self.action_delta = self.action_mode == "delta_action"
         if self.policy_name != "graphpoint":
             raise ValueError(
                 f"Expected policy_name='graphpoint', got {self.policy_name!r}"

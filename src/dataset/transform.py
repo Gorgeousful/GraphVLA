@@ -672,6 +672,13 @@ class CustomTransform(TransformFn):
         action_field = self._extra_value("action_field", "camera_action")
         point_stats_field = str(self._extra_value("point_stats_field", "camera_xyz"))
         point_coordinate_frame = str(self._extra_value("point_coordinate_frame", "camera"))
+        if self._extra_value("action_mode", "points") == "abs_action" and "action_plan" in outputs:
+            plan = outputs["action_plan"].clone()
+            plan[..., :3] = self._unnormalize_output_field(plan[..., :3], field="state", context=data)
+            plan[..., 3:6] *= torch.pi
+            plan[..., -1] = plan[..., -1].clamp(-1.0, 1.0)
+            outputs["action_plan"] = plan
+            action_field = None
         if "gripper_plan" in outputs and action_field is not None:
             gripper_plan = outputs["gripper_plan"].clone()
             action_plan = gripper_plan.new_zeros((*gripper_plan.shape, ACTION_DIM))
@@ -831,9 +838,30 @@ class CustomTransform(TransformFn):
         action = torch.as_tensor(data["action"], device=entity_points.device, dtype=entity_points.dtype)
         if action.shape != (num_frames, ACTION_DIM):
             raise ValueError(f"Expected action [T,{ACTION_DIM}], got {tuple(action.shape)}")
-        future_points = actor_points[input_horizon:input_horizon + future_horizon]
-        future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
-        trajectory = torch.cat([future_points.flatten(1), future_gripper], dim=-1)
+        action_mode = self._extra_value("action_mode", "points")
+        if action_mode == "points":
+            future_points = actor_points[input_horizon:input_horizon + future_horizon]
+            future_gripper = action[input_horizon:input_horizon + future_horizon, -1:]
+            trajectory = torch.cat([future_points.flatten(1), future_gripper], dim=-1)
+        elif action_mode in ("abs_action", "delta_action"):
+            # Commands at t,...,t+Q-1 drive the future observations t+1,...,t+Q.
+            trajectory = action[history_horizon:history_horizon + future_horizon]
+            if action_mode == "abs_action":
+                state = torch.as_tensor(data["state"], device=entity_points.device, dtype=entity_points.dtype)
+                if state.ndim != 2 or state.shape[0] != num_frames or state.shape[1] < 6:
+                    raise ValueError("abs_action requires state [T,>=6]")
+                pose = state[input_horizon:input_horizon + future_horizon, :6]
+                xyz = Normalize(
+                    self._norm_stats_cache, field_map={"action_xyz": "state"},
+                )({**data, "action_xyz": pose[:, :3]})["action_xyz"]
+                # Rotation vectors have a fixed [-pi,pi] range; gripper stays [-1,1].
+                trajectory = torch.cat([xyz, pose[:, 3:6] / torch.pi, trajectory[:, -1:]], dim=-1)
+            else:
+                trajectory = Normalize(
+                    self._norm_stats_cache, field_map={"trajectory": "action"},
+                )({**data, "trajectory": trajectory})["trajectory"]
+        else:
+            raise ValueError(f"Unsupported action_mode: {action_mode!r}")
         result = {
             "entity_points": entity_points[:input_horizon],
             "entity_point_mask": entity_mask[:input_horizon],

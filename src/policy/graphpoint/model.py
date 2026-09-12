@@ -45,12 +45,17 @@ class JointTrajectoryFlow(nn.Module):
         heads: int,
         mlp_ratio: float,
         dropout: float,
+        history_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.horizon = horizon
         self.history_steps = history_steps
         self.trajectory_dim = trajectory_dim
         self.input_projection = nn.Linear(trajectory_dim, hidden_dim)
+        self.history_dim = trajectory_dim if history_dim is None else history_dim
+        self.history_projection = (
+            nn.Linear(self.history_dim, hidden_dim) if self.history_dim != trajectory_dim else None
+        )
         self.time_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
@@ -86,10 +91,10 @@ class JointTrajectoryFlow(nn.Module):
                 f"Expected flow state [B,{self.horizon},{self.trajectory_dim}], got {state.shape}"
             )
         if history_state.ndim != 3 or history_state.shape[1:] != (
-            self.history_steps, self.trajectory_dim
+            self.history_steps, self.history_dim
         ):
             raise ValueError(
-                f"Expected history state [B,{self.history_steps},{self.trajectory_dim}], "
+                f"Expected history state [B,{self.history_steps},{self.history_dim}], "
                 f"got {history_state.shape}"
             )
         if memory_positions.shape != (memory.shape[1],):
@@ -102,7 +107,10 @@ class JointTrajectoryFlow(nn.Module):
                 f"got {task_condition.shape}"
             )
 
-        token = self.input_projection(torch.cat([history_state, state], dim=1))
+        if self.history_projection is None:
+            token = self.input_projection(torch.cat([history_state, state], dim=1))
+        else:
+            token = torch.cat([self.history_projection(history_state), self.input_projection(state)], dim=1)
         time_condition = self.time_mlp(_sinusoidal_time(time, token.shape[-1]))
         history_positions = torch.arange(
             1 - self.history_steps, 1, device=state.device
@@ -164,11 +172,15 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
         gripper_flow_weight: float = 1.0,
         weights: dict[str, float] | None = None,
         progresshead_input: list[str] | tuple[str, ...] = ("patient", "target"),
+        action_mode: str = "points",
     ) -> None:
         super().__init__()
+        if action_mode not in ("points", "abs_action", "delta_action"):
+            raise ValueError("action_mode must be 'points', 'abs_action', or 'delta_action'")
+        self.action_mode = action_mode
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
-        self.trajectory_dim = self.actor_num_points * 3 + 1
+        self.trajectory_dim = self.actor_num_points * 3 + 1 if action_mode == "points" else 7
         if num_points < self.actor_num_points:
             raise ValueError(f"num_points must be at least {self.actor_num_points}, got {num_points}")
         if encoder_output_type not in ("current", "all"):
@@ -198,6 +210,7 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
         self.flow = JointTrajectoryFlow(
             hidden_dim, self.trajectory_dim, future_horizon, self.history_steps,
             flow_layers, num_heads, mlp_ratio, dropout,
+            history_dim=self.actor_num_points * 3 + 1,
         )
         self.progress_head = ConditionedProgressHead(
             relation_dim=hidden_dim * len(self.encoder.progresshead_indices) * cls_token_num,
@@ -320,7 +333,7 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
         return total, {
             "loss": total.detach(),
             **{name: value.detach() for name, value in losses.items()},
-            "loss_flow_points": loss_flow_points.detach(),
+            ("loss_flow_points" if self.action_mode == "points" else "loss_flow_action"): loss_flow_points.detach(),
             "loss_flow_gripper": loss_flow_gripper.detach(),
         }
 
@@ -354,6 +367,11 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
             )
             state = scheduler.step(velocity, timestep, state).prev_sample
 
+        progress = torch.sigmoid(self.progress_head(
+            relation_local.flatten(1), self._task_condition(semantic_memory),
+        ))
+        if self.action_mode != "points":
+            return {"action_plan": state, "subtask_progress": progress}
         point_plan = state[..., : self.actor_num_points * 3].view(
             batch_size, self.future_horizon, self.actor_num_points, 3
         )
@@ -363,7 +381,5 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
                 point_plan.shape[:-1], dtype=torch.bool, device=point_plan.device,
             ),
             "gripper_plan": state[..., -1],
-            "subtask_progress": torch.sigmoid(self.progress_head(
-                relation_local.flatten(1), self._task_condition(semantic_memory),
-            )),
+            "subtask_progress": progress,
         }

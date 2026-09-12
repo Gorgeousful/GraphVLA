@@ -283,6 +283,7 @@ def test_absolute_release_opens_gripper_then_holds_lifted_tcp() -> None:
 
 def test_delta_release_opens_gripper_then_holds_position() -> None:
     adapter = EmbodimentAdapter(
+        action_mode="delta_action",
         actor_point_indices=ACTOR_POINT_INDICES,
         future_horizon=3,
         action_delta=True,

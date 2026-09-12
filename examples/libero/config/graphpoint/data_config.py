@@ -92,7 +92,7 @@ LIBERO_DATASET_DIR = os.environ.get(
 )
 LIBERO_NORM_STATS_PATH = Path(LIBERO_DATASET_DIR) / "meta" / "norm_stats_suite.json"
 LIBERO_ACTION_DELTA = bool(LIBERO_MODEL_CONFIG.action_delta)
-# Point-only training consumes only the unchanged gripper command in action[..., -1].
+# Raw action contains delta controller commands; abs_action uses future measured state.
 LIBERO_ACTION_FIELD = "action"
 LIBERO_POINT_COORDINATE_FRAME = LIBERO_MODEL_CONFIG.point_coordinate_frame
 LIBERO_POINT_STATS_FIELD = (
@@ -128,6 +128,8 @@ LIBERO_REPACK = {
     "initial_valid_node_mask": "initial_valid_node_mask",
     "initial_subtask_node_mask": "initial_subtask_node_mask",
 }
+if LIBERO_MODEL_CONFIG.action_mode == "abs_action":
+    LIBERO_REPACK["state"] = "observation.state"
 
 LIBERO_HISTORY_FRAMES = list(LIBERO_MODEL_CONFIG.history_frames)
 LIBERO_HISTORY_HORIZON = LIBERO_MODEL_CONFIG.history_horizon
@@ -147,6 +149,8 @@ LIBERO_HORIZON = {
     "gripper_points_xyz": list(LIBERO_FRAME_OFFSETS),
     LIBERO_ACTION_FIELD: list(LIBERO_FRAME_OFFSETS),
 }
+if LIBERO_MODEL_CONFIG.action_mode == "abs_action":
+    LIBERO_HORIZON["observation.state"] = list(LIBERO_FRAME_OFFSETS)
 
 LIBERO_TRANSFORM = (
     RepackTransform(structure=LIBERO_REPACK),
@@ -181,6 +185,7 @@ LIBERO_TRANSFORM = (
         dataset_dir=LIBERO_DATASET_DIR,
         extra={
             "actor_point_indices": LIBERO_MODEL_CONFIG.actor_point_indices,
+            "action_mode": LIBERO_MODEL_CONFIG.action_mode,
             "norm_stats_path": LIBERO_NORM_STATS_PATH,
             "point_stats_field": LIBERO_POINT_STATS_FIELD,
         },
@@ -194,7 +199,8 @@ LIBERO_OUT_TRANSFORM = (
             "norm_stats_path": LIBERO_NORM_STATS_PATH,
             "use_quantiles": True,
             "quantile_to_neg_one_one": True,
-            "action_field": None,
+            "action_field": "action" if LIBERO_MODEL_CONFIG.action_mode == "delta_action" else None,
+            "action_mode": LIBERO_MODEL_CONFIG.action_mode,
             "point_stats_field": LIBERO_POINT_STATS_FIELD,
             "point_coordinate_frame": LIBERO_POINT_COORDINATE_FRAME,
         },
