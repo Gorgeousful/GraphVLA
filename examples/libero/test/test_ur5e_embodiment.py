@@ -111,8 +111,7 @@ def test_cli_and_server_embodiment_mismatch(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["client", "--embodiment", "ur5e"])
     assert parse_args().embodiment == "ur5e"
     monkeypatch.setattr(sys, "argv", ["client", "--embodiment", "ur5e", "--delta-action"])
-    with pytest.raises(SystemExit):
-        parse_args()
+    assert parse_args().action_delta
 
     async def info(uri, request):
         return {"ckpt_path": "/checkpoints/step_1.pt", "progress_threshold": 0.9, "embodiment": "franka_panda"}

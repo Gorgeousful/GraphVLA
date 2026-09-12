@@ -34,6 +34,29 @@ def test_collapse_symmetry_reference_isolation_and_training(layers, output):
     assert model._memory_mask(batch) is None
     assert model._memory_positions(memory).numel() == memory.shape[1]
 
+    changed_actor = deepcopy(batch)
+    changed_actor["entity_points"][:, :, 0] += 5
+    actor_memory, actor_relation, _ = model._encode(changed_actor)
+    assert not torch.allclose(memory, actor_memory)
+    torch.testing.assert_close(relation, actor_relation)
+    grad_batch = deepcopy(batch)
+    grad_batch["entity_points"].requires_grad_()
+    _, selected_relation, _ = model._encode(grad_batch)
+    model.progress_head(selected_relation.flatten(1), model._task_condition(semantic)).sum().backward()
+    assert grad_batch["entity_points"].grad[:, :, 0].abs().sum() == 0
+    assert grad_batch["entity_points"].grad[:, :, 1:].abs().sum() > 0
+    model.zero_grad(set_to_none=True)
+    all_config = deepcopy(config)
+    all_config.progresshead_input = ["actor", "patient", "target"]
+    all_model = build_policy(all_config).eval()
+    all_model.load_state_dict(model.state_dict(), strict=True)
+    assert not torch.allclose(all_model._encode(batch)[1], all_model._encode(changed_actor)[1])
+    legacy_kwargs = config.to_kwargs()
+    legacy_kwargs.pop("progresshead_input")
+    legacy_model = type(model)(**legacy_kwargs).eval()
+    legacy_model.load_state_dict(model.state_dict(), strict=True)
+    torch.testing.assert_close(legacy_model._encode(batch)[1], all_model._encode(batch)[1])
+
     # Swapping object roles cannot change a shared point-set representation.
     changed = deepcopy(batch)
     changed["entity_points"][1] = batch["entity_points"][1, :, [0, 2, 1]]
@@ -85,10 +108,10 @@ def test_config_loading_keeps_gp_data_contract(tmp_path):
     assert data.episodes == gp_data.episodes
     assert data.tasks == gp_data.tasks
     assert data.horizon == gp_data.horizon
-    assert data.action_delta == gp_data.action_delta
+    assert data.action_delta == model.action_delta == False
     assert model.cls_token_num == 3 * gp_model.cls_token_num
     assert "node_attention_mode" not in model.to_kwargs()
-    assert "progresshead_input" not in model.to_kwargs()
+    assert model.to_kwargs()["progresshead_input"] == ["patient", "target"]
     assert training.wandb_name != gp_training.wandb_name
     assert not training.resume
     checkpoint = TrainingCheckpoint(tmp_path, resume=False, keep_period=0)

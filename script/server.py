@@ -2050,8 +2050,8 @@ def main() -> None:
     embodiment_kwargs = {}
     if policy_name == "graphpoint":
         embodiment_kwargs["action_mode"] = getattr(model_config, "action_mode", "points")
-        if args.embodiment in ("ur5e", "sawyer") and embodiment_kwargs["action_mode"] != "points":
-            raise ValueError("GraphPoint action modes are trained for Franka; UR5e/Sawyer requires points")
+        if args.embodiment in ("ur5e", "sawyer") and embodiment_kwargs["action_mode"] == "abs_action":
+            raise ValueError("GraphPoint absolute action heads are trained for Franka; UR5e/Sawyer requires points or delta_action")
     if policy_name == "point_bridge":
         from src.policy.point_bridge.data import PointBridgeTransform
 

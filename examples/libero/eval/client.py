@@ -402,8 +402,6 @@ def _get_libero_env(
     }
     env_class = OffScreenRenderEnv
     if embodiment in ("ur5e", "sawyer"):
-        if action_delta:
-            raise ValueError("UR5e/Sawyer GraphPoint evaluation requires absolute actions")
         from examples.libero.embodiment.ur5e.integration import UR5eEnv
         env_class = UR5eEnv
         if embodiment == "sawyer":
@@ -441,8 +439,11 @@ def _dummy_action(
     env: Any = None,
 ) -> np.ndarray:
     action = np.zeros(7, dtype=np.float32)
+    if action_delta:
+        action[6] = -1.0
+        return action
     if embodiment in ("ur5e", "sawyer"):
-        if action_delta or env is None:
+        if env is None:
             raise ValueError("UR5e/Sawyer wait action requires an environment and absolute control")
         from examples.libero.embodiment.ur5e.integration import observation_state
         action[:6] = observation_state(env)[:6]
@@ -465,17 +466,18 @@ def _dummy_action(
 
 def _to_libero_action(action: np.ndarray, *, action_delta: bool,
                       embodiment: str = "franka_panda", env: Any = None) -> np.ndarray:
-    """Adapt a canonical world hand action to LIBERO's controller frame."""
+    """Pass native OSC deltas through, or adapt an absolute canonical hand pose."""
     action = np.asarray(action, dtype=np.float64).copy()
     if action.shape != (7,):
         raise ValueError(f"LIBERO action must be 7-D, got {action.shape}")
+    if action_delta:
+        # Training uses raw LIBERO OSC commands, with scaling performed by OSC.
+        return action.astype(np.float32)
     if embodiment in ("ur5e", "sawyer"):
-        if action_delta or env is None:
+        if env is None:
             raise ValueError("UR5e/Sawyer action conversion requires an environment and absolute control")
         from examples.libero.embodiment.ur5e.integration import controller_action
         return controller_action(action, env)
-    if action_delta:
-        return action.astype(np.float32)
     hand_to_site = np.asarray([
         [0.0, 1.0, 0.0],
         [-1.0, 0.0, 0.0],
@@ -855,8 +857,6 @@ def parse_args() -> Args:
     )
     parser.set_defaults(action_delta=Args.action_delta)
     ns = parser.parse_args()
-    if ns.embodiment in ("ur5e", "sawyer") and ns.action_delta:
-        parser.error("--embodiment ur5e/sawyer requires --absolute-action")
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
     if ns.num_workers <= 0:

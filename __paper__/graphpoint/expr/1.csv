@@ -1,10 +1,28 @@
 Expr,SR-ID,SR-OOD,ID-1,ID-2,ID-3,ID-5,ID-6,ID-8,ID-9,ID-10,ID-12,ID-13,ID-16,ID-17,OOD-0,OOD-4,OOD-7,OOD-11,OOD-14,OOD-15
-0905-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000,90.56%,44.44%,100.00%,96.67%,100.00%,100.00%,66.67%,96.67%,96.67%,83.33%,93.33%,100.00%,70.00%,83.33%,20.00%,90.00%,80.00%,6.67%,10.00%,60.00%
 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000,96.39%,75.56%,100.00%,100.00%,100.00%,86.67%,93.33%,100.00%,100.00%,80.00%,100.00%,100.00%,96.67%,100.00%,100.00%,63.33%,73.33%,76.67%,73.33%,66.67%
+0905-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000,90.56%,44.44%,100.00%,96.67%,100.00%,100.00%,66.67%,96.67%,96.67%,83.33%,93.33%,100.00%,70.00%,83.33%,20.00%,90.00%,80.00%,6.67%,10.00%,60.00%
 0906-pointdropknn005-basetcpfinger-cls4-full-current-progress-sam-custom0902-ep10-rel-step_30000,95.28%,63.89%,96.67%,96.67%,100.00%,100.00%,100.00%,83.33%,100.00%,86.67%,100.00%,100.00%,80.00%,100.00%,66.67%,86.67%,70.00%,50.00%,36.67%,73.33%
-0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-abs-step_30000,,25.00%,,,,,,,,,,,,,3.33%,63.33%,3.33%,6.67%,6.67%,66.67%
+0906-pointdropknn005-basetcpfinger-cls12-gc-current-progress-sam-custom0902-ep10-rel-step_30000,,,,,,,,,,,,,,,,,,,,
+0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-abs-step_30000,92.50%,25.00%,90.00%,100.00%,100.00%,96.67%,86.67%,100.00%,96.67%,46.67%,100.00%,100.00%,93.33%,100.00%,3.33%,63.33%,3.33%,6.67%,6.67%,66.67%
 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-allprogress-sam-custom0902-ep10-rel-step_30000,,,,,,,,,,,,,,,,,,,,
 act_official_bge_custom0902-step_30000,20.00%,7.22%,33.33%,20.00%,6.67%,23.33%,13.33%,56.67%,10.00%,3.33%,63.33%,0.00%,0.00%,10.00%,30.00%,0.00%,0.00%,13.33%,0.00%,0.00%
 dp_official_bge_custom0902-step_30000,40.00%,10.00%,43.33%,36.67%,16.67%,26.67%,50.00%,66.67%,20.00%,33.33%,80.00%,16.67%,36.67%,53.33%,30.00%,0.00%,0.00%,30.00%,0.00%,0.00%
+pi05_custom0902-step_30000,,,,,,,,,,,,,,,,,,,,
 dp3_bge_custom0902_obs2-step_30000,73.61%,57.22%,73.33%,100.00%,100.00%,100.00%,53.33%,100.00%,0.00%,80.00%,80.00%,86.67%,26.67%,83.33%,86.67%,63.33%,60.00%,93.33%,16.67%,23.33%
 point_policy_custom0902-step_30000,,15.00%,,,,,,,,,,,,,10.00%,0.00%,0.00%,6.67%,0.00%,73.33%
+point_bridge_points_custom0902,,,,,,,,,,,,,,,,,,,,
+====================================
+(ur5e eval) 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000,,,,,,,,,,,,,,,,,,,,
+(sawyer eval) 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-rel-step_30000,,,,,,,,,,,,,,,,,,,,
+0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-relaction-step_30000,,,,,,,,,,,,,,,,,,,,
+(ur5e eval) 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-relaction-step_30000,,,,,,,,,,,,,,,,,,,,
+(swayer eval) 0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0902-ep10-relaction-step_30000,,,,,,,,,,,,,,,,,,,,
+(ur5e eval) pi05_custom0902-step_30000,,,,,,,,,,,,,,,,,,,,
+(sawyer eval) pi05_custom0902-step_30000,,,,,,,,,,,,,,,,,,,,
+(ur5e eval) dp3_bge_custom0902_obs2-step_30000,,,,,,,,,,,,,,,,,,,,
+(sawyer eval) dp3_bge_custom0902_obs2-step_30000,,,,,,,,,,,,,,,,,,,,
+====================================
+0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0904-ep10-rel-step_15000
+pi05_custom0904-step_15000
+dp3_bge_custom0904_obs2-step_15000
+point_policy_custom0902-step_15000

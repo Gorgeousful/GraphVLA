@@ -162,8 +162,16 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
         sample_steps: int = 10,
         gripper_flow_weight: float = 1.0,
         weights: dict[str, float] | None = None,
+        progresshead_input: list[str] | tuple[str, ...] = ("actor", "patient", "target"),
     ) -> None:
         super().__init__()
+        # Old checkpoint configs omit this option and retain their all-role behavior.
+        roles = ("actor", "patient", "target")
+        if (not isinstance(progresshead_input, (list, tuple)) or not progresshead_input
+                or any(role not in roles for role in progresshead_input)
+                or len(set(progresshead_input)) != len(progresshead_input)):
+            raise ValueError("progresshead_input must be a non-empty, unique list of actor/patient/target")
+        self.progresshead_input = tuple(progresshead_input)
         self.actor_point_indices = validate_actor_point_indices(actor_point_indices)
         self.actor_num_points = len(self.actor_point_indices)
         self.trajectory_dim = self.actor_num_points * 3 + 1
@@ -216,7 +224,11 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
             batch["scene_condition"],
             presence,
         )
-        if presence is not None:
+        progress_points = points.clone()
+        progress_mask = batch["entity_point_mask"].clone()
+        progress_presence = presence.clone() if presence is not None else None
+        needs_progress_pass = len(self.progresshead_input) != 3
+        if presence is not None and "target" in self.progresshead_input:
             binary = presence[:, 1].bool() & ~presence[:, 2].bool()
             if binary.any():
                 if "initial_patient_points" not in batch or "initial_patient_mask" not in batch:
@@ -228,18 +240,18 @@ class GraphFlowModel(GradientCheckpointingMixin, nn.Module):
                     raise ValueError("Invalid subtask-initial patient shape")
                 # The vacant target slot carries reference points only in this
                 # progress-only pass; the encoder merges it into the shared set.
-                progress_points = points[binary].clone()
-                progress_points[:, :, 2] = reference[:, None]
-                progress_mask = batch["entity_point_mask"][binary].clone()
-                progress_mask[:, :, 2] = reference_mask[:, None]
-                progress_presence = presence[binary].clone()
-                progress_presence[:, 2] = True
-                _, reference_relation, _ = self.encoder(
-                    progress_points, progress_mask, batch["scene_condition"][binary],
-                    progress_presence,
-                )
-                relation = relation.clone()
-                relation[binary] = reference_relation
+                progress_points[binary, :, 2] = reference[:, None]
+                progress_mask[binary, :, 2] = reference_mask[:, None]
+                progress_presence[binary, 2] = True
+                needs_progress_pass = True
+        if needs_progress_pass:
+            for index, role in enumerate(("actor", "patient", "target")):
+                if role not in self.progresshead_input:
+                    progress_mask[:, :, index] = False
+            # Mask before any attention: selecting shared CLS afterward leaks excluded roles.
+            _, relation, _ = self.encoder(
+                progress_points, progress_mask, batch["scene_condition"], progress_presence,
+            )
         return memory, relation, semantic
 
     def _memory_mask(self, batch: dict[str, Any]) -> torch.Tensor | None:

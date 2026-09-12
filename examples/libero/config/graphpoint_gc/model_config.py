@@ -31,6 +31,7 @@ class ModelConfig:
     dropout: float = 0.1
     sample_steps: int = 10
     action_delta: bool = False
+    progresshead_input: list[str] = field(default_factory=lambda: ["patient", "target"])
     point_coordinate_frame: str = "tcp_relative" # "tcp_relative"
     gripper_flow_weight: float = 1.0
     weights: dict[str, float] = field(default_factory=lambda: {
