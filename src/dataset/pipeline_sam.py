@@ -323,21 +323,16 @@ class OfflineSAMPipeline:
                 unique_node_indices.append(node_index)
             unique_index_by_node.append(first_node_by_name[node.name])
 
-        unique_initial_points = np.stack(
-            [
-                sample_points_from_mask(
-                    initial_masks[node_index],
-                    num_points=self.config.points_per_node,
-                    erode_pixel=self.config.erode_pixel,
-                )
-                for node_index in unique_node_indices
-            ],
-            axis=0,
-        ).astype(np.float32)
-        initial_points = unique_initial_points[unique_index_by_node]
+        unique_initial_masks = initial_masks[unique_node_indices]
         self._ensure_node_segmenter()
 
         if self.config.debug:
+            # Sampling here is only for visualization, never for SAM prompts.
+            initial_points = np.stack([
+                sample_points_from_mask(mask, num_points=self.config.points_per_node,
+                                        erode_pixel=self.config.erode_pixel)
+                for mask in initial_masks
+            ]).astype(np.float32)
             self._save_sam_initialization_vis(
                 frames[0],
                 nodes,
@@ -351,7 +346,7 @@ class OfflineSAMPipeline:
         for frame_index, frame in enumerate(frames):
             masks = self.node_segmenter.predict(
                 frame,
-                points=unique_initial_points if frame_index == 0 else None,
+                masks=unique_initial_masks if frame_index == 0 else None,
                 anchor_frame=(frame_index == 0),
             )
             if len(masks) != len(unique_node_indices):

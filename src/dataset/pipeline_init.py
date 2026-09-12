@@ -160,10 +160,11 @@ INDEX_HTML = """\
       <div class="annotation-layout">
         <div class="canvas-shell"><canvas id="annotation-canvas"></canvas></div>
         <aside>
-          <h2>重新选择 point</h2>
-          <p>点击画面选择新位置。白色十字是尚未保存的新 point，保存后只重新分割当前节点。</p>
+          <h2>Correct segmentation</h2><label class="select-field">Prompt mode<select id="prompt-mode"><option value="point">Point</option><option value="box">BBox</option></select></label>
+          <p>Point: left-click adds a green positive point; right-click adds a red negative point to exclude an area. Include at least one positive point. BBox: drag a rectangle around the object. Click save to resegment the selected node.</p>
           <div id="point-readout">尚未选择新 point</div>
           <button id="save-button" class="primary" disabled>重新分割并保存</button>
+          <button id="undo-point">Undo last point</button><button id="clear-prompt">Clear prompt</button>
           <button id="restore-button">恢复初始结果</button>
           <p id="status" role="status"></p>
         </aside>
@@ -176,7 +177,7 @@ INDEX_HTML = """\
 """
 
 APP_JS = """\
-const state = { task: null, page: 0, episode: null, node: 0, pending: null, baseImage: null };
+const state = { mode: "point", drag: null, busy: false, task: null, page: 0, episode: null, node: 0, pending: null, baseImage: null };
 const $ = (selector) => document.querySelector(selector);
 const overview = $("#overview"), detail = $("#detail"), taskSelect = $("#task-select");
 const nodeSelect = $("#node-select"), grid = $("#episode-grid"), pageLabel = $("#page-label");
@@ -243,6 +244,7 @@ async function openEpisode(episode) {
 
 async function loadOverlay() {
   state.pending = null;
+  state.drag = null;
   saveButton.disabled = true;
   pointReadout.textContent = "尚未选择新 point";
   const image = new Image();
@@ -264,22 +266,64 @@ function drawCanvas() {
     context.save();
     context.strokeStyle = "#fff";
     context.lineWidth = 2;
+    if (state.mode === "box") {
+      context.strokeRect(x, y, state.pending[2] - x, state.pending[3] - y);
+      context.restore();
+      return;
+    }
     context.beginPath();
-    context.moveTo(x - 9, y); context.lineTo(x + 9, y);
-    context.moveTo(x, y - 9); context.lineTo(x, y + 9);
+    for (const [px, py, label] of state.pending) {
+      context.beginPath();
+      context.strokeStyle = label === 0 ? "#ff4040" : "#40ff80";
+      context.moveTo(px - 9, py); context.lineTo(px + 9, py);
+      if (label !== 0) { context.moveTo(px, py - 9); context.lineTo(px, py + 9); }
+      context.stroke();
+    }
     context.stroke();
     context.restore();
   }
 }
 
-canvas.addEventListener("click", (event) => {
+function canvasPoint(event) {
   const bounds = canvas.getBoundingClientRect();
-  const x = Math.round((event.clientX - bounds.left) * canvas.width / bounds.width);
-  const y = Math.round((event.clientY - bounds.top) * canvas.height / bounds.height);
-  state.pending = [Math.max(0, Math.min(canvas.width - 1, x)), Math.max(0, Math.min(canvas.height - 1, y))];
-  pointReadout.textContent = `待保存 point：(${state.pending[0]}, ${state.pending[1]})`;
-  saveButton.disabled = false;
+  return [Math.max(0, Math.min(canvas.width - 1, Math.round((event.clientX - bounds.left) * canvas.width / bounds.width))),
+          Math.max(0, Math.min(canvas.height - 1, Math.round((event.clientY - bounds.top) * canvas.height / bounds.height)))];
+}
+canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+canvas.addEventListener("pointerdown", (event) => {
+  if (![0, 2].includes(event.button) || (state.mode === "box" && event.button !== 0)) return;
+  event.preventDefault();
+  if (state.busy || !state.baseImage) return;
+  const point = canvasPoint(event);
+  state.drag = state.mode === "box" ? point : null;
+  state.pending = state.mode === "box" ? [...point, ...point] : [...(state.pending || []), [...point, event.button === 2 ? 0 : 1]];
+  canvas.setPointerCapture(event.pointerId);
+  saveButton.disabled = state.mode === "box";
+  pointReadout.textContent = `Pending ${state.mode}: ${state.pending.join(", ")}`;
   setStatus("");
+  drawCanvas();
+});
+canvas.addEventListener("pointermove", (event) => {
+  if (!state.drag || state.busy) return;
+  const [x, y] = canvasPoint(event), [sx, sy] = state.drag;
+  state.pending = [Math.min(x, sx), Math.min(y, sy), Math.max(x, sx), Math.max(y, sy)];
+  pointReadout.textContent = `Pending box: ${state.pending.join(", ")}`;
+  drawCanvas();
+});
+canvas.addEventListener("pointerup", () => {
+  state.drag = null;
+  if (state.mode === "box" && state.pending &&
+      (state.pending[2] <= state.pending[0] || state.pending[3] <= state.pending[1])) state.pending = null;
+  saveButton.disabled = state.busy || !state.pending;
+  drawCanvas();
+});
+canvas.addEventListener("pointercancel", () => {
+  state.drag = null; state.pending = null; saveButton.disabled = true; drawCanvas();
+});
+$("#prompt-mode").addEventListener("change", () => {
+  state.mode = $("#prompt-mode").value;
+  state.pending = null; state.drag = null; saveButton.disabled = true;
+  pointReadout.textContent = "No pending prompt";
   drawCanvas();
 });
 
@@ -288,8 +332,9 @@ saveButton.addEventListener("click", async () => {
   setBusy(true);
   try {
     const [x, y] = state.pending;
-    const result = await api(`/api/episodes/${state.episode}/nodes/${state.node}/point`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x, y }),
+    const payload = state.mode === "box" ? { x1: x, y1: y, x2: state.pending[2], y2: state.pending[3] } : { points: state.pending.map(p => p.slice(0, 2)), labels: state.pending.map(p => p[2]) };
+    const result = await api(`/api/episodes/${state.episode}/nodes/${state.node}/${state.mode}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     await loadOverlay();
     setStatus(result.message);
@@ -307,7 +352,25 @@ restoreButton.addEventListener("click", async () => {
   finally { setBusy(false); }
 });
 
+for (const id of ["undo-point", "clear-prompt"]) {
+  $("#" + id).addEventListener("click", () => {
+    if (state.busy) return;
+    if (id === "undo-point" && state.mode === "point" && state.pending) {
+      state.pending.pop();
+      if (!state.pending.length) state.pending = null;
+    } else if (id === "clear-prompt") state.pending = null;
+    state.drag = null;
+    saveButton.disabled = !state.pending;
+    pointReadout.textContent = state.pending ? `Pending ${state.mode}: ${JSON.stringify(state.pending)}` : "No pending prompt";
+    drawCanvas();
+  });
+}
+
 function setBusy(busy) {
+  $("#undo-point").disabled = busy;
+  $("#clear-prompt").disabled = busy;
+  state.busy = busy;
+  $("#prompt-mode").disabled = busy;
   saveButton.disabled = busy || !state.pending;
   restoreButton.disabled = busy;
   nodeSelect.disabled = busy;
@@ -363,7 +426,7 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 .detail-header { justify-content: space-between; }
 .annotation-layout { align-items: stretch; justify-content: center; }
 .canvas-shell { display: grid; flex: 1 1 760px; min-height: 560px; place-items: center; border: 1px solid #242934; border-radius: 16px; background: #050607; }
-#annotation-canvas { width: min(100%, 760px); cursor: crosshair; }
+#annotation-canvas { touch-action: none; width: min(100%, 760px); cursor: crosshair; }
 aside { flex: 0 0 310px; padding: 24px; border: 1px solid #242934; border-radius: 16px; background: #12151a; }
 aside p { color: #9ba3b3; line-height: 1.6; }
 aside button { width: 100%; margin-top: 10px; }
@@ -379,9 +442,18 @@ aside button { width: 100%; margin-top: 10px; }
 """
 
 
+class BoxRequest(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
 class PointRequest(BaseModel):
-    x: int
-    y: int
+    x: int | None = None
+    y: int | None = None
+    points: list[tuple[int, int]] | None = None
+    labels: list[int] | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -744,10 +816,15 @@ class CacheEditor:
                     -1,
                     cv2.LINE_AA,
                 )
+            if "negative_points_xy" in data:
+                for x, y in data["negative_points_xy"][node_index, :int(data["negative_point_counts"][node_index])]:
+                    cv2.drawMarker(image, (int(x), int(y)), (255, 64, 64), cv2.MARKER_TILTED_CROSS, 9, 1)
         return image
 
     def apply_point(
-        self, episode_index: int, node_index: int, point: list[int]
+        self, episode_index: int, node_index: int, point: list[int] | None = None,
+        *, box: list[int] | None = None, points: list[list[int]] | None = None,
+        labels: list[int] | None = None
     ) -> dict[str, Any]:
         if episode_index not in self.cache_paths:
             raise KeyError(f"Unknown cached episode: {episode_index}")
@@ -757,23 +834,56 @@ class CacheEditor:
 
         frame_rgb = self.frame(episode_index)
         height, width = frame_rgb.shape[:2]
-        point = [
-            min(max(int(round(point[0])), 0), width - 1),
-            min(max(int(round(point[1])), 0), height - 1),
-        ]
+        if box is not None:
+            x1, x2 = sorted(np.clip([box[0], box[2]], 0, width - 1).tolist())
+            y1, y2 = sorted(np.clip([box[1], box[3]], 0, height - 1).tolist())
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError("Box must have positive width and height")
+            box = [x1, y1, x2, y2]
+            point = [(x1 + x2) / 2, (y1 + y2) / 2]
+        if box is not None or points is None:
+            points = [point] if point is not None else []
+        coords = np.asarray(points, dtype=np.float32)
+        if coords.ndim != 2 or coords.shape[1] != 2 or len(coords) == 0 or not np.isfinite(coords).all():
+            raise ValueError("At least one valid XY point or a box is required")
+        coords = np.rint(np.clip(coords, [0, 0], [width - 1, height - 1]))
+        points = coords.tolist()
+        labels = np.asarray(labels if labels is not None and box is None else [1] * len(points))
+        if labels.shape != (len(points),) or not np.isin(labels, [0, 1]).all() or not np.any(labels == 1):
+            raise ValueError("Point labels must be 0 or 1, match the points, and include a positive point")
+        label_kwargs = {}
+        if np.any(labels == 0):
+            if self.segmenter_name != "sam2":
+                raise ValueError("Negative points in this editor currently require SAM2")
+            label_kwargs["labels"] = [labels.tolist()]
         with self.model_lock:
             masks = self.segmenter.predict(
-                frame_rgb, points=[[point]], anchor_frame=True
+                frame_rgb, points=[points] if box is None else None,
+                boxes=[box] if box is not None else None, anchor_frame=True, **label_kwargs
             )
         if len(masks) != 1:
             raise RuntimeError(f"Segmenter returned {len(masks)} masks; expected 1")
 
         node_name = data["node_names"][node_index]
         matching_indices = np.flatnonzero(data["node_names"] == node_name).tolist()
+        negative_coords = coords[labels == 0]
+        coords = coords[labels == 1]
+        # Keep legacy point fields positive-only for downstream tracking readers.
+        if "negative_points_xy" not in data:
+            data["negative_points_xy"] = np.full((len(data["node_names"]), 1, 2), np.nan, dtype=np.float32)
+            data["negative_point_counts"] = np.zeros(len(data["node_names"]), dtype=np.int32)
+        if data["negative_points_xy"].shape[1] < len(negative_coords):
+            data["negative_points_xy"] = np.pad(data["negative_points_xy"], ((0, 0), (0, len(negative_coords) - data["negative_points_xy"].shape[1]), (0, 0)), constant_values=np.nan)
+        for key in ("points_xy", "initial_points_xy"):
+            if data[key].shape[1] < len(points):
+                data[key] = np.pad(data[key], ((0, 0), (0, len(points) - data[key].shape[1]), (0, 0)), constant_values=np.nan)
         for matching_index in matching_indices:
             data["points_xy"][matching_index] = np.nan
-            data["points_xy"][matching_index, 0] = np.asarray(point, dtype=np.float32)
-            data["point_counts"][matching_index] = 1
+            data["points_xy"][matching_index, :len(coords)] = coords
+            data["negative_points_xy"][matching_index] = np.nan
+            data["negative_points_xy"][matching_index, :len(negative_coords)] = negative_coords
+            data["negative_point_counts"][matching_index] = len(negative_coords)
+            data["point_counts"][matching_index] = len(coords)
             data["masks"][matching_index] = np.asarray(masks[0], dtype=bool)
         atomic_save_cache(self.cache_paths[episode_index], data)
         return {
@@ -781,7 +891,8 @@ class CacheEditor:
                 f"Saved {', '.join(f'N{index}' for index in matching_indices)}: "
                 f"{node_name}"
             ),
-            "point": point,
+            "point": points[0],
+            "points": points,
         }
 
     def restore_node(self, episode_index: int, node_index: int) -> dict[str, str]:
@@ -797,6 +908,9 @@ class CacheEditor:
             data["points_xy"][matching_index] = data["initial_points_xy"][canonical_index]
             data["point_counts"][matching_index] = data["initial_point_counts"][canonical_index]
             data["masks"][matching_index] = data["initial_masks"][canonical_index]
+            if "negative_points_xy" in data:
+                data["negative_points_xy"][matching_index] = np.nan
+                data["negative_point_counts"][matching_index] = 0
         atomic_save_cache(self.cache_paths[episode_index], data)
         return {
             "message": (
@@ -910,9 +1024,26 @@ def serve_editor(args: argparse.Namespace) -> None:
     @app.post("/api/episodes/{episode_index}/nodes/{node_index}/point")
     def update_point(episode_index: int, node_index: int, request: PointRequest):
         try:
-            return editor.apply_point(episode_index, node_index, [request.x, request.y])
+            return editor.apply_point(episode_index, node_index,
+                [request.x, request.y] if request.x is not None and request.y is not None else None,
+                points=request.points, labels=request.labels)
         except (KeyError, IndexError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/episodes/{episode_index}/nodes/{node_index}/box")
+    def update_box(episode_index: int, node_index: int, request: BoxRequest):
+        try:
+            return editor.apply_point(
+                episode_index, node_index,
+                box=[request.x1, request.y1, request.x2, request.y2],
+            )
+        except (KeyError, IndexError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/episodes/{episode_index}/nodes/{node_index}/restore")
     def restore_node(episode_index: int, node_index: int):

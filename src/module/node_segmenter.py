@@ -11,6 +11,15 @@ from rich.console import Console
 cs = Console()
 
 
+def _validate_mask_prompts(masks, frame_rgb):
+    masks = np.asarray(masks)
+    if masks.ndim != 3 or masks.shape[0] == 0 or masks.shape[1:] != frame_rgb.shape[:2]:
+        raise ValueError("masks must have shape (N, H, W) at the original frame resolution")
+    if not np.isin(masks, [0, 1]).all() or not masks.reshape(len(masks), -1).any(axis=1).all():
+        raise ValueError("each mask must be nonempty and binary (0/1)")
+    return masks.astype(bool, copy=True)
+
+
 class NodeSegmenter:
     """Frame-by-frame node segmentation and video-level prompt segmentation with one SAM3 model."""
 
@@ -89,7 +98,7 @@ class NodeSegmenter:
             result.append(mask)
         return result
 
-    def _reset_point(self, frame_rgb, points=None, boxes=None):
+    def _reset_point(self, frame_rgb, points=None, boxes=None, masks=None):
         self.prompt_state = None
         h, w = frame_rgb.shape[:2]
         tracker = self.model.tracker
@@ -101,7 +110,14 @@ class NodeSegmenter:
         )
         inference_state["images"] = [self._preprocess(frame_rgb)]
 
-        if boxes is not None:
+        if masks is not None:
+            masks = _validate_mask_prompts(masks, frame_rgb)
+            for node_idx, mask in enumerate(masks):
+                tracker.add_new_mask(
+                    inference_state=inference_state, frame_idx=0, obj_id=node_idx,
+                    mask=torch.from_numpy(mask).to(self.device),
+                )
+        elif boxes is not None:
             for node_idx, node_box in enumerate(boxes):
                 box = np.asarray(node_box, dtype=np.float32).copy()
                 if box.shape != (4,):
@@ -113,7 +129,7 @@ class NodeSegmenter:
                     inference_state=inference_state,
                     frame_idx=0,
                     obj_id=node_idx,
-                    box=torch.from_numpy(box).to(self.device),
+                    box=torch.from_numpy(box),
                 )
         else:
             for node_idx, node_points in enumerate(points):
@@ -149,7 +165,7 @@ class NodeSegmenter:
             "video_res_masks": video_res_masks,
             "frame_idx": 0,
         }
-        return self._extract_point_masks()
+        return list(masks) if masks is not None else self._extract_point_masks()
 
     def _update_point(self, frame_rgb):
         if self.point_state is None:
@@ -204,10 +220,12 @@ class NodeSegmenter:
             frame_masks.extend(self._update_prompt(frame) for frame in frames[1:])
             return frame_masks
 
-    def reset(self, frame_rgb, points=None, boxes=None, prompt=None):
+    def reset(self, frame_rgb, points=None, boxes=None, prompt=None, masks=None):
         with self._device_context():
-            if sum(value is not None for value in (points, boxes, prompt)) != 1:
-                raise ValueError("exactly one of points, boxes, or prompt is required")
+            if sum(value is not None for value in (points, boxes, prompt, masks)) != 1:
+                raise ValueError("exactly one of points, boxes, masks, or prompt is required")
+            if masks is not None:
+                return self._reset_point(frame_rgb, masks=masks)
             if points is not None:
                 return self._reset_point(frame_rgb, points)
             if boxes is not None:
@@ -221,9 +239,9 @@ class NodeSegmenter:
                 return self._update_prompt(frame_rgb)
             return self._update_point(frame_rgb)
 
-    def predict(self, frame_rgb, points=None, boxes=None, prompt=None, anchor_frame=True):
+    def predict(self, frame_rgb, points=None, boxes=None, prompt=None, anchor_frame=True, masks=None):
         if anchor_frame:
-            return self.reset(frame_rgb, points=points, boxes=boxes, prompt=prompt)
+            return self.reset(frame_rgb, points=points, boxes=boxes, prompt=prompt, masks=masks)
         return self.update(frame_rgb)
 
     def draw_on_image(self, image, masks, labels=None, save_path=None):
@@ -281,7 +299,7 @@ class NodeSegmenter:
 
 
 class NodeSegmenterSAM2:
-    """Online multi-object SAM2 tracking initialized by positive point prompts."""
+    """Online SAM2 tracking initialized by labeled points, boxes, or binary masks."""
 
     class _OnlinePredictor(SAM2VideoPredictor):
         """Adapt Ultralytics' video predictor to repeated single-frame calls."""
@@ -310,6 +328,13 @@ class NodeSegmenterSAM2:
             self._reset_requested = True
             self._frame_idx = 0
 
+        def _prepare_prompts(self, *args, **kwargs):
+            points, labels, masks = super()._prepare_prompts(*args, **kwargs)
+            # The video track_step requires a channel axis for mask inputs.
+            if masks is not None and masks.ndim == 3:
+                masks = masks[:, None]
+            return points, labels, masks
+
     def __init__(self, model_path="/data0/luokang/dataset/luokang/ckpts/sam2/sam2.1_l.pt", device="cuda", mode=None, model=None):
         self.model_path = model_path
         self.device = device
@@ -324,7 +349,6 @@ class NodeSegmenterSAM2:
         self.model = self.predictor.model
         self.num_objects = 0
         self.output_size = None
-        cs.print("[yellow]NodeSegmenterSAM2 only supports point prompts.[/yellow]")
 
     def _extract_masks(self):
         frame_idx = self.predictor._frame_idx - 1
@@ -345,15 +369,19 @@ class NodeSegmenterSAM2:
             for i in range(self.num_objects)
         ]
 
-    def reset(self, frame_rgb, points=None, boxes=None):
+    def reset(self, frame_rgb, points=None, boxes=None, labels=None, masks=None):
         frame_rgb = np.asarray(frame_rgb)
         if frame_rgb.ndim != 3 or frame_rgb.shape[2] != 3:
             raise ValueError("frame_rgb must have shape (H, W, 3)")
-        if (points is None) == (boxes is None):
-            raise ValueError("exactly one of points or boxes is required")
+        if sum(value is not None for value in (points, boxes, masks)) != 1:
+            raise ValueError("exactly one of points, boxes, or masks is required")
 
         predictor_kwargs = {}
-        if boxes is not None:
+        if masks is not None:
+            masks = _validate_mask_prompts(masks, frame_rgb)
+            self.num_objects = len(masks)
+            predictor_kwargs["masks"] = masks.astype(np.uint8)
+        elif boxes is not None:
             box_groups = np.asarray(boxes, dtype=np.float32)
             if box_groups.ndim != 2 or box_groups.shape[0] == 0 or box_groups.shape[1] != 4:
                 raise ValueError("boxes must have shape (N, 4) in XYXY format")
@@ -368,7 +396,14 @@ class NodeSegmenterSAM2:
                 point_groups.append(pts.tolist())
             self.num_objects = len(point_groups)
             predictor_kwargs["points"] = point_groups
-            predictor_kwargs["labels"] = [[1] * len(node_points) for node_points in point_groups]
+            if labels is None:
+                labels = [[1] * len(node_points) for node_points in point_groups]
+            if len(labels) != len(point_groups) or any(
+                len(group) != len(pts) or any(label not in (0, 1) for label in group)
+                for group, pts in zip(labels, point_groups)
+            ):
+                raise ValueError("labels must match point groups and contain only 0 or 1")
+            predictor_kwargs["labels"] = labels
 
         self.output_size = frame_rgb.shape[:2]
         self.predictor.request_reset()
@@ -376,7 +411,7 @@ class NodeSegmenterSAM2:
             source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR),
             **predictor_kwargs,
         )
-        return self._extract_masks()
+        return list(masks) if masks is not None else self._extract_masks()
 
     def update(self, frame_rgb):
         if self.output_size is None:
@@ -390,8 +425,8 @@ class NodeSegmenterSAM2:
         self.predictor(source=cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR))
         return self._extract_masks()
 
-    def predict(self, frame_rgb, points=None, boxes=None, anchor_frame=True):
-        return self.reset(frame_rgb, points=points, boxes=boxes) if anchor_frame else self.update(frame_rgb)
+    def predict(self, frame_rgb, points=None, boxes=None, anchor_frame=True, labels=None, masks=None):
+        return self.reset(frame_rgb, points=points, boxes=boxes, labels=labels, masks=masks) if anchor_frame else self.update(frame_rgb)
 
     def draw_on_image(self, image, masks, labels=None, save_path=None):
         return NodeSegmenter.draw_on_image(self, image, masks, labels, save_path)
