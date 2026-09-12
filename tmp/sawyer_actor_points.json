@@ -1,0 +1,139 @@
+{
+  "source_xml": "/data0/luokang/research/robosuite/robosuite/models/assets/grippers/rethink_gripper.xml",
+  "frame": "gripper_base",
+  "point_names": [
+    "Root",
+    "Left base",
+    "Right base",
+    "Left fingertip",
+    "Right fingertip",
+    "TCP"
+  ],
+  "base_definition": "Proximal face centers of l/r_finger_g0 at full opening, frozen in gripper_base; never follow sliding fingers.",
+  "fingertip_definition": "Inward contact-face centers of l/r_fingerpad_g0.",
+  "tcp_definition": "Midpoint of the two fingertips.",
+  "validation": "Kinematic qpos snapshots, not simulated grasp or dynamics validation.",
+  "fixed_anchor_drift_mm": 0.0,
+  "snapshots": [
+    {
+      "opening": "open",
+      "qpos": [
+        0.020833,
+        -0.020833
+      ],
+      "points_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          -48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          39.383,
+          102.4
+        ],
+        [
+          0.0,
+          -39.383,
+          102.4
+        ],
+        [
+          0.0,
+          0.0,
+          102.4
+        ]
+      ],
+      "pad_gap_mm": 78.766
+    },
+    {
+      "opening": "middle",
+      "qpos": [
+        0.005,
+        -0.005
+      ],
+      "points_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          -48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          23.55,
+          102.4
+        ],
+        [
+          0.0,
+          -23.55,
+          102.4
+        ],
+        [
+          0.0,
+          0.0,
+          102.4
+        ]
+      ],
+      "pad_gap_mm": 47.1
+    },
+    {
+      "opening": "closed",
+      "qpos": [
+        -0.0115,
+        0.0115
+      ],
+      "points_mm": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          -48.083,
+          46.900000000000006
+        ],
+        [
+          0.0,
+          7.050000000000001,
+          102.4
+        ],
+        [
+          0.0,
+          -7.050000000000001,
+          102.4
+        ],
+        [
+          0.0,
+          0.0,
+          102.4
+        ]
+      ],
+      "pad_gap_mm": 14.100000000000001
+    }
+  ]
+}

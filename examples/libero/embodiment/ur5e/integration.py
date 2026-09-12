@@ -59,8 +59,12 @@ for robot_type in (GraphVLAUR5e, MountedGraphVLAUR5e, OnTheGroundGraphVLAUR5e):
 
 class UR5eEnv(OffScreenRenderEnv):
     """Reuse Panda scene init states by named scene joints, never by robot indices."""
+    ROBOT_NAME = "GraphVLAUR5e"
+    JOINT_NAMES = JOINT_NAMES
+    PAD_CONTACTS = (("left_fingerpad_collision", -1), ("right_fingerpad_collision", -1))
+
     def __init__(self, **kwargs):
-        super().__init__(robots=["GraphVLAUR5e"], **kwargs)
+        super().__init__(robots=[self.ROBOT_NAME], **kwargs)
         source_kwargs = dict(kwargs, use_camera_obs=False, has_offscreen_renderer=False,
                              camera_depths=False)
         source = OffScreenRenderEnv(**source_kwargs)
@@ -70,7 +74,7 @@ class UR5eEnv(OffScreenRenderEnv):
             source_names = {n for n in source.sim.model.joint_names if not n.startswith(("robot", "gripper"))}
             target_names = {n for n in self.sim.model.joint_names if not n.startswith(("robot", "gripper"))}
             if source_names != target_names:
-                raise ValueError("Panda and UR5e scene joints differ")
+                raise ValueError("Source and target scene joints differ")
             for kind in ("qpos", "qvel"):
                 src, dst = [], []
                 for name in sorted(source_names):
@@ -78,7 +82,7 @@ class UR5eEnv(OffScreenRenderEnv):
                         addr = getattr(model, f"get_joint_{kind}_addr")(name)
                         indices.extend(range(*addr) if isinstance(addr, tuple) else [addr])
                 if len(src) != len(dst):
-                    raise ValueError("Panda and UR5e scene joint dimensions differ")
+                    raise ValueError("Source and target scene joint dimensions differ")
                 self._scene_indices.append((np.asarray(src, dtype=int), np.asarray(dst, dtype=int)))
         finally:
             source.close()
@@ -99,19 +103,19 @@ class UR5eEnv(OffScreenRenderEnv):
 
 
 def observation_state(env):
-    """Canonical midpoint pose and native Robotiq qpos, from the live simulator."""
+    """Canonical midpoint pose and native gripper qpos, from the live simulator."""
     sim, robot = env.sim, env.robots[0]
     # mj_step can leave derived body/geom poses one integration step behind qpos.
     sim.forward()
     prefix = robot.gripper.naming_prefix
     tips = []
-    for side in ("left", "right"):
-        name = f"{prefix}{side}_fingerpad_collision"
+    for pad, sign in env.PAD_CONTACTS:
+        name = prefix + pad
         gid = sim.model.geom_name2id(name)
         tips.append(sim.data.get_geom_xpos(name) + sim.data.get_geom_xmat(name) @ np.array(
-            [0.0, -sim.model.geom_size[gid, 1], 0.0]))
+            [0.0, sign * sim.model.geom_size[gid, 1], 0.0]))
     rotation = sim.data.get_body_xmat(prefix + "actor_frame")
-    joints = [float(sim.data.get_joint_qpos(prefix + name)) for name in JOINT_NAMES]
+    joints = [float(sim.data.get_joint_qpos(prefix + name)) for name in env.JOINT_NAMES]
     return np.concatenate([np.mean(tips, axis=0), R.from_matrix(rotation).as_rotvec(), joints])
 
 
@@ -119,7 +123,7 @@ def controller_action(action, env):
     """Convert an absolute midpoint pose to the native OSC grip_site pose."""
     action = np.asarray(action, dtype=np.float64).copy()
     if action.shape != (7,) or not np.isfinite(action).all():
-        raise ValueError("UR5e action must have seven finite values")
+        raise ValueError("Absolute action must have seven finite values")
     state = observation_state(env)
     current_rotation = R.from_rotvec(state[3:6]).as_matrix()
     target_rotation = R.from_rotvec(action[3:6]).as_matrix()

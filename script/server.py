@@ -520,7 +520,7 @@ class InputPreprocessor:
 
     def _state_to_gripper_points_xyz(self, frame: ObservationFrame) -> np.ndarray:
         state = frame.state
-        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+        if getattr(self, "embodiment", "franka_panda") in ("ur5e", "sawyer"):
             return self._robot().project_observation_to_xyz(state, frame.extrinsic)
         if state.size < 8:
             raise ValueError(f"observation.state must contain at least 8 values, got {state.size}")
@@ -587,7 +587,7 @@ class InputPreprocessor:
             full_gripper_xyz[:, 3] - full_gripper_xyz[:, 4], axis=-1,
         )
         max_width = (self._robot()._MAX_GRIPPER_WIDTH
-                     if getattr(self, "embodiment", "franka_panda") == "ur5e" else LIBERO_GRIPPER_MAX_WIDTH)
+                     if getattr(self, "embodiment", "franka_panda") in ("ur5e", "sawyer") else LIBERO_GRIPPER_MAX_WIDTH)
         openness = np.clip(gripper_width / max_width, 0.0, 1.0)
         closedness = (1.0 - 2.0 * openness)[:, None].astype(np.float32)
         model_input = {
@@ -771,9 +771,9 @@ class InputPreprocessor:
         return ((value - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0).astype(np.float32)
 
     def _robot(self) -> Any:
-        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+        if getattr(self, "embodiment", "franka_panda") in ("ur5e", "sawyer"):
             if not hasattr(self._robot_local, "robot"):
-                self._robot_local.robot = self.robot_cls(embodiment="ur5e", with_fingers=True)
+                self._robot_local.robot = self.robot_cls(embodiment=self.embodiment, with_fingers=True)
             return self._robot_local.robot
         if self.robot is None:
             self.robot = self.robot_cls(embodiment="franka_panda", with_fingers=True)
@@ -1122,7 +1122,7 @@ class EmbodimentAdapter:
         extrinsic = self._current_camera_matrix(request, "camera.extrinsics", (4, 4))
         robot = self._robot()
         geometry_kwargs = {}
-        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+        if getattr(self, "embodiment", "franka_panda") in ("ur5e", "sawyer"):
             current_width = robot.observation_gripper_width(state)
             geometry_kwargs["gripper_qpos"] = state[6:]
         else:
@@ -1149,9 +1149,9 @@ class EmbodimentAdapter:
         return actions
 
     def _robot(self) -> Any:
-        if getattr(self, "embodiment", "franka_panda") == "ur5e":
+        if getattr(self, "embodiment", "franka_panda") in ("ur5e", "sawyer"):
             if not hasattr(self._robot_local, "robot"):
-                self._robot_local.robot = self.robot_cls(embodiment="ur5e", with_fingers=True)
+                self._robot_local.robot = self.robot_cls(embodiment=self.embodiment, with_fingers=True)
             return self._robot_local.robot
         if self.robot is None:
             assert self.robot_cls is not None
@@ -1907,7 +1907,7 @@ class DP3InferenceServer(ImagePolicyInferenceServer):
 def parse_args() -> Args:
     parser = argparse.ArgumentParser(description="Serve GraphVLA observation inference over WebSocket.")
     parser.add_argument("--example", default="libero", choices=("libero",))
-    parser.add_argument("--embodiment", default="franka_panda", choices=("franka_panda", "ur5e"))
+    parser.add_argument("--embodiment", default="franka_panda", choices=("franka_panda", "ur5e", "sawyer"))
     parser.add_argument("--ckpt-path", required=True, help="Path to a training checkpoint.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8001)
@@ -2016,8 +2016,8 @@ def main() -> None:
         raise ValueError(f"Unsupported example: {args.example}")
 
     policy_name = resolve_policy_name(model_config)
-    if args.embodiment == "ur5e" and policy_name not in ("graphpoint", "graphpoint_gc"):
-        raise ValueError("UR5e inference currently requires a GraphPoint checkpoint")
+    if args.embodiment in ("ur5e", "sawyer") and policy_name not in ("graphpoint", "graphpoint_gc"):
+        raise ValueError("UR5e/Sawyer inference currently requires a GraphPoint checkpoint")
     if policy_name in ("act", "dp", "dp3"):
         server_class = DP3InferenceServer if policy_name == "dp3" else ImagePolicyInferenceServer
         server = server_class(
@@ -2045,8 +2045,8 @@ def main() -> None:
     embodiment_kwargs = {}
     if policy_name == "graphpoint":
         embodiment_kwargs["action_mode"] = getattr(model_config, "action_mode", "points")
-        if args.embodiment == "ur5e" and embodiment_kwargs["action_mode"] != "points":
-            raise ValueError("GraphPoint action modes are trained for Franka; UR5e requires points")
+        if args.embodiment in ("ur5e", "sawyer") and embodiment_kwargs["action_mode"] != "points":
+            raise ValueError("GraphPoint action modes are trained for Franka; UR5e/Sawyer requires points")
     if policy_name == "point_bridge":
         from src.policy.point_bridge.data import PointBridgeTransform
 

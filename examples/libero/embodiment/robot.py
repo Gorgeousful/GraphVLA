@@ -48,7 +48,7 @@ class GeomFrankaPanda:
 
         gripper_geom_names = (
             self._GRIPPER_GEOM_NAMES
-            if with_fingers else ("hand_visual",)
+            if with_fingers else tuple(n for n in self._GRIPPER_GEOM_NAMES if n not in self._FINGER_GEOM_NAMES)
         )
 
         # Separate static (hand) from dynamic (finger) geom names
@@ -580,14 +580,18 @@ class GeomUR5e(GeomFrankaPanda):
     JOINT_NAMES = ("finger_joint", "left_inner_finger_joint", "left_inner_knuckle_joint",
                    "right_outer_knuckle_joint", "right_inner_finger_joint", "right_inner_knuckle_joint")
 
+    _OPEN_QPOS = np.zeros(6)
+    _CLOSED_QPOS = np.array([0.8, -0.8, 0.8] * 2)
+    _PAD_CONTACTS = (("left_fingerpad_collision", -1), ("right_fingerpad_collision", -1))
+
     def __init__(self, mjcf_path=file_dir / "ur5e" / "robot.xml", **kwargs):
         super().__init__(mjcf_path=mjcf_path, **kwargs)
         self._joint_addresses = [int(self.model.jnt_qposadr[self.model.joint(n).id]) for n in self.JOINT_NAMES]
-        self._set_qpos(np.zeros(6))
+        self._set_qpos(self._OPEN_QPOS)
         self._MAX_GRIPPER_WIDTH = self._current_width()
-        self._set_qpos(np.array([0.8, -0.8, 0.8] * 2))
+        self._set_qpos(self._CLOSED_QPOS)
         self._min_gripper_width = self._current_width()
-        self._set_qpos(np.zeros(6))
+        self._set_qpos(self._OPEN_QPOS)
 
     def _build_pose_keypoints_local(self):
         frame = self.model.body(self._GRIPPER_FRAME_BODY).id
@@ -599,8 +603,8 @@ class GeomUR5e(GeomFrankaPanda):
 
     def _set_qpos(self, qpos):
         qpos = np.asarray(qpos, dtype=np.float64)
-        if qpos.shape != (6,) or not np.isfinite(qpos).all():
-            raise ValueError("Robotiq85 requires six finite gripper joint positions")
+        if qpos.shape != (len(self.JOINT_NAMES),) or not np.isfinite(qpos).all():
+            raise ValueError(f"Expected {len(self.JOINT_NAMES)} finite gripper joint positions")
         self.data.qpos[self._joint_addresses] = qpos
         mujoco.mj_forward(self.model, self.data)
 
@@ -608,10 +612,10 @@ class GeomUR5e(GeomFrankaPanda):
         frame = self.model.body(self._GRIPPER_FRAME_BODY).id
         rotation = self.data.xmat[frame].reshape(3, 3)
         tips = []
-        for side in ("left", "right"):
-            geom = self.model.geom(f"{side}_fingerpad_collision").id
+        for name, sign in self._PAD_CONTACTS:
+            geom = self.model.geom(name).id
             contact = self.data.geom_xpos[geom] + self.data.geom_xmat[geom].reshape(3, 3) @ np.array(
-                [0.0, -self.model.geom_size[geom, 1], 0.0])
+                [0.0, sign * self.model.geom_size[geom, 1], 0.0])
             tips.append((contact - self.data.xpos[frame]) @ rotation)
         return np.vstack([self._pose_keypoints_local, tips, np.mean(tips, axis=0)])
 
@@ -643,8 +647,8 @@ class GeomUR5e(GeomFrankaPanda):
 
     def observation_gripper_width(self, state):
         state = np.asarray(state, dtype=np.float64)
-        if state.shape != (12,) or not np.isfinite(state).all():
-            raise ValueError("UR5e observation.state must be [TCP pose(6), Robotiq joint positions(6)]")
+        if state.shape != (6 + len(self.JOINT_NAMES),) or not np.isfinite(state).all():
+            raise ValueError(f"observation.state must be [TCP pose(6), gripper joints({len(self.JOINT_NAMES)})]")
         self._set_qpos(state[6:])
         return self._current_width()
 
@@ -663,11 +667,36 @@ class GeomUR5e(GeomFrankaPanda):
         indices = validate_actor_point_indices(actor_point_indices)
         points_camera = np.asarray(points_camera, dtype=np.float64)
         if points_camera.shape != (len(indices), 3) or not np.isfinite(points_camera).all():
-            raise ValueError("Invalid UR5e actor keypoints")
+            raise ValueError("Invalid actor keypoints")
         return self._fit_points_to_gripper(
             points_camera, self._current_keypoints_local()[list(indices)],
             gripper_width=self._current_width(), extrinsic=extrinsic,
             world_transform=world_transform, return_residual=return_residual)
+
+
+class GeomSawyer(GeomUR5e):
+    """Rethink parallel jaws with fixed, user-approved finger-root anchors."""
+
+    JOINT_NAMES = ("l_finger_joint", "r_finger_joint")
+    _OPEN_QPOS = np.array([0.020833, -0.020833])
+    _CLOSED_QPOS = np.array([-0.0115, 0.0115])
+    _PAD_CONTACTS = (("l_fingerpad_g0", -1), ("r_fingerpad_g0", 1))
+    _FINGER_GEOM_NAMES = frozenset(("l_finger", "r_finger", "l_fingertip_g0_vis", "r_fingertip_g0_vis"))
+    _GRIPPER_GEOM_NAMES = ("hand_visual", "connector_visual", "housing_visual") + tuple(sorted(_FINGER_GEOM_NAMES))
+
+    def __init__(self, mjcf_path=file_dir / "sawyer" / "robot.xml", **kwargs):
+        super().__init__(mjcf_path=mjcf_path, **kwargs)
+
+    def _build_pose_keypoints_local(self):
+        return np.array([[0., 0., 0.], [0., 0.048083, 0.0469], [0., -0.048083, 0.0469]])
+
+    def _set_finger_state(self, gripper_state):
+        width = float(gripper_state)
+        if not np.isfinite(width):
+            raise ValueError("gripper width must be finite")
+        width = np.clip(width, self._min_gripper_width, self._MAX_GRIPPER_WIDTH)
+        q = self._OPEN_QPOS[0] + (width - self._MAX_GRIPPER_WIDTH) / 2
+        self._set_qpos([q, -q])
 
 
 # 外部接口
@@ -677,6 +706,7 @@ class GeomRobot:
     _REGISTRY = {
         "franka_panda": GeomFrankaPanda,
         "ur5e": GeomUR5e,
+        "sawyer": GeomSawyer,
     }
 
     def __new__(cls, embodiment="franka_panda", *args, **kwargs):

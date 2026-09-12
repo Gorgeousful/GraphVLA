@@ -386,11 +386,14 @@ def _get_libero_env(
         "ignore_done": True,
     }
     env_class = OffScreenRenderEnv
-    if embodiment == "ur5e":
+    if embodiment in ("ur5e", "sawyer"):
         if action_delta:
-            raise ValueError("UR5e GraphPoint evaluation requires absolute actions")
+            raise ValueError("UR5e/Sawyer GraphPoint evaluation requires absolute actions")
         from examples.libero.embodiment.ur5e.integration import UR5eEnv
         env_class = UR5eEnv
+        if embodiment == "sawyer":
+            from examples.libero.embodiment.sawyer.integration import SawyerEnv
+            env_class = SawyerEnv
     env = env_class(**env_args)
     env.seed(seed)
     return env, task_description
@@ -404,7 +407,7 @@ def _prepare_observation(obs: dict[str, Any], env: Any, *, embodiment: str = "fr
     if metric_depth.ndim != 2:
         raise ValueError(f"Expected agentview metric depth [H,W], got {metric_depth.shape}")
     state = np.concatenate((obs["robot0_eef_pos"], _quat2axisangle(obs["robot0_eef_quat"]), obs["robot0_gripper_qpos"]))
-    if embodiment == "ur5e":
+    if embodiment in ("ur5e", "sawyer"):
         from examples.libero.embodiment.ur5e.integration import observation_state
         state = observation_state(env)
     return {
@@ -423,9 +426,9 @@ def _dummy_action(
     env: Any = None,
 ) -> np.ndarray:
     action = np.zeros(7, dtype=np.float32)
-    if embodiment == "ur5e":
+    if embodiment in ("ur5e", "sawyer"):
         if action_delta or env is None:
-            raise ValueError("UR5e wait action requires an environment and absolute control")
+            raise ValueError("UR5e/Sawyer wait action requires an environment and absolute control")
         from examples.libero.embodiment.ur5e.integration import observation_state
         action[:6] = observation_state(env)[:6]
         action[6] = -1.0
@@ -451,9 +454,9 @@ def _to_libero_action(action: np.ndarray, *, action_delta: bool,
     action = np.asarray(action, dtype=np.float64).copy()
     if action.shape != (7,):
         raise ValueError(f"LIBERO action must be 7-D, got {action.shape}")
-    if embodiment == "ur5e":
+    if embodiment in ("ur5e", "sawyer"):
         if action_delta or env is None:
-            raise ValueError("UR5e action conversion requires an environment and absolute control")
+            raise ValueError("UR5e/Sawyer action conversion requires an environment and absolute control")
         from examples.libero.embodiment.ur5e.integration import controller_action
         return controller_action(action, env)
     if action_delta:
@@ -800,7 +803,7 @@ def parse_args() -> Args:
     parser = argparse.ArgumentParser(description="Evaluate GraphVLA through the observation-driven inference server on LIBERO.")
     parser.add_argument("--host", default=Args.host)
     parser.add_argument("--port", type=int, default=Args.port)
-    parser.add_argument("--embodiment", choices=("franka_panda", "ur5e"), default=Args.embodiment)
+    parser.add_argument("--embodiment", choices=("franka_panda", "ur5e", "sawyer"), default=Args.embodiment)
     parser.add_argument("--control-freq", type=int, default=Args.control_freq)
     parser.add_argument("--task-suite-name", default=Args.task_suite_name)
     parser.add_argument("--tasks", type=int, nargs="+", default=Args.tasks)
@@ -837,8 +840,8 @@ def parse_args() -> Args:
     )
     parser.set_defaults(action_delta=Args.action_delta)
     ns = parser.parse_args()
-    if ns.embodiment == "ur5e" and ns.action_delta:
-        parser.error("--embodiment ur5e requires --absolute-action")
+    if ns.embodiment in ("ur5e", "sawyer") and ns.action_delta:
+        parser.error("--embodiment ur5e/sawyer requires --absolute-action")
     if ns.control_freq <= 0:
         parser.error("--control-freq must be positive")
     if ns.num_workers <= 0:
@@ -993,7 +996,7 @@ def _evaluate_task(
                                 obs["robot0_gripper_qpos"],
                             )
                         )
-                        if args.embodiment == "ur5e":
+                        if args.embodiment in ("ur5e", "sawyer"):
                             from examples.libero.embodiment.ur5e.integration import observation_state
                             current_state = observation_state(env)
                         policy_step = None
