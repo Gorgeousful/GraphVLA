@@ -42,6 +42,7 @@ from robosuite.utils.camera_utils import (
     get_real_depth_map,
 )
 from scipy.spatial.transform import Rotation as R
+from src.common.observation_wire import encode_observation
 
 cs = Console()
 PROFILE = os.environ.get("GRAPHVLA_PROFILE", "0") == "1"
@@ -73,7 +74,8 @@ class Args:
     action_delta: bool = False
     num_workers: int = 1
     resume_dir: Path | None = None
-    image_obs_steps: int | None = None  # Set from server_info for ACT/DP.
+    image_obs_steps: int | None = None  # Set from server_info for ACT/DP/DP3.
+    observation_keys: tuple[str, ...] | None = None
     embodiment: str = "franka_panda"
 
 
@@ -173,24 +175,32 @@ class ObservationDeltaBuffer:
         self, *, intrinsic: np.ndarray, extrinsic: np.ndarray,
         image_obs_steps: int | None = None,
         embodiment: str = "franka_panda",
+        observation_keys: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         if not self.images:
             raise RuntimeError("observation delta buffer is empty")
-        if image_obs_steps is not None:
-            return {
-                "observation.images.image": [image.tolist() for image in self.images[-image_obs_steps:]],
-                "observation.images.wrist_image": [image.tolist() for image in self.wrist_images[-image_obs_steps:]],
-                "observation.state": [state.tolist() for state in self.states[-image_obs_steps:]],
-            }
-        count = len(self.images)
-        return {
-            "observation.images.image": [image.tolist() for image in self.images],
-            "observation.images.wrist_image": [image.tolist() for image in self.wrist_images],
-            "observation.depth.metric": [depth.tolist() for depth in self.metric_depths],
-            "observation.state": [state.tolist() for state in self.states],
-            "camera.intrinsics": [np.asarray(intrinsic, dtype=np.float64).tolist()] * count,
-            "camera.extrinsics": [np.asarray(extrinsic, dtype=np.float64).tolist()] * count,
+        keys = observation_keys or (
+            ("observation.images.image", "observation.images.wrist_image", "observation.state")
+            if image_obs_steps is not None else
+            ("observation.images.image", "observation.depth.metric", "observation.state",
+             "camera.intrinsics", "camera.extrinsics")
+        )
+        histories = {
+            "observation.images.image": self.images,
+            "observation.images.wrist_image": self.wrist_images,
+            "observation.depth.metric": self.metric_depths,
+            "observation.state": self.states,
         }
+        result = {}
+        for key in keys:
+            if key in histories:
+                frames = histories[key]
+                result[key] = np.stack(frames[-image_obs_steps:] if image_obs_steps else frames)
+            else:
+                # Camera matrices are fixed within an episode; the server broadcasts them.
+                matrix = {"camera.intrinsics": intrinsic, "camera.extrinsics": extrinsic}[key]
+                result[key] = np.asarray(matrix, dtype=np.float64)
+        return result
 
 
 class InferenceClient:
@@ -198,12 +208,14 @@ class InferenceClient:
         self, *, host: str, port: int, worker_id: int = 0,
         image_obs_steps: int | None = None,
         embodiment: str = "franka_panda",
+        observation_keys: tuple[str, ...] | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.worker_id = worker_id
         self.image_obs_steps = image_obs_steps
         self.embodiment = embodiment
+        self.observation_keys = observation_keys
         self.profile = collections.defaultdict(float)
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
@@ -255,6 +267,7 @@ class InferenceClient:
             **self.pending_observations.to_request_fields(
                 intrinsic=self.intrinsic, extrinsic=self.extrinsic,
                 image_obs_steps=self.image_obs_steps,
+                observation_keys=self.observation_keys,
             ),
         }
         if self.first_request:
@@ -299,10 +312,11 @@ class InferenceClient:
     async def _websocket_json(uri: str, data: dict[str, Any]) -> dict[str, Any]:
         started = time.perf_counter()
         async with websockets.connect(
-            uri, max_size=None, proxy=None, ping_interval=None, ping_timeout=None
+            uri, max_size=None, proxy=None, ping_interval=None, ping_timeout=None,
+            compression=None,
         ) as websocket:
             connected = time.perf_counter()
-            payload = json.dumps(data)
+            payload = json.dumps(data) if data.get("type") == "server_info" else encode_observation(data)
             encoded = time.perf_counter()
             await websocket.send(payload)
             sent = time.perf_counter()
@@ -315,12 +329,12 @@ class InferenceClient:
                 "connect_s": connected - started, "encode_s": encoded - connected,
                 "send_s": sent - encoded, "wait_response_s": received - sent,
                 "close_s": closed - received, "decode_s": time.perf_counter() - closed,
-                "request_chars": len(payload),
+                "request_bytes": len(payload) if isinstance(payload, bytes) else len(payload.encode("utf-8")),
             }
         return response
 
 
-def _server_info(*, host: str, port: int, embodiment: str = "franka_panda") -> tuple[str, float, int | None]:
+def _server_info(*, host: str, port: int, embodiment: str = "franka_panda") -> tuple[str, float, int | None, tuple[str, ...] | None]:
     uri = f"ws://{host}:{port}"
     response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
     if "error" in response:
@@ -338,11 +352,12 @@ def _server_info(*, host: str, port: int, embodiment: str = "franka_panda") -> t
     ):
         raise ValueError(f"server returned invalid progress_threshold: {progress_threshold!r}")
     image_obs_steps = None
-    if response.get("policy_name") in ("act", "dp"):
+    if response.get("policy_name") in ("act", "dp", "dp3"):
         image_obs_steps = response.get("obs_steps")
         if type(image_obs_steps) is not int or image_obs_steps < 1:
             raise ValueError(f"server returned invalid obs_steps: {image_obs_steps!r}")
-    return ckpt_path, float(progress_threshold), image_obs_steps
+    keys = response.get("observation_keys")
+    return ckpt_path, float(progress_threshold), image_obs_steps, tuple(keys) if keys is not None else None
 
 
 def _ckpt_dir_name(ckpt_path: str) -> str:
@@ -1198,6 +1213,7 @@ def _evaluate_task_group(
         host=args.host, port=args.port, worker_id=worker_id,
         image_obs_steps=args.image_obs_steps,
         embodiment=args.embodiment,
+        observation_keys=args.observation_keys,
     )
     results = []
     while (job := scheduler.acquire()) is not None:
@@ -1279,7 +1295,7 @@ def main() -> None:
             )
     max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
 
-    ckpt_path, progress_threshold, args.image_obs_steps = _server_info(
+    ckpt_path, progress_threshold, args.image_obs_steps, args.observation_keys = _server_info(
         host=args.host, port=args.port, embodiment=args.embodiment)
     ckpt_dir_name = _ckpt_dir_name(ckpt_path)
     if args.embodiment != "franka_panda":

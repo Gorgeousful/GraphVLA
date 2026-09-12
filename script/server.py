@@ -30,6 +30,7 @@ from PIL import Image
 from rich.console import Console
 
 from src.common.geom_utils import sample_points_from_mask
+from src.common.observation_wire import decode_observation
 from src.common.schema import (
     ACTION_DIM,
     GRIPPER_NUM_POINTS,
@@ -1417,7 +1418,7 @@ class InferenceServer:
             self.last_message_time = asyncio.get_running_loop().time()
             try:
                 parse_started = time.perf_counter()
-                request = json.loads(message)
+                request = decode_observation(message)
                 parse_elapsed = time.perf_counter() - parse_started
                 if not isinstance(request, Mapping):
                     raise TypeError("request message must be a JSON object")
@@ -1778,6 +1779,10 @@ class ImagePolicyInferenceServer(InferenceServer):
             "action_delta": True,
             "policy_name": self.policy_name,
             "obs_steps": self.obs_steps,
+            "observation_keys": (
+                ["observation.depth.metric", "camera.intrinsics", "observation.state"]
+                if self.policy_name == "dp3" else [*self.camera_keys, "observation.state"]
+            ),
         }
 
     @torch.inference_mode()

@@ -31,6 +31,7 @@ from examples.libero.eval.client import (
     _to_libero_action,
     camera_matrices_from_env,
 )
+from src.common.observation_wire import encode_observation
 
 
 cs = Console()
@@ -124,7 +125,7 @@ async def request_samples(
     ) as websocket:
         for sample_index in range(count):
             start = time.monotonic()
-            await websocket.send(json.dumps(request))
+            await websocket.send(encode_observation(request))
             message = await asyncio.wait_for(websocket.recv(), timeout=response_timeout)
             response = json.loads(message)
             if "error" in response:

@@ -13,7 +13,7 @@ class ModelConfig:
     policy_name: str = "graphpoint"
     # abs_action: future measured world XYZ + axis-angle + gripper (7D).
     # delta_action: recorded LIBERO delta commands + gripper (7D).
-    action_mode: str = "points"  # points, abs_action, delta_action
+    action_mode: str = "delta_action"  # points, abs_action, delta_action
     actor_point_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5)
     num_points: int = 32
     cls_token_num: int = 4
