@@ -1,5 +1,5 @@
 1. Motivation and Key Idea []
-2. GraphPoint Architecture [ok]
-3. CROP-18 Benchmark and Split [ok]
+2. GraphPoint Architecture [fix FutureActorPoint output shape to H x 19: 6 XYZ points plus 1 gripper command]
+3. CoMani Benchmark and Splits [fix solid blue/pink legend labels to train; swap rotation panel object headings]
 4. Point-Based Cross-Embodiment Transfer []
 5. Long-Horizon Composition and Qualitative Rollouts []

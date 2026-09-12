@@ -1,0 +1,136 @@
+\section{CoMani Benchmark}
+\label{sec:benchmark}
+
+CoMani comprises 3 suites testing modifier, action-type, and sequential composition (Fig.~\ref{fig:benchmark}; Table~\ref{tab:comani_tasks}).
+We generate 50 trajectories per atomic task using MimicGen~\cite{mandlekar2023mimicgen}.
+Within each suite, initial scenes are matched wherever feasible to require instruction-dependent behavior and discourage fixed vision-to-action mappings.
+We report success rates by split over 30 trials per atomic task and 10 per sequence.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{fig/benchmark.png}
+    \caption{CoMani task construction and splits.
+    CoMani-Modifier (left) varies spatial relations with a fixed action type, while CoMani-Action (right) varies action types with a fixed modifier.
+    Solid and dotted arrows indicate training and held-out combinations, respectively.
+    In the left panel, filled circles at arrow starting points and red symbols at the upper-right corners of scenes highlight the atomic tasks selected for CoMani-Seq.}
+    \label{fig:benchmark}
+\end{figure*}
+
+% Figure corrections pending: solid blue and pink arrows should be labeled train;
+% the cream cheese and stove knob headings above the rotation panels are reversed.
+
+\textbf{CoMani-Modifier.} With pick-and-place (\emph{put}) fixed, this suite combines 3 objects, 3 targets, and 2 modifiers (\emph{on}/\emph{right of}) into 18 tasks: 12 training/in-distribution (ID) and 6 out-of-distribution (OOD).
+Each OOD object--target pair appears in training with the opposite modifier, isolating generalization to unseen combinations of familiar factors.
+The ID/OOD comparison therefore tests whether a policy can apply the instructed relation to a familiar object--target pair beyond its demonstrated placement.
+
+% Internal suite: 0902. Training IDs: 1,2,3,5,6,8,9,10,12,13,16,17.
+% OOD IDs: 0,4,7,11,14,15. Held-out on: bowl/plate, cheese/stove,
+% bottle/cabinet. Held-out right: bowl/stove, cheese/cabinet, bottle/plate.
+
+\textbf{CoMani-Action.} With \emph{right} fixed, this suite varies \emph{put}, \emph{sweep}, and \emph{rotate} across 10 tasks: 7 ID and 3 OOD.
+For put/sweep, each held-out object--target pair is demonstrated with the other action; for rotation, training uses the stove knob and OOD evaluation uses cream cheese.
+These tests examine whether a policy can reuse an action with familiar entities in a new combination and transfer rotation across different manipulated entities.
+Put/sweep pairs share initial states and final-position goals, so success measures goal attainment rather than interaction mode.
+
+% Internal suite: 0904. Training IDs: 0,1,2,5,7,8,9. OOD IDs: 3,4,6.
+% Rotation details: dataset term "right" means counterclockwise about world +Z
+% viewed from above. Knob: joint position >= 0.5 rad. Cheese: reset-relative
+% signed rotation >= 0.5 rad, with tilt <= 15 degrees.
+
+\textbf{CoMani-Seq.} This suite tests whether policies learned from CoMani-Modifier atomic demonstrations can execute 3-step instructions without sequence-level demonstrations.
+\emph{Seq-ID} combines 3 ID tasks; \emph{Seq-OOD} replaces the cream-cheese task with its OOD modifier variant, giving 2 ID tasks and 1 OOD task.
+Each set includes all 6 orderings, yielding 12 unseen sequences.
+Seq-ID tests ordered execution and subtask transitions among familiar skills; Seq-OOD adds an unseen atomic combination while preserving the objects, targets, and sequence orderings.
+Comparing the 2 sets assesses how atomic compositional generalization carries over to long-horizon execution.
+
+% Atomic task IDs in 0902: Seq-ID=2,10,12; Seq-OOD=2,7,12 (7 is OOD).
+% Preliminary protocol, pending executable sequence validation.
+% TODO: Specify shared-scene initialization, ordered subtask completion checks,
+% whether earlier goals must remain satisfied, and the sequence time budget.
+\begin{table*}[t]
+\centering
+\caption{Complete CoMani task lists.
+Subtables (a) and (b) retain the fixed evaluation order and 0-based task IDs; ID/OOD denotes seen/held-out atomic combinations.
+Subtable (c) lists all 12 unseen sequences in provisional order pending the executable evaluation list.
+Atomic tasks use 30 evaluation trials each, and sequences use 10.}
+\label{tab:comani_tasks}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\textbf{(a) CoMani-Modifier}\par\smallskip
+\begin{tabular}{rp{6.35cm}l}
+\hline
+Task ID & Task instruction & Split \\
+\hline
+0 & Put the bowl on the plate. & OOD \\
+1 & Put the bowl on the stove. & ID \\
+2 & Put the bowl on the wooden cabinet. & ID \\
+3 & Put the bowl to the right of the plate. & ID \\
+4 & Put the bowl to the right of the stove. & OOD \\
+5 & Put the bowl to the right of the wooden cabinet. & ID \\
+6 & Put the cream cheese on the plate. & ID \\
+7 & Put the cream cheese on the stove. & OOD \\
+8 & Put the cream cheese on the wooden cabinet. & ID \\
+9 & Put the cream cheese to the right of the plate. & ID \\
+10 & Put the cream cheese to the right of the stove. & ID \\
+11 & Put the cream cheese to the right of the wooden cabinet. & OOD \\
+12 & Put the wine bottle on the plate. & ID \\
+13 & Put the wine bottle on the stove. & ID \\
+14 & Put the wine bottle on the wooden cabinet. & OOD \\
+15 & Put the wine bottle to the right of the plate. & OOD \\
+16 & Put the wine bottle to the right of the stove. & ID \\
+17 & Put the wine bottle to the right of the wooden cabinet. & ID \\
+\hline
+\end{tabular}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\textbf{(b) CoMani-Action}\par\smallskip
+\begin{tabular}{rp{6.35cm}l}
+\hline
+Task ID & Task instruction & Split \\
+\hline
+0 & Put the bowl to the right of the plate. & ID \\
+1 & Put the bowl to the right of the stove. & ID \\
+2 & Put the cream cheese to the right of the plate. & ID \\
+3 & Put the cream cheese to the right of the stove. & OOD \\
+4 & Rotate the cream cheese right. & OOD \\
+5 & Rotate the stove knob right. & ID \\
+6 & Sweep the bowl to the right of the plate. & OOD \\
+7 & Sweep the bowl to the right of the stove. & ID \\
+8 & Sweep the cream cheese to the right of the plate. & ID \\
+9 & Sweep the cream cheese to the right of the stove. & ID \\
+\hline
+\end{tabular}
+\par\smallskip
+\raggedright
+Rotation instructions retain the dataset term ``right,'' which denotes counterclockwise rotation about world $+Z$ when viewed from above.
+\end{minipage}
+
+\medskip
+\textbf{(c) CoMani-Seq}\par\smallskip
+\begin{tabular}{rlp{3.6cm}p{3.6cm}p{3.6cm}l}
+\hline
+Row & Set & Step 1 & Step 2 & Step 3 & Atomic IDs \\
+\hline
+1 & Seq-ID & Bowl on wooden cabinet & Cream cheese right of stove & Wine bottle on plate & $2\to10\to12$ \\
+2 & Seq-ID & Bowl on wooden cabinet & Wine bottle on plate & Cream cheese right of stove & $2\to12\to10$ \\
+3 & Seq-ID & Cream cheese right of stove & Bowl on wooden cabinet & Wine bottle on plate & $10\to2\to12$ \\
+4 & Seq-ID & Cream cheese right of stove & Wine bottle on plate & Bowl on wooden cabinet & $10\to12\to2$ \\
+5 & Seq-ID & Wine bottle on plate & Bowl on wooden cabinet & Cream cheese right of stove & $12\to2\to10$ \\
+6 & Seq-ID & Wine bottle on plate & Cream cheese right of stove & Bowl on wooden cabinet & $12\to10\to2$ \\
+\hline
+7 & Seq-OOD & Bowl on wooden cabinet & Cream cheese on stove & Wine bottle on plate & $2\to7\to12$ \\
+8 & Seq-OOD & Bowl on wooden cabinet & Wine bottle on plate & Cream cheese on stove & $2\to12\to7$ \\
+9 & Seq-OOD & Cream cheese on stove & Bowl on wooden cabinet & Wine bottle on plate & $7\to2\to12$ \\
+10 & Seq-OOD & Cream cheese on stove & Wine bottle on plate & Bowl on wooden cabinet & $7\to12\to2$ \\
+11 & Seq-OOD & Wine bottle on plate & Bowl on wooden cabinet & Cream cheese on stove & $12\to2\to7$ \\
+12 & Seq-OOD & Wine bottle on plate & Cream cheese on stove & Bowl on wooden cabinet & $12\to7\to2$ \\
+\hline
+\end{tabular}
+\par\smallskip
+Execute Step 1, Step 2, and Step 3 in order; every step uses put, and atomic IDs refer to subtable (a).
+Seq-ID combines 3 ID tasks; Seq-OOD replaces atomic task 10 with OOD task 7.
+\end{table*}

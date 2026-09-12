@@ -108,6 +108,7 @@ class InferenceSession:
     benchmark: str
     language: str
     worker_id: int = 0
+    switch_mode: str = "predicted"
     current_subtask: str | None = None
     taskstructure: dict[str, Any] | None = None
     subtask_index: int = 0
@@ -127,10 +128,11 @@ class InferenceSession:
     initial_patient_camera: np.ndarray | None = None
     initial_patient_subtask: int | None = None
 
-    def reset(self, *, benchmark: str, language: str, worker_id: int = 0) -> None:
+    def reset(self, *, benchmark: str, language: str, worker_id: int = 0, switch_mode: str = "predicted") -> None:
         self.benchmark = benchmark
         self.language = language
         self.worker_id = worker_id
+        self.switch_mode = switch_mode
         self.current_subtask = None
         self.taskstructure = None
         self.subtask_index = 0
@@ -191,8 +193,22 @@ class TopLevelTaskPlanner:
         self,
         outputs: Mapping[str, Any],
         session: InferenceSession,
+        completed_subtask_index: int | None = None,
     ) -> bool:
+        if completed_subtask_index is not None:
+            if session.switch_mode != "oracle":
+                raise ValueError("Environment completion events require oracle switching")
+            if type(completed_subtask_index) is not int or completed_subtask_index < 0:
+                raise ValueError("completed_subtask_index must be a non-negative integer")
+            if completed_subtask_index > session.subtask_index:
+                raise ValueError("Environment completion event is ahead of the active subtask")
         if session.task_complete or session.release_pending or session.taskstructure is None:
+            return False
+        if getattr(session, "switch_mode", "predicted") == "oracle":
+            if completed_subtask_index == session.subtask_index:
+                session.progress_streak = 0
+                session.release_pending = True
+                return True
             return False
 
         frame_scores = self._progress_frame_scores(outputs)
@@ -1381,6 +1397,7 @@ class InferenceServer:
         self.sessions: dict[str, InferenceSession] = {}
         self.session_locks: dict[str, threading.Lock] = {}
         self.session_locks_guard = threading.Lock()
+        self.inference_lock = threading.Lock()
         self.idle_timeout = 180.0
         self.last_message_time = 0.0
 
@@ -1426,6 +1443,8 @@ class InferenceServer:
                 cs.print(f"\\[worker {worker_id}] {peer} - connected")
                 if request.get("type") == "server_info":
                     response = self.server_info()
+                elif request.get("type") == "task_info":
+                    response = await asyncio.to_thread(self.task_info, request["languages"])
                 else:
                     if PROFILE:
                         request["_profile_queued_at"] = time.perf_counter()
@@ -1436,9 +1455,16 @@ class InferenceServer:
                 response = {"error": str(exc)}
             await websocket.send(json.dumps(response))
 
+    def task_info(self, languages: list[str]) -> dict[str, Any]:
+        if not isinstance(languages, list) or not all(isinstance(language, str) and language for language in languages):
+            raise ValueError("languages must be a list of non-empty task instructions")
+        with self.inference_lock:
+            return {"taskstructures": {language: self.planner._taskstructure(language) for language in languages}}
+
     def server_info(self) -> dict[str, Any]:
         return {
             "ckpt_path": self.ckpt_path,
+            "switch_modes": ["oracle", "predicted"],
             "progress_threshold": self.planner.progress_threshold,
             "embodiment": getattr(self.embodiment, "embodiment", "franka_panda"),
             "action_mode": getattr(self.embodiment, "action_mode", "points"),
@@ -1454,13 +1480,18 @@ class InferenceServer:
             locked = time.perf_counter()
             _WORKER_CONTEXT.worker_id = int(request.get("worker_id", 0))
             try:
-                response = self.infer_from_observation(request)
+                # Serialize the full perception/model/action pipeline per server.
+                with self.inference_lock:
+                    inference_started = time.perf_counter()
+                    response = self.infer_from_observation(request)
+                    inference_finished = time.perf_counter()
                 if PROFILE:
                     timing = response.setdefault("_timing", {})
                     timing.update({
                         "thread_queue_s": entered - request.get("_profile_queued_at", entered),
                         "session_lock_s": locked - entered,
-                        "infer_total_s": time.perf_counter() - locked,
+                        "inference_queue_s": inference_started - locked,
+                        "infer_total_s": inference_finished - inference_started,
                     })
                 return response
             finally:
@@ -1472,6 +1503,8 @@ class InferenceServer:
         if request.get("embodiment", "franka_panda") != expected_embodiment:
             raise ValueError(f"Client/server embodiment mismatch: expected {expected_embodiment!r}")
         session = self._session_for(request)
+        if request.get("completed_subtask_index", -1) > session.subtask_index:
+            raise ValueError("Environment completion event is ahead of the active subtask")
         subtaskstructure = self.planner.plan(request, session)
         model_input = self.preprocessor.build(request, session, subtaskstructure)
         current_features = session.feature_history[-1]
@@ -1498,7 +1531,9 @@ class InferenceServer:
                 model_input,
                 return_model_input=return_model_input,
             )
-            release_requested = self.planner.update_after_inference(outputs, session)
+            release_requested = self.planner.update_after_inference(
+                outputs, session, request.get("completed_subtask_index"),
+            )
 
         if release_requested or session.task_complete:
             executed_actions = self.embodiment.release_actions(
@@ -1535,6 +1570,8 @@ class InferenceServer:
             "subtask": session.current_subtask,
             "subtask_index": session.subtask_index,
             "subtask_switched": subtask_switched,
+            "switch_mode": session.switch_mode,
+            "release_pending": session.release_pending,
             "episode_done": session.task_complete,
             "action": executed_actions,
         }
@@ -1635,22 +1672,32 @@ class InferenceServer:
             raise KeyError(f"Missing required request fields: {missing}")
         if request["benchmark"] != "libero":
             raise ValueError(f"Unsupported benchmark: {request['benchmark']!r}")
+        if request.get("switch_mode", "predicted") not in ("oracle", "predicted"):
+            raise ValueError("switch_mode must be oracle or predicted")
+        if "completed_subtask_index" in request:
+            index = request["completed_subtask_index"]
+            if request.get("switch_mode") != "oracle" or type(index) is not int or index < 0:
+                raise ValueError("Invalid oracle completion event")
 
     def _session_for(self, request: Mapping[str, Any]) -> InferenceSession:
         session_id = str(request["session_id"])
         benchmark = str(request["benchmark"])
         language = str(request["language"])
         worker_id = int(request.get("worker_id", 0))
+        switch_mode = str(request.get("switch_mode", "predicted"))
         session = self.sessions.get(session_id)
         if session is None:
             session = InferenceSession(
                 session_id=session_id, benchmark=benchmark, language=language, worker_id=worker_id,
+                switch_mode=switch_mode,
             )
             self.sessions[session_id] = session
             return session
 
         if bool(request.get("reset", False)) or session.language != language or session.benchmark != benchmark:
-            session.reset(benchmark=benchmark, language=language, worker_id=worker_id)
+            session.reset(benchmark=benchmark, language=language, worker_id=worker_id, switch_mode=switch_mode)
+        elif session.switch_mode != switch_mode:
+            raise ValueError("switch_mode cannot change within an episode")
         return session
 
 
@@ -1765,6 +1812,7 @@ class ImagePolicyInferenceServer(InferenceServer):
         self.sessions = {}
         self.session_locks = {}
         self.session_locks_guard = threading.Lock()
+        self.inference_lock = threading.Lock()
         self.idle_timeout = 180.0
         self.last_message_time = 0.0
         cs.print(

@@ -6,15 +6,15 @@ from pathlib import Path
 
 @dataclass
 class TrainingConfig:
-    resume: bool = True
-    max_steps: int = 30_000
+    resume: bool = False
+    max_steps: int = 15_000
     batch_size: int = 64
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = True
     gradient_clip_norm: float | None = None
     warmup_steps: int = 500
     peak_lr: float = 1e-4
-    decay_steps: int = 30_000
+    decay_steps: int = 15_000
     decay_lr: float = 1e-6
     weight_decay: float = 1e-6
     betas: tuple[float, float] = (0.95, 0.999)
@@ -34,7 +34,7 @@ class TrainingConfig:
     log_backend: str | None = "wandb"
     wandb_entity: str | None = "luokang2192-irmv"
     wandb_project: str | None = "GraphVLA"
-    wandb_name: str | None = "dp3_bge_custom0902_obs2"
+    wandb_name: str | None = "dp3_bge_custom0904_obs2"
 
     def to_kwargs(self):
         return asdict(self)

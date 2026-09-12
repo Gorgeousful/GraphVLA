@@ -35,9 +35,11 @@ class DataConfig:
 
 
 LIBERO_DATASET_DIR = os.environ.get(
-    "LIBERO_DATASET_DIR", "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0902_20hz",
+    "LIBERO_DATASET_DIR", "/data0/luokang/dataset/luokang/lerobot/libero/libero_custom_0904_20hz",
 )
-LIBERO_TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+# 0902: LIBERO_TASKS = [1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 16, 17]
+# 0904: hold out tasks 3, 4, 6.
+LIBERO_TASKS = [0, 1, 2, 5, 7, 8, 9]
 with (Path(LIBERO_DATASET_DIR) / "meta/tasks.jsonl").open() as handle:
     TASK_NAMES = {int(row["task_index"]): str(row["task"]) for row in map(json.loads, handle)}
 TASK_BY_NAME = {name: index for index, name in TASK_NAMES.items()}

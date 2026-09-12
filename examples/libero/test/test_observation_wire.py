@@ -1,7 +1,10 @@
 import asyncio
+import concurrent.futures
 import json
 import struct
 import threading
+import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,6 +13,51 @@ import websockets
 from examples.libero.eval.client import InferenceClient, ObservationDeltaBuffer, _server_info
 from script.server import InferenceServer, InputPreprocessor
 from src.common.observation_wire import decode_observation, encode_observation
+
+
+def test_server_serializes_sessions_and_releases_lock_after_error(monkeypatch):
+    monkeypatch.setattr("script.server.PROFILE", True)
+    server = InferenceServer(
+        host="localhost", port=0, planner=None, execute_chunk_len=10,
+        preprocessor=None, inference=None,
+        embodiment=SimpleNamespace(future_horizon=16), ckpt_path="unused.pt",
+    )
+    active = 0
+    peak = 0
+    counter_lock = threading.Lock()
+    ready = threading.Barrier(6)
+
+    def infer(request):
+        nonlocal active, peak
+        with counter_lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(0.01)
+            if request["worker_id"] == 0:
+                raise ValueError("test failure")
+            return {"worker": request["worker_id"]}
+        finally:
+            with counter_lock:
+                active -= 1
+
+    server.infer_from_observation = infer
+
+    def request(worker):
+        ready.wait(timeout=5)
+        return server._infer_locked({"session_id": str(worker), "worker_id": worker})
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(request, worker) for worker in range(6)]
+        with pytest.raises(ValueError, match="test failure"):
+            futures[0].result(timeout=5)
+        responses = [future.result(timeout=5) for future in futures[1:]]
+    assert peak == 1
+    assert [response["worker"] for response in responses] == list(range(1, 6))
+    for response in responses:
+        assert response["_timing"]["infer_total_s"] > 0
+        assert response["_timing"]["inference_queue_s"] >= 0
+    assert not server.inference_lock.locked()
 
 
 def test_array_roundtrip_preserves_values_dtype_shape_and_metadata():
@@ -86,6 +134,7 @@ def test_real_websocket_accepts_binary_observations_and_text_metadata():
         server = object.__new__(InferenceServer)
         server.session_locks = {}
         server.session_locks_guard = threading.Lock()
+        server.inference_lock = threading.Lock()
         server.server_info = lambda: {"policy_name": "point_policy"}
         server.infer_from_observation = lambda request: (captured.append(request) or
                                                        {"action": [[0.0] * 7], "episode_done": False})

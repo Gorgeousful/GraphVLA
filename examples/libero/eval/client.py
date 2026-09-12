@@ -69,6 +69,8 @@ class Args:
     num_trials_per_task: int = 5
     trials_init_state: list[int] | None = None
     max_steps: int | None = None
+    switch_mode: str = "predicted"
+    taskstructures: dict[str, Any] = dataclasses.field(default_factory=dict, repr=False)
     seed: int = 42
     save_video: bool = True
     action_delta: bool = False
@@ -209,6 +211,7 @@ class InferenceClient:
         image_obs_steps: int | None = None,
         embodiment: str = "franka_panda",
         observation_keys: tuple[str, ...] | None = None,
+        switch_mode: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -216,6 +219,8 @@ class InferenceClient:
         self.image_obs_steps = image_obs_steps
         self.embodiment = embodiment
         self.observation_keys = observation_keys
+        self.switch_mode = switch_mode
+        self.completed_subtask_index: int | None = None
         self.profile = collections.defaultdict(float)
         self.pending_observations = ObservationDeltaBuffer()
         self.intrinsic: np.ndarray | None = None
@@ -227,6 +232,17 @@ class InferenceClient:
         self.last_response: dict[str, Any] | None = None
         self.last_action_frame_id: int | None = None
         self.episode_done = False
+
+    def notify_subtask_complete(self, index: int) -> None:
+        response = self.last_response or {}
+        if (self.switch_mode != "oracle" or self.episode_done
+                or response.get("release_pending", False)
+                or response.get("subtask_index") != index
+                or self.completed_subtask_index == index):
+            return
+        self.completed_subtask_index = index
+        self.action_chunk.clear()
+        self.action_frame_ids.clear()
 
     def set_camera(self, *, env: Any) -> None:
         self.intrinsic, self.extrinsic = camera_matrices_from_env(env, camera_name=LIBERO_CAMERA_NAME)
@@ -240,12 +256,15 @@ class InferenceClient:
         self.last_response = None
         self.last_action_frame_id = None
         self.episode_done = False
+        self.completed_subtask_index = None
 
     def infer(self, observation: dict[str, Any], task_description: str) -> np.ndarray:
         self.pending_observations.append(observation)
         if not self.action_chunk:
             response = self._call_server(task_description)
             self.last_response = response
+            if self.switch_mode is not None and response.get("switch_mode") != self.switch_mode:
+                raise ValueError("Server did not acknowledge the requested switch_mode")
             episode_done = response.get("episode_done", False)
             if not isinstance(episode_done, bool):
                 raise TypeError(f"server episode_done must be a boolean, got {episode_done!r}")
@@ -273,6 +292,12 @@ class InferenceClient:
         if self.first_request:
             request["reset"] = True
             self.first_request = False
+        if self.switch_mode is not None:
+            request["switch_mode"] = self.switch_mode
+        if (self.switch_mode == "oracle" and self.completed_subtask_index is not None
+                and not (self.last_response or {}).get("release_pending", False)
+                and (self.last_response or {}).get("subtask_index") == self.completed_subtask_index):
+            request["completed_subtask_index"] = self.completed_subtask_index
         if self.embodiment != "franka_panda":
             request["embodiment"] = self.embodiment
 
@@ -334,11 +359,13 @@ class InferenceClient:
         return response
 
 
-def _server_info(*, host: str, port: int, embodiment: str = "franka_panda") -> tuple[str, float, int | None, tuple[str, ...] | None]:
+def _server_info(*, host: str, port: int, embodiment: str = "franka_panda", switch_mode: str | None = None) -> tuple[str, float, int | None, tuple[str, ...] | None]:
     uri = f"ws://{host}:{port}"
     response = asyncio.run(InferenceClient._websocket_json(uri, {"type": "server_info"}))
     if "error" in response:
         raise RuntimeError(response["error"])
+    if switch_mode is not None and switch_mode not in response.get("switch_modes", []):
+        raise ValueError(f"Server does not support {switch_mode!r} subtask switching")
     if response.get("embodiment", "franka_panda") != embodiment:
         raise ValueError(f"Client/server embodiment mismatch: client={embodiment!r}, server={response.get('embodiment')!r}")
     ckpt_path = response.get("ckpt_path")
@@ -713,6 +740,60 @@ def _save_video_ffmpeg(
     cs.print(f"{_worker_prefix(worker_id)} saved video to: {save_path} ({len(frames_rgb)} frames, {fps:.1f} fps)")
 
 
+def _record_object_poses(env: Any) -> dict[str, Any]:
+    """Ground-truth world poses sampled before the corresponding action."""
+    problem = env.env if hasattr(env, "env") else env
+    sim = problem.sim
+    poses = {}
+    for name in problem.parsed_problem["obj_of_interest"]:
+        body_id = problem.obj_body_id.get(name)
+        if body_id is None:
+            poses[name] = None
+            continue
+        poses[name] = {
+            "position": sim.data.body_xpos[body_id].tolist(),
+            "quaternion": sim.data.body_xquat[body_id].tolist(),
+        }
+        joints = {}
+        for joint in problem.get_object(name).joints:
+            joint_id = sim.model.joint_name2id(joint)
+            if int(sim.model.jnt_type[joint_id]) not in (2, 3):
+                continue
+            part_id = int(sim.model.jnt_bodyid[joint_id])
+            joints[joint] = {
+                "position": sim.data.body_xpos[part_id].tolist(),
+                "quaternion": sim.data.body_xquat[part_id].tolist(),
+                "qpos": float(sim.data.get_joint_qpos(joint)),
+            }
+        if joints:
+            poses[name]["joints"] = joints
+    return poses
+
+
+@dataclasses.dataclass
+class SequenceProgress:
+    """Track ordered goal achievements independently of the policy's active stage."""
+
+    goal_status: list[bool]
+    completion_steps: list[int] = dataclasses.field(default_factory=list)
+
+    def update(self, goal_status: list[bool], step: int) -> None:
+        if len(goal_status) != len(self.goal_status):
+            raise ValueError("Sequence goal count changed during rollout")
+        index = len(self.completion_steps)
+        if index < len(goal_status) and goal_status[index] and not self.goal_status[index]:
+            self.completion_steps.append(step)
+        self.goal_status = list(goal_status)
+
+    @property
+    def progress(self) -> float:
+        return len(self.completion_steps) / len(self.goal_status)
+
+    @property
+    def success(self) -> bool:
+        return len(self.completion_steps) == len(self.goal_status) and all(self.goal_status)
+
+
 def _goal_progress(env: Any) -> tuple[int, int, float, list[int], list[str]]:
     problem_env = env.env if hasattr(env, "env") else env
     goal_state = problem_env.parsed_problem["goal_state"]
@@ -732,7 +813,7 @@ ARTIFACT_PATTERN = re.compile(
 
 def _write_json_atomic(path: Path, value: Any) -> None:
     temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary_path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    temporary_path.write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
     temporary_path.replace(path)
 
 
@@ -759,6 +840,7 @@ def _restore_episode_result(
     task_id: int,
     episode_idx: int,
     init_state_id: int,
+    evaluation_protocol: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     record = json.loads(path.read_text(encoding="utf-8"))
     metadata = record.get("metadata", {})
@@ -770,6 +852,11 @@ def _restore_episode_result(
     )
     if actual != expected:
         raise ValueError(f"resume metadata mismatch in {path}: expected {expected}, got {actual}")
+    stored_protocol = record.get("result", {}).get("evaluation_protocol")
+    if evaluation_protocol is not None:
+        strict = evaluation_protocol["scoring"] == "ordered_prefix_v1" or evaluation_protocol["switch_mode"] == "oracle"
+        if (strict or stored_protocol is not None) and stored_protocol != evaluation_protocol:
+            raise ValueError(f"resume evaluation protocol mismatch in {path}")
     if "result" in record:
         return record["result"]
 
@@ -828,6 +915,7 @@ def parse_args() -> Args:
     parser.add_argument("--num-trials-per-task", type=int, default=Args.num_trials_per_task)
     parser.add_argument("--trials-init-state", type=int, nargs="+", default=Args.trials_init_state)
     parser.add_argument("--max-steps", type=int, default=Args.max_steps)
+    parser.add_argument("--switch-mode", choices=("oracle", "predicted"), default=Args.switch_mode)
     parser.add_argument("--seed", type=int, default=Args.seed)
     parser.add_argument(
         "--resume-dir",
@@ -863,6 +951,8 @@ def parse_args() -> Args:
         parser.error("--num-workers must be positive")
     if ns.num_trials_per_task <= 0:
         parser.error("--num-trials-per-task must be positive")
+    if ns.max_steps is not None and ns.max_steps <= 0:
+        parser.error("--max-steps must be positive")
     if ns.resume_dir is not None and ns.no_save_video:
         parser.error("--resume-dir cannot be combined with --no-save-video")
     return Args(
@@ -875,6 +965,7 @@ def parse_args() -> Args:
         num_trials_per_task=ns.num_trials_per_task,
         trials_init_state=ns.trials_init_state,
         max_steps=ns.max_steps,
+        switch_mode=ns.switch_mode,
         seed=ns.seed,
         save_video=not ns.no_save_video,
         action_delta=ns.action_delta,
@@ -882,6 +973,64 @@ def parse_args() -> Args:
         resume_dir=ns.resume_dir,
         embodiment=ns.embodiment,
     )
+
+
+def _sequence_spec(task: Any, num_subtasks: int) -> dict[str, Any] | None:
+    """Resolve environment predicates for a task already known to be multi-step."""
+    if num_subtasks == 1:
+        return None
+    from libero.libero import get_libero_path
+
+    path = Path(get_libero_path("bddl_files")) / task.problem_folder / "split.json"
+    if not path.exists():
+        raise ValueError(f"Missing ordered environment goals for multi-subtask task {task.name}")
+    matches = [spec for spec in json.loads(path.read_text()).get("sequences", [])
+               if spec["name"] == task.name]
+    if len(matches) > 1:
+        raise ValueError(f"Duplicate sequence metadata for {task.name}")
+    if not matches:
+        raise ValueError(f"Missing ordered environment goals for multi-subtask task {task.name}")
+    goals = matches[0].get("ordered_goals")
+    if not isinstance(goals, list) or not goals or not all(isinstance(goal, str) and goal.strip() for goal in goals):
+        raise ValueError(f"Invalid ordered_goals for {task.name}")
+    if len(goals) != num_subtasks:
+        raise ValueError(f"ordered_goals count does not match taskstructure for {task.name}")
+    return matches[0]
+
+
+def _load_taskstructures(args: Args, languages: list[str]) -> None:
+    response = asyncio.run(InferenceClient._websocket_json(
+        f"ws://{args.host}:{args.port}", {"type": "task_info", "languages": languages},
+    ))
+    if "error" in response:
+        raise RuntimeError(response["error"])
+    structures = response.get("taskstructures", {})
+    for language in languages:
+        subtasks = structures.get(language, {}).get("subtasks")
+        if not isinstance(subtasks, list) or not subtasks or not all(isinstance(subtask, dict) for subtask in subtasks):
+            raise ValueError(f"Server returned invalid taskstructure for {language!r}")
+    args.taskstructures = structures
+
+
+def _resolve_max_steps(args: Args, *, has_sequences: bool) -> int:
+    if args.max_steps is not None:
+        return args.max_steps
+    if has_sequences:
+        raise ValueError("Ordered sequence evaluation requires explicit --max-steps")
+    return _default_max_steps(args.task_suite_name)
+
+
+def _evaluation_protocol(args: Args, max_steps: int, *, scoring: str = "final_goals") -> dict[str, Any]:
+    return {
+        "scoring": scoring,
+        "switch_mode": args.switch_mode,
+        "max_steps": max_steps,
+        "control_freq": args.control_freq,
+        "num_steps_wait": args.num_steps_wait,
+        "seed": args.seed,
+        "embodiment": args.embodiment,
+        "action_delta": args.action_delta,
+    }
 
 
 def _evaluate_task(
@@ -901,6 +1050,13 @@ def _evaluate_task(
 ) -> dict[str, Any]:
     worker_id = client.worker_id
     task = task_suite.get_task(task_id)
+    num_subtasks = len(args.taskstructures[task.language]["subtasks"])
+    is_sequence = num_subtasks > 1
+    sequence_spec = _sequence_spec(task, num_subtasks)
+    evaluation_protocol = _evaluation_protocol(
+        args, max_steps, scoring="ordered_prefix_v1" if is_sequence else "final_goals",
+    )
+    client.switch_mode = args.switch_mode if is_sequence or args.switch_mode == "oracle" else None
     initial_states = task_suite.get_task_init_states(task_id)
     init_state_ids = (
         args.trials_init_state if args.trials_init_state is not None else list(range(args.num_trials_per_task))
@@ -935,7 +1091,7 @@ def _evaluate_task(
     ]
     env = None
     task_description = task.language
-    total_goals = 1
+    total_goals = len(sequence_spec["ordered_goals"]) if sequence_spec is not None else 1
     if missing_episode_indices:
         env, task_description = _get_libero_env(
             task,
@@ -946,6 +1102,10 @@ def _evaluate_task(
             embodiment=args.embodiment,
         )
         total_goals = len(env.env.parsed_problem["goal_state"])
+        if sequence_spec is not None:
+            expected_goals = [goal.strip("()").lower().split() for goal in sequence_spec["ordered_goals"]]
+            if env.env.parsed_problem["goal_state"] != expected_goals:
+                raise ValueError("BDDL goals do not match the ordered sequence metadata")
         client.set_camera(env=env)
     try:
         task_episodes = 0
@@ -963,6 +1123,7 @@ def _evaluate_task(
                     task_id=task_id,
                     episode_idx=episode_idx,
                     init_state_id=init_state_id,
+                    evaluation_protocol=evaluation_protocol,
                 )
                 episode_results.append(episode_result)
                 task_episodes += 1
@@ -987,10 +1148,17 @@ def _evaluate_task(
             env.reset()
             obs = env.set_init_state(initial_states[init_state_id])
             client.reset_episode()
+            sequence_progress = None
+            if is_sequence:
+                initial_goals = [bool(env.env._eval_predicate(goal)) for goal in env.env.parsed_problem["goal_state"]]
+                if any(initial_goals):
+                    raise ValueError("Sequence initial state already satisfies a subtask goal")
+                sequence_progress = SequenceProgress(initial_goals)
+            end_reason = "timeout"
+            switch_events: list[dict[str, Any]] = []
             combined_frames = []
             step_records: list[dict[str, Any]] = []
             inference_records: list[dict[str, Any]] = []
-            current_inference_id: int | None = None
             done = False
             server_done = False
             interrupted = False
@@ -1029,22 +1197,30 @@ def _evaluate_task(
                         previous_response = client.last_response
                         action = client.infer(prepared_observation, task_description)
                         current_state = prepared_observation["state"]
-                        if client.last_response is not previous_response and not client.episode_done:
-                            current_inference_id = len(inference_records)
+                        if client.last_response is not previous_response:
                             response = client.last_response or {}
                             inference_records.append(
                                 {
-                                    "inference_id": current_inference_id,
                                     "video_frame": len(combined_frames),
                                     "subtask": response.get("subtask"),
                                     "subtask_index": response.get("subtask_index"),
-                                    "tracking_point": response.get("tracking_point"),
-                                    "tracking_object_id": response.get("tracking_object_id"),
-                                    "tracking_point_active": response.get("tracking_point_active"),
+                                    "policy_step": policy_step,
+                                    "subtask_progress": _current_score(response, "subtask_progress"),
+                                    "release_pending": response.get("release_pending", False),
+                                    "episode_done": client.episode_done,
                                 }
                             )
+                            if response.get("release_pending") or response.get("subtask_switched") or client.episode_done:
+                                switch_events.append({
+                                    "policy_step": policy_step,
+                                    "subtask_index": response.get("subtask_index"),
+                                    "event": "complete" if client.episode_done else (
+                                        "advance" if response.get("subtask_switched") else "release"
+                                    ),
+                                })
                         if client.episode_done:
                             server_done = True
+                            end_reason = "server_complete"
                             cs.print(
                                 f"{_worker_prefix(worker_id)} [green]server completed episode "
                                 f"at policy step {policy_step}[/green]"
@@ -1077,34 +1253,43 @@ def _evaluate_task(
                     )
                     step_records.append(
                         {
-                            "video_frame": len(combined_frames) - 1,
                             "policy_step": policy_step,
                             "state": np.asarray(current_state, dtype=np.float64).tolist(),
                             "action": np.asarray(action, dtype=np.float64).tolist(),
-                            "controller_action": np.asarray(controller_action, dtype=np.float64).tolist(),
-                            "inference_id": current_inference_id,
-                            "action_frame_id": client.last_action_frame_id if policy_step is not None else None,
+                            "objects": _record_object_poses(env),
                         }
                     )
                     env_started = time.perf_counter()
                     if PROFILE and policy_step is not None:
                         client.profile["visual_record_s"] += env_started - visual_started
                     obs, _, done, _ = env.step(controller_action.tolist())
+                    if policy_step is not None and (is_sequence or args.switch_mode == "oracle"):
+                        goal_status = [bool(env.env._eval_predicate(goal)) for goal in env.env.parsed_problem["goal_state"]]
+                        if sequence_progress is not None:
+                            sequence_progress.update(goal_status, policy_step)
+                            step_records[-1]["goal_status_after_action"] = goal_status
+                            step_records[-1]["completed_prefix"] = len(sequence_progress.completion_steps)
+                        if args.switch_mode == "oracle":
+                            active_index = (client.last_response or {}).get("subtask_index")
+                            if type(active_index) is int and 0 <= active_index < len(goal_status) and goal_status[active_index]:
+                                client.notify_subtask_complete(active_index)
                     if PROFILE and policy_step is not None:
                         client.profile["env_s"] += time.perf_counter() - env_started
                         client.profile["env_steps"] += 1
-                    if done:
+                    if done and not is_sequence:
+                        end_reason = "environment_success"
                         break
 
             except KeyboardInterrupt:
                 interrupted = True
+                end_reason = "interrupted"
                 cs.print(
                     f"{_worker_prefix(worker_id)} [yellow]task={task_id} episode={episode_idx} interrupted; "
                     "saving current progress and continuing[/yellow]"
                 )
 
             task_episodes += 1
-            env_success = bool(done) and not interrupted
+            env_success = (sequence_progress.success if sequence_progress is not None else bool(done)) and not interrupted
             if env_success:
                 task_successes += 1
             if server_done:
@@ -1117,6 +1302,12 @@ def _evaluate_task(
                 completed_subtasks,
                 completed_goal_states,
             ) = _goal_progress(env)
+            if sequence_progress is not None:
+                completed_goals = len(sequence_progress.completion_steps)
+                total_goals = len(sequence_progress.goal_status)
+                progress = sequence_progress.progress
+                completed_subtasks = list(range(1, completed_goals + 1))
+                completed_goal_states = [str(goal) for goal in env.env.parsed_problem["goal_state"][:completed_goals]]
             task_progress += progress
             episode_result = {
                 "episode_id": episode_idx,
@@ -1127,7 +1318,17 @@ def _evaluate_task(
                 "progress": progress,
                 "completed_subtasks": completed_subtasks,
                 "completed_goals": completed_goal_states,
+                "evaluation_protocol": evaluation_protocol,
+                "end_reason": end_reason,
             }
+            if sequence_progress is not None:
+                episode_result.update({
+                    "split": sequence_spec.get("split"),
+                    "completed_prefix": completed_goals,
+                    "completion_steps": sequence_progress.completion_steps,
+                    "final_goal_status": sequence_progress.goal_status,
+                    "switch_events": switch_events,
+                })
 
             if args.save_video:
                 env_result = "success" if env_success else "failure"
@@ -1151,6 +1352,16 @@ def _evaluate_task(
                         "embodiment": args.embodiment,
                         "fps": args.control_freq,
                         "total_goals": total_goals,
+                        "schema_version": 2,
+                        "action_mode": "delta" if args.action_delta else "absolute",
+                        "pose_frame": "world",
+                        "position_unit": "m",
+                        "quaternion_order": "wxyz",
+                        "state_layout": "xyz, axisangle_rad, gripper_qpos",
+                        "sample_timing": "before_action",
+                        "goal_state": env.env.parsed_problem["goal_state"],
+                        "regions": env.env.parsed_problem["regions"],
+                        "objects_of_interest": env.env.parsed_problem["obj_of_interest"],
                     },
                     "steps": step_records,
                     "inferences": inference_records,
@@ -1293,15 +1504,26 @@ def main() -> None:
                 f"task id {task_id} out of range for {args.task_suite_name}: "
                 f"0-{num_tasks_in_suite - 1}"
             )
-    max_steps = args.max_steps if args.max_steps is not None else _default_max_steps(args.task_suite_name)
+    selected_tasks = [task_suite.get_task(task_id) for task_id in task_ids]
+    _load_taskstructures(args, [task.language for task in selected_tasks])
+    subtask_counts = [len(args.taskstructures[task.language]["subtasks"]) for task in selected_tasks]
+    has_sequences = any(count > 1 for count in subtask_counts)
+    max_steps = _resolve_max_steps(args, has_sequences=has_sequences)
+    sequence_specs = [_sequence_spec(task, count) for task, count in zip(selected_tasks, subtask_counts)]
+    scoring = "final_goals"
+    if has_sequences:
+        scoring = "ordered_prefix_v1" if all(count > 1 for count in subtask_counts) else "per_task"
 
     ckpt_path, progress_threshold, args.image_obs_steps, args.observation_keys = _server_info(
-        host=args.host, port=args.port, embodiment=args.embodiment)
+        host=args.host, port=args.port, embodiment=args.embodiment,
+        switch_mode=args.switch_mode if has_sequences or args.switch_mode == "oracle" else None)
     ckpt_dir_name = _ckpt_dir_name(ckpt_path)
     if args.embodiment != "franka_panda":
         ckpt_dir_name += f"-{args.embodiment}"
     if args.resume_dir is None:
         timestamp = datetime.now().strftime("%m%d-%H%M%S-%f")
+        if has_sequences or args.switch_mode == "oracle":
+            timestamp = f"{args.switch_mode}-{timestamp}"
         suite_output_dir = DEFAULT_OUTPUT_DIR / ckpt_dir_name / f"{args.task_suite_name}-{timestamp}"
         suite_output_dir.mkdir(parents=True, exist_ok=False)
     else:
@@ -1321,6 +1543,15 @@ def main() -> None:
     video_dir = suite_output_dir / "videos"
     result_path = suite_output_dir / "result.json"
     video_dir.mkdir(parents=True, exist_ok=True)
+    protocol = _evaluation_protocol(args, max_steps, scoring=scoring)
+    protocol_path = suite_output_dir / "evaluation.json"
+    if args.resume_dir is not None and protocol_path.exists():
+        if json.loads(protocol_path.read_text()) != protocol:
+            raise ValueError("Resume switch mode, time budget, or evaluation settings do not match")
+    elif args.resume_dir is not None and has_sequences:
+        raise ValueError("Cannot resume a sequence evaluation without evaluation.json")
+    else:
+        _write_json_atomic(protocol_path, protocol)
 
     task_entries = list(enumerate(task_ids, start=1))
     episodes_per_task = (
@@ -1393,6 +1624,7 @@ def main() -> None:
 
     result = {
         "task_suite": args.task_suite_name,
+        "evaluation_protocol": protocol,
         "embodiment": args.embodiment,
         "success_rate": float(total_successes) / float(total_episodes) if total_episodes else 0.0,
         "server_success_rate": (
@@ -1402,6 +1634,17 @@ def main() -> None:
         "total_episodes": total_episodes,
         "tasks": task_results,
     }
+    if has_sequences:
+        result["splits"] = {}
+        split_names = dict.fromkeys(spec.get("split") for spec in sequence_specs if spec is not None and spec.get("split"))
+        for split_name in split_names:
+            episodes = [episode for task_result in task_results for episode in task_result["episodes"]
+                        if episode.get("split") == split_name]
+            result["splits"][split_name] = {
+                "num_episodes": len(episodes),
+                "success_rate": sum(episode["success"] for episode in episodes) / len(episodes) if episodes else None,
+                "progress_rate": sum(episode["progress"] for episode in episodes) / len(episodes) if episodes else None,
+            }
     _write_json_atomic(result_path, result)
     cs.print(f"{_worker_prefix(0)} saved results to: {result_path}")
 

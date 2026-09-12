@@ -10,8 +10,8 @@ from typing import Any
 @dataclass
 class TrainingConfig:
     # common
-    resume: bool = False
-    max_steps: int = 15_000 #!
+    resume: bool = True
+    max_steps: int = 30_000
     batch_size: int = 64
 
     # gradient
@@ -34,7 +34,7 @@ class TrainingConfig:
     save_dir: str | Path | None = "examples/libero/result"
     log_interval: int = 100
     save_interval: int = 1_000
-    keep_period: int = 0 # 10_000
+    keep_period: int = 15_000
 
     # others
     seed: int = 42
