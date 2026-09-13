@@ -6,8 +6,8 @@ from pathlib import Path
 
 @dataclass
 class TrainingConfig:
-    resume: bool = False
-    max_steps: int = 15_000
+    resume: bool = True
+    max_steps: int = 30_000
     batch_size: int = 64
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = True
@@ -22,7 +22,7 @@ class TrainingConfig:
     save_dir: str | Path | None = "examples/libero/result"
     log_interval: int = 100
     save_interval: int = 1_000
-    keep_period: int = 0
+    keep_period: int = 15_000
     seed: int = 42
     num_workers: int = 8
     pin_memory: bool = True

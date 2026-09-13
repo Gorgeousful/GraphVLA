@@ -299,3 +299,4 @@ def test_delta_release_opens_gripper_then_holds_position() -> None:
         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0],
     ], dtype=np.float32)
     np.testing.assert_allclose(actions, expected, atol=1e-7)
+

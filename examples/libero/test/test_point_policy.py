@@ -140,8 +140,9 @@ def test_environment_controlled_server_and_language_reset(tmp_path):
         host="localhost", port=8007, execute_chunk_len=2, ckpt_path=tmp_path / "step_1.pt",
         planner=SimpleNamespace(_taskstructure=lambda language: {"subtasks": []}),
         preprocessor=SimpleNamespace(build=preprocess),
-        inference=SimpleNamespace(infer=lambda data, **kwargs: {}),
-        embodiment=SimpleNamespace(future_horizon=3, to_action=lambda *args: [[0.] * 7] * 3),
+        inference=SimpleNamespace(infer=lambda data, **kwargs: {}, to_json=lambda value: value),
+        embodiment=SimpleNamespace(future_horizon=3, actor_num_points=6,
+                                   to_action=lambda *args: [[0.] * 7] * 3),
     )
     request = {k: [] for k in REQUIRED_REQUEST_FIELDS}
     request.update(benchmark="libero", session_id="test", language="move bowl")

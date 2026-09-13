@@ -36,6 +36,7 @@ Depth and camera intrinsics back-project these tracks into 3D.
 The actor instead uses 6 keypoints computed from robot geometry and proprioception: the gripper root, TCP, 2 finger bases, and 2 fingertips.
 We align all entities in camera coordinates and subtract the current TCP position from every point in the observation history and prediction horizon.
 Thus, coordinates retain camera-axis orientation while sharing a translation origin at the current TCP.
+This centering expresses scene geometry and future motion relative to the current gripper location, reducing dependence on absolute scene placement; the uncentered ablation retains the camera-frame origin.
 Actor points are padded with a validity mask, and coordinates are normalized using training-set quantiles.
 The policy observes 10 frames, including the current frame.
 
@@ -58,6 +59,9 @@ Local self-attention processes each entity and frame independently, conditioned 
 Graph attention exchanges only CLS summaries across entities and observed times, conditioned on the action and modifier $c$.
 Its connectivity follows the bidirectional chain $A\leftrightarrow P\leftrightarrow T$, with additional within-role temporal connections.
 Direct actor--target attention is masked, so their interaction is mediated by the patient through successive layers.
+The chain encodes gripper--object and object--reference interactions explicitly; full connectivity removes this communication constraint by also allowing direct actor--target attention.
+Separating entities also preserves distinct role-conditioned geometric summaries, whereas the merged-point-set ablation pools the entities into a single set and removes separate local role groups and role embeddings.
+These variants distinguish the communication pattern from the broader choice to maintain a role-structured graph.
 Temporal rotary embeddings distinguish observation times.
 After 8 layers, the current-time CLS summaries form memory $M_t$, incorporating both geometry and interaction history.
 
@@ -79,6 +83,7 @@ For the patient, all points are replaced by the mean of the 4 points nearest to 
 This operation is applied consistently over the sampled temporal window, with anchors computed separately at each frame.
 It preserves point counts and validity masks and leaves actor points and future action supervision unchanged.
 The augmentation exposes the encoder to simplified geometry while retaining a role-specific spatial anchor.
+The patient anchor emphasizes geometry near the interaction region, while the target anchor retains a reference location; removing RPC tests the contribution of this geometric augmentation.
 
 \subsection{Point-Trajectory Flow Policy}
 We predict $H=10$ future steps, each containing 6 actor points and a scalar gripper command:
@@ -88,6 +93,8 @@ We predict $H=10$ future steps, each containing 6 actor points and a scalar grip
 \end{equation}
 Here, $X^A_{t+h}$ contains actor coordinates relative to the current TCP, and $g_{t+h}$ is the open/close command.
 Each step is represented by a 19-dimensional vector in point-wise XYZ order followed by the gripper command.
+Representing actions as gripper points makes the predicted motion spatially comparable to the observed entities and encodes orientation through the arrangement of multiple points.
+The delta-action ablation instead predicts Cartesian translation and rotation increments with a gripper command, testing the choice of action representation.
 
 \textbf{Geometry- and language-conditioned decoding.}
 A 6-layer Transformer models this trajectory with conditional flow matching~\cite{lipman2022flow}.
@@ -128,11 +135,15 @@ The progress head estimates how far the active subtask has advanced from the cur
 \label{eq:progress}
 \end{equation}
 It uses a task-conditioned MLP with AdaLN and a sigmoid output, so the same geometry is evaluated under the active action and modifier.
+Using patient and target summaries focuses the readout on the manipulated entity and its relation to the reference, rather than directly including gripper summaries as progress cues.
+This restriction applies to the readout: patient and target summaries can still contain actor information propagated through graph attention.
+The A+P+T ablation adds actor summaries to the standard P+T inputs, testing whether directly exposing gripper state helps or hinders progress-based switching.
 Training targets increase linearly from 0 to 1 within each annotated subtask interval, and the complete objective is
 \begin{equation}
     \mathcal{L}=\mathcal{L}_{\mathrm{flow}}+
     \operatorname{SmoothL1}(\hat{s}_t,s_t).
 \end{equation}
 At deployment, the planner advances when predicted progress exceeds a threshold for a consecutive window of policy calls.
+We denote this learned transition rule as self-switching (SS); environment-based switching (ES) instead uses an environment-provided subtask completion signal to separate execution performance from learned transition timing.
 It performs a release-and-lift transition, selects the next subtask's entities and language conditions, and resets policy history.
 The same policy is reused for every subtask, enabling execution of task sequences assembled from atomic demonstrations without requiring a separate policy for each sequence.

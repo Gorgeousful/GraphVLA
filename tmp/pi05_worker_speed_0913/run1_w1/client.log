@@ -1,0 +1,197 @@
+[robosuite WARNING] No private macro file found! (__init__.py:7)
+[robosuite WARNING] It is recommended to use a private macro file (__init__.py:8)
+[robosuite WARNING] To setup, run: python /data0/luokang/miniconda3/envs/robobrain/lib/python3.11/site-packages/robosuite/scripts/setup_macros.py (__init__.py:9)
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[worker 0] Args(host='127.0.0.1', port=8011, control_freq=20, 
+task_suite_name='libero_custom_0906', tasks=[0], num_steps_wait=30, 
+num_trials_per_task=3, trials_init_state=[0, 1, 2], max_steps=300, 
+switch_mode='oracle', seed=42, save_video=True, action_delta=True, 
+num_workers=1, resume_dir=None, image_obs_steps=None, observation_keys=None, 
+embodiment='franka_panda')
+[Warning]: datasets path /data0/luokang/research/LIBERO/libero/libero/../datasets does not exist!
+[Warning]: datasets path /data0/luokang/research/LIBERO/libero/libero/../datasets does not exist!
+[Warning]: datasets path /data0/luokang/research/LIBERO/libero/libero/../datasets does not exist!
+[Warning]: datasets path /data0/luokang/research/LIBERO/libero/libero/../datasets does not exist!
+:demonstration is not recognized in problem
+INFO:root:[worker 0] Task 0 episode 0: put the wine bottle on the stove, then put the bowl on the plate, then put the cream cheese on the wooden cabinet
+[worker 0] task 1/1 id=0 episode 1/3 init_state=0: put the wine bottle on the 
+stove, then put the bowl on the plate, then put the cream cheese on the wooden 
+cabinet
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 1/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 2/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 3/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 4/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 5/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 6/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 7/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 8/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 9/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 10/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 11/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 12/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 13/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 14/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 15/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 16/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 17/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 18/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 19/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 20/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 21/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 22/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 23/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 24/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 25/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 26/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 27/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 28/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 29/30
+[worker 0] task 1/1 id=0 episode 1/3 wait_step 30/30
+[worker 0] task 1/1 id=0 episode 1/3 step 1/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"observation_s": 0.00021166400983929634, "request_build_s": 5.006277933716774e-05, "request_roundtrip_s": 0.09101549116894603}, "transport": {"connect_s": 0.0017208196222782135, "encode_s": 0.00014146603643894196, "send_s": 0.00021034199744462967, "wait_response_s": 0.08814622135832906, "close_s": 0.0004232940264046192, "decode_s": 4.2391009628772736e-05, "request_bytes": 393763}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 2/300
+[worker 0] task 1/1 id=0 episode 1/3 step 3/300
+[worker 0] task 1/1 id=0 episode 1/3 step 4/300
+[worker 0] task 1/1 id=0 episode 1/3 step 5/300
+[worker 0] task 1/1 id=0 episode 1/3 step 6/300
+[worker 0] task 1/1 id=0 episode 1/3 step 7/300
+[worker 0] task 1/1 id=0 episode 1/3 step 8/300
+[worker 0] task 1/1 id=0 episode 1/3 step 9/300
+[worker 0] task 1/1 id=0 episode 1/3 step 10/300
+[worker 0] task 1/1 id=0 episode 1/3 step 11/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0018032649531960487, "env_s": 0.19132637418806553, "env_steps": 10.0, "observation_s": 0.0020291944965720177, "request_build_s": 6.187520921230316e-05, "request_roundtrip_s": 0.09682253608480096}, "transport": {"connect_s": 0.002129168715327978, "encode_s": 0.0001278701238334179, "send_s": 0.0002046222798526287, "wait_response_s": 0.09330478962510824, "close_s": 0.000673673115670681, "decode_s": 4.091393202543259e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 12/300
+[worker 0] task 1/1 id=0 episode 1/3 step 13/300
+[worker 0] task 1/1 id=0 episode 1/3 step 14/300
+[worker 0] task 1/1 id=0 episode 1/3 step 15/300
+[worker 0] task 1/1 id=0 episode 1/3 step 16/300
+[worker 0] task 1/1 id=0 episode 1/3 step 17/300
+[worker 0] task 1/1 id=0 episode 1/3 step 18/300
+[worker 0] task 1/1 id=0 episode 1/3 step 19/300
+[worker 0] task 1/1 id=0 episode 1/3 step 20/300
+[worker 0] task 1/1 id=0 episode 1/3 step 21/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0017880466766655445, "env_s": 0.17769464757293463, "env_steps": 10.0, "observation_s": 0.001905882265418768, "request_build_s": 6.180116906762123e-05, "request_roundtrip_s": 0.09252817882224917}, "transport": {"connect_s": 0.0018829829059541225, "encode_s": 0.00013764109462499619, "send_s": 0.0001941109076142311, "wait_response_s": 0.08944021724164486, "close_s": 0.0005069226026535034, "decode_s": 4.373304545879364e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 22/300
+[worker 0] task 1/1 id=0 episode 1/3 step 23/300
+[worker 0] task 1/1 id=0 episode 1/3 step 24/300
+[worker 0] task 1/1 id=0 episode 1/3 step 25/300
+[worker 0] task 1/1 id=0 episode 1/3 step 26/300
+[worker 0] task 1/1 id=0 episode 1/3 step 27/300
+[worker 0] task 1/1 id=0 episode 1/3 step 28/300
+[worker 0] task 1/1 id=0 episode 1/3 step 29/300
+[worker 0] task 1/1 id=0 episode 1/3 step 30/300
+[worker 0] task 1/1 id=0 episode 1/3 step 31/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0017531695775687695, "env_s": 0.15406508650630713, "env_steps": 10.0, "observation_s": 0.001960176043212414, "request_build_s": 5.155615508556366e-05, "request_roundtrip_s": 0.0922047276981175}, "transport": {"connect_s": 0.0016348310746252537, "encode_s": 0.000131246168166399, "send_s": 0.00017686095088720322, "wait_response_s": 0.08942839968949556, "close_s": 0.000490737147629261, "decode_s": 4.603108391165733e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 32/300
+[worker 0] task 1/1 id=0 episode 1/3 step 33/300
+[worker 0] task 1/1 id=0 episode 1/3 step 34/300
+[worker 0] task 1/1 id=0 episode 1/3 step 35/300
+[worker 0] task 1/1 id=0 episode 1/3 step 36/300
+[worker 0] task 1/1 id=0 episode 1/3 step 37/300
+[worker 0] task 1/1 id=0 episode 1/3 step 38/300
+[worker 0] task 1/1 id=0 episode 1/3 step 39/300
+[worker 0] task 1/1 id=0 episode 1/3 step 40/300
+[worker 0] task 1/1 id=0 episode 1/3 step 41/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0018119714222848415, "env_s": 0.1842377190478146, "env_steps": 10.0, "observation_s": 0.002003664616495371, "request_build_s": 4.675425589084625e-05, "request_roundtrip_s": 0.09130806103348732}, "transport": {"connect_s": 0.0017746067605912685, "encode_s": 0.00011996738612651825, "send_s": 0.00017807167023420334, "wait_response_s": 0.08835026295855641, "close_s": 0.0005339360795915127, "decode_s": 4.6830158680677414e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 42/300
+[worker 0] task 1/1 id=0 episode 1/3 step 43/300
+[worker 0] task 1/1 id=0 episode 1/3 step 44/300
+[worker 0] task 1/1 id=0 episode 1/3 step 45/300
+[worker 0] task 1/1 id=0 episode 1/3 step 46/300
+[worker 0] task 1/1 id=0 episode 1/3 step 47/300
+[worker 0] task 1/1 id=0 episode 1/3 step 48/300
+[worker 0] task 1/1 id=0 episode 1/3 step 49/300
+[worker 0] task 1/1 id=0 episode 1/3 step 50/300
+[worker 0] task 1/1 id=0 episode 1/3 step 51/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0017481870017945766, "env_s": 0.18376783933490515, "env_steps": 10.0, "observation_s": 0.0018878830596804619, "request_build_s": 5.8166682720184326e-05, "request_roundtrip_s": 0.09137664921581745}, "transport": {"connect_s": 0.001787213608622551, "encode_s": 0.00022471323609352112, "send_s": 0.0003127087838947773, "wait_response_s": 0.08819458913058043, "close_s": 0.0005068941973149776, "decode_s": 4.311371594667435e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 52/300
+[worker 0] task 1/1 id=0 episode 1/3 step 53/300
+[worker 0] task 1/1 id=0 episode 1/3 step 54/300
+[worker 0] task 1/1 id=0 episode 1/3 step 55/300
+[worker 0] task 1/1 id=0 episode 1/3 step 56/300
+[worker 0] task 1/1 id=0 episode 1/3 step 57/300
+[worker 0] task 1/1 id=0 episode 1/3 step 58/300
+[worker 0] task 1/1 id=0 episode 1/3 step 59/300
+[worker 0] task 1/1 id=0 episode 1/3 step 60/300
+[worker 0] task 1/1 id=0 episode 1/3 step 61/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0017764763906598091, "env_s": 0.17252191016450524, "env_steps": 10.0, "observation_s": 0.00194196542724967, "request_build_s": 5.058804526925087e-05, "request_roundtrip_s": 0.0941217583604157}, "transport": {"connect_s": 0.0016523832455277443, "encode_s": 0.00031423475593328476, "send_s": 0.0003042551688849926, "wait_response_s": 0.09071875084191561, "close_s": 0.0006518731825053692, "decode_s": 0.00011501088738441467, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 62/300
+[worker 0] task 1/1 id=0 episode 1/3 step 63/300
+[worker 0] task 1/1 id=0 episode 1/3 step 64/300
+[worker 0] task 1/1 id=0 episode 1/3 step 65/300
+[worker 0] task 1/1 id=0 episode 1/3 step 66/300
+[worker 0] task 1/1 id=0 episode 1/3 step 67/300
+[worker 0] task 1/1 id=0 episode 1/3 step 68/300
+[worker 0] task 1/1 id=0 episode 1/3 step 69/300
+[worker 0] task 1/1 id=0 episode 1/3 step 70/300
+[worker 0] task 1/1 id=0 episode 1/3 step 71/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0017673545517027378, "env_s": 0.19772897427901626, "env_steps": 10.0, "observation_s": 0.0019601359963417053, "request_build_s": 4.9688853323459625e-05, "request_roundtrip_s": 0.09822213696315885}, "transport": {"connect_s": 0.0017780018970370293, "encode_s": 0.0002978881821036339, "send_s": 0.00030222488567233086, "wait_response_s": 0.09487276105210185, "close_s": 0.0006259582005441189, "decode_s": 5.3705647587776184e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 72/300
+[worker 0] task 1/1 id=0 episode 1/3 step 73/300
+[worker 0] task 1/1 id=0 episode 1/3 step 74/300
+[worker 0] task 1/1 id=0 episode 1/3 step 75/300
+[worker 0] task 1/1 id=0 episode 1/3 step 76/300
+[worker 0] task 1/1 id=0 episode 1/3 step 77/300
+[worker 0] task 1/1 id=0 episode 1/3 step 78/300
+[worker 0] task 1/1 id=0 episode 1/3 step 79/300
+[worker 0] task 1/1 id=0 episode 1/3 step 80/300
+[worker 0] task 1/1 id=0 episode 1/3 step 81/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0021053599193692207, "env_s": 0.20781236654147506, "env_steps": 10.0, "observation_s": 0.002126092556864023, "request_build_s": 5.131680518388748e-05, "request_roundtrip_s": 0.0899968221783638}, "transport": {"connect_s": 0.0017259460873901844, "encode_s": 0.0003928882069885731, "send_s": 0.0003455858677625656, "wait_response_s": 0.08669085893779993, "close_s": 0.0005043973214924335, "decode_s": 4.6032946556806564e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 82/300
+[worker 0] task 1/1 id=0 episode 1/3 step 83/300
+[worker 0] task 1/1 id=0 episode 1/3 step 84/300
+[worker 0] task 1/1 id=0 episode 1/3 step 85/300
+[worker 0] task 1/1 id=0 episode 1/3 step 86/300
+[worker 0] task 1/1 id=0 episode 1/3 step 87/300
+[worker 0] task 1/1 id=0 episode 1/3 step 88/300
+[worker 0] task 1/1 id=0 episode 1/3 step 89/300
+[worker 0] task 1/1 id=0 episode 1/3 step 90/300
+[worker 0] task 1/1 id=0 episode 1/3 step 91/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.002074968069791794, "env_s": 0.23416747618466616, "env_steps": 10.0, "observation_s": 0.0019906386733055115, "request_build_s": 5.0333328545093536e-05, "request_roundtrip_s": 0.09638580260798335}, "transport": {"connect_s": 0.0017554480582475662, "encode_s": 0.00037370016798377037, "send_s": 0.00032991496846079826, "wait_response_s": 0.09305218188092113, "close_s": 0.0005264561623334885, "decode_s": 4.7939829528331757e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 92/300
+[worker 0] task 1/1 id=0 episode 1/3 step 93/300
+[worker 0] task 1/1 id=0 episode 1/3 step 94/300
+[worker 0] task 1/1 id=0 episode 1/3 step 95/300
+[worker 0] task 1/1 id=0 episode 1/3 step 96/300
+[worker 0] task 1/1 id=0 episode 1/3 step 97/300
+[worker 0] task 1/1 id=0 episode 1/3 step 98/300
+[worker 0] task 1/1 id=0 episode 1/3 step 99/300
+[worker 0] task 1/1 id=0 episode 1/3 step 100/300
+[worker 0] task 1/1 id=0 episode 1/3 step 101/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0021336846984922886, "env_s": 0.22400914365425706, "env_steps": 10.0, "observation_s": 0.002112275455147028, "request_build_s": 4.986487329006195e-05, "request_roundtrip_s": 0.09619785193353891}, "transport": {"connect_s": 0.0019149589352309704, "encode_s": 0.0004015169106423855, "send_s": 0.0003291042521595955, "wait_response_s": 0.09249709080904722, "close_s": 0.0007290509529411793, "decode_s": 4.544109106063843e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 102/300
+[worker 0] task 1/1 id=0 episode 1/3 step 103/300
+[worker 0] task 1/1 id=0 episode 1/3 step 104/300
+[worker 0] task 1/1 id=0 episode 1/3 step 105/300
+[worker 0] task 1/1 id=0 episode 1/3 step 106/300
+[worker 0] task 1/1 id=0 episode 1/3 step 107/300
+[worker 0] task 1/1 id=0 episode 1/3 step 108/300
+[worker 0] task 1/1 id=0 episode 1/3 step 109/300
+[worker 0] task 1/1 id=0 episode 1/3 step 110/300
+[worker 0] task 1/1 id=0 episode 1/3 step 111/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.002086272928863764, "env_s": 0.22383291320875287, "env_steps": 10.0, "observation_s": 0.002154699992388487, "request_build_s": 5.07221557199955e-05, "request_roundtrip_s": 0.0921831289306283}, "transport": {"connect_s": 0.001699782907962799, "encode_s": 0.0003275633789598942, "send_s": 0.0003258087672293186, "wait_response_s": 0.08889540005475283, "close_s": 0.0005681291222572327, "decode_s": 6.195669993758202e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 112/300
+[worker 0] task 1/1 id=0 episode 1/3 step 113/300
+[worker 0] task 1/1 id=0 episode 1/3 step 114/300
+[worker 0] task 1/1 id=0 episode 1/3 step 115/300
+[worker 0] task 1/1 id=0 episode 1/3 step 116/300
+[worker 0] task 1/1 id=0 episode 1/3 step 117/300
+[worker 0] task 1/1 id=0 episode 1/3 step 118/300
+[worker 0] task 1/1 id=0 episode 1/3 step 119/300
+[worker 0] task 1/1 id=0 episode 1/3 step 120/300
+[worker 0] task 1/1 id=0 episode 1/3 step 121/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.0024153543636202812, "env_s": 0.23738107085227966, "env_steps": 10.0, "observation_s": 0.0023453817702829838, "request_build_s": 5.312217399477959e-05, "request_roundtrip_s": 0.08336561312898993}, "transport": {"connect_s": 0.001817213837057352, "encode_s": 0.0003446899354457855, "send_s": 0.0003259330987930298, "wait_response_s": 0.08006435493007302, "close_s": 0.0004336778074502945, "decode_s": 5.766097456216812e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 122/300
+[worker 0] task 1/1 id=0 episode 1/3 step 123/300
+[worker 0] task 1/1 id=0 episode 1/3 step 124/300
+[worker 0] task 1/1 id=0 episode 1/3 step 125/300
+[worker 0] task 1/1 id=0 episode 1/3 step 126/300
+[worker 0] task 1/1 id=0 episode 1/3 step 127/300
+[worker 0] task 1/1 id=0 episode 1/3 step 128/300
+[worker 0] task 1/1 id=0 episode 1/3 step 129/300
+[worker 0] task 1/1 id=0 episode 1/3 step 130/300
+[worker 0] task 1/1 id=0 episode 1/3 step 131/300
+PROFILE {"session": "libero-4c56f8cc", "worker": 0, "client": {"visual_record_s": 0.002364575397223234, "env_s": 0.2119861845858395, "env_steps": 10.0, "observation_s": 0.0020653395913541317, "request_build_s": 5.02169132232666e-05, "request_roundtrip_s": 0.09327299101278186}, "transport": {"connect_s": 0.001761430874466896, "encode_s": 0.00033892691135406494, "send_s": 0.0003286539576947689, "wait_response_s": 0.08994391281157732, "close_s": 0.0005095084197819233, "decode_s": 7.185479626059532e-05, "request_bytes": 393748}, "server": {}}
+[worker 0] task 1/1 id=0 episode 1/3 step 132/300

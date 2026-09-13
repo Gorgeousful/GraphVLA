@@ -1,0 +1,4 @@
+Expr,status,SR-ID,SR-OOD,ID-0,ID-1,ID-2,ID-5,ID-7,ID-8,ID-9,OOD-3,OOD-4,OOD-6
+0906-pointdropknn005-basetcpfinger-cls4-rolechain-current-progress-sam-custom0904-ep10-rel-step_30000,o,90.48%,64.44%,50.00%,100.00%,83.33%,100.00%,100.00%,100.00%,100.00%,26.67%,76.67%,90.00%
+pi05_custom0904-step_30000,,,,,,,,,,,,,
+dp3_bge_custom0904_obs2-step_30000,o,83.33%,60.00%,80.00%,93.33%,96.67%,100.00%,100.00%,86.67%,26.67%,80.00%,0.00%,100.00%

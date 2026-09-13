@@ -1702,13 +1702,45 @@ class InferenceServer:
 
 
 class PointPolicyInferenceServer(InferenceServer):
-    """Environment-controlled termination; no learned progress or subtask switch."""
+    """Point policy with optional environment-controlled subtask switching."""
 
     def server_info(self):
         return {"ckpt_path": self.ckpt_path, "policy_name": "point_policy", "action_delta": False,
-                "progress_threshold": 1.0}
+                "progress_threshold": 1.0, "switch_modes": ["oracle"]}
 
     def infer_from_observation(self, request):
+        if request.get("switch_mode") is None:
+            return self._predict_action(request)
+        if request["switch_mode"] != "oracle":
+            raise ValueError("PointPolicy only supports oracle subtask switching")
+        self._validate_request(request)
+        session = self._session_for(request)
+        self.planner.plan(request, session)
+        switched = self.planner.advance_after_release(session) if session.release_pending else False
+        self.planner.plan(request, session)
+        release = self.planner.update_after_inference(
+            {}, session, request.get("completed_subtask_index"),
+        )
+        if release or session.task_complete:
+            response = {"action": self.embodiment.release_actions(
+                session, self.execute_chunk_len, request,
+            )}
+        else:
+            # An atomic session keeps object slots and tracking identical to
+            # single-task PP evaluation, and resets them on each transition.
+            response = self._predict_action({
+                **request, "session_id": f"{session.session_id}::atomic",
+                "language": session.current_subtask,
+                "reset": bool(request.get("reset", False)) or switched,
+            })
+        response.update({
+            "switch_mode": "oracle", "subtask": session.current_subtask,
+            "subtask_index": session.subtask_index, "subtask_switched": switched,
+            "release_pending": session.release_pending, "episode_done": session.task_complete,
+        })
+        return response
+
+    def _predict_action(self, request):
         started = time.perf_counter()
         self._validate_request(request)
         session = self._session_for(request)
@@ -1793,6 +1825,8 @@ class ImagePolicyInferenceServer(InferenceServer):
         self.obs_steps = int(getattr(model_config, "obs_steps", 1))
         self.camera_keys = tuple(getattr(model_config, "camera_keys", ()))
         self.point_cloud_max_candidates = int(getattr(data_config, "point_cloud_max_candidates", 8192))
+        # The eval client requests task metadata for recording and goal accounting.
+        self.planner = TopLevelTaskPlanner(dataset_dir=data_config.dataset_dir)
         state_normalizers = [
             transform for transform in data_config.transforms
             if isinstance(transform, Normalize)
@@ -1913,8 +1947,38 @@ def parse_devices(value: str | None, *, default_device: str) -> dict[str, str]:
 class DP3InferenceServer(ImagePolicyInferenceServer):
     """Scene point-cloud histories; direct delta actions from trained weights."""
 
-    @torch.inference_mode()
+    def server_info(self) -> dict[str, Any]:
+        return {**super().server_info(), "switch_modes": ["oracle"]}
+
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        if request.get("switch_mode") is None:
+            return self._predict_action(request)
+        if request["switch_mode"] != "oracle":
+            raise ValueError("DP3 only supports oracle subtask switching")
+        session = self._session_for(request)
+        self.planner.plan(request, session)
+        switched = self.planner.advance_after_release(session) if session.release_pending else False
+        self.planner.plan(request, session)
+        release = self.planner.update_after_inference(
+            {}, session, request.get("completed_subtask_index"),
+        )
+        if release or session.task_complete:
+            adapter = EmbodimentAdapter(
+                future_horizon=self.execute_chunk_len, actor_point_indices=(0,),
+                action_mode="delta_action", action_delta=True,
+            )
+            response = {"action": adapter.release_actions(session, self.execute_chunk_len, request)}
+        else:
+            response = self._predict_action({**request, "language": session.current_subtask})
+        response.update({
+            "switch_mode": "oracle", "subtask": session.current_subtask,
+            "subtask_index": session.subtask_index, "subtask_switched": switched,
+            "release_pending": session.release_pending, "episode_done": session.task_complete,
+        })
+        return response
+
+    @torch.inference_mode()
+    def _predict_action(self, request: Mapping[str, Any]) -> dict[str, Any]:
         from src.policy.dp3.data import depth_to_point_cloud
 
         required = ("benchmark", "session_id", "language", "observation.state",

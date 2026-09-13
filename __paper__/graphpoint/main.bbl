@@ -159,8 +159,9 @@ S.~Xiao, Z.~Liu, P.~Zhang, N.~Muennighoff, D.~Lian, and J.-Y. Nie, ``{C-Pack}:
 N.~Ravi, V.~Gabeur, Y.-T. Hu, R.~Hu, C.~Ryali, T.~Ma, H.~Khedr, R.~R{\"a}dle,
   C.~Rolland, L.~Gustafson, E.~Mintun, J.~Pan, K.~V. Alwala, N.~Carion, C.-Y.
   Wu, R.~Girshick, P.~Doll{\'a}r, and C.~Feichtenhofer, ``{SAM 2}: Segment
-  anything in images and videos,'' \emph{arXiv preprint arXiv:2408.00714},
-  2024. [Online]. Available: \url{https://arxiv.org/abs/2408.00714}
+  anything in images and videos,'' in \emph{The Thirteenth International
+  Conference on Learning Representations}, 2025. [Online]. Available:
+  \url{https://proceedings.iclr.cc/paper_files/paper/2025/file/45c1f6a8cbf2da59ebf2c802b4f742cd-Paper-Conference.pdf}
 \BIBentrySTDinterwordspacing
 
 \bibitem{jung2026tapnextpp}
@@ -174,8 +175,9 @@ S.~Jung, A.~Zholus, M.~Sundermeyer, C.~Doersch, R.~Goroshin, D.~J. Tan,
 \bibitem{lipman2022flow}
 \BIBentryALTinterwordspacing
 Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching
-  for generative modeling,'' \emph{arXiv preprint arXiv:2210.02747}, 2022.
-  [Online]. Available: \url{https://arxiv.org/abs/2210.02747}
+  for generative modeling,'' in \emph{The Eleventh International Conference on
+  Learning Representations}, 2023. [Online]. Available:
+  \url{https://openreview.net/forum?id=PqvMRDCJT9t}
 \BIBentrySTDinterwordspacing
 
 \bibitem{mandlekar2023mimicgen}

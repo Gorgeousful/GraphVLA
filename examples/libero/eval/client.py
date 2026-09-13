@@ -379,7 +379,7 @@ def _server_info(*, host: str, port: int, embodiment: str = "franka_panda", swit
     ):
         raise ValueError(f"server returned invalid progress_threshold: {progress_threshold!r}")
     image_obs_steps = None
-    if response.get("policy_name") in ("act", "dp", "dp3"):
+    if response.get("policy_name") in ("act", "dp", "dp3", "pi05"):
         image_obs_steps = response.get("obs_steps")
         if type(image_obs_steps) is not int or image_obs_steps < 1:
             raise ValueError(f"server returned invalid obs_steps: {image_obs_steps!r}")
@@ -791,7 +791,7 @@ class SequenceProgress:
 
     @property
     def success(self) -> bool:
-        return len(self.completion_steps) == len(self.goal_status) and all(self.goal_status)
+        return all(self.goal_status)
 
 
 def _goal_progress(env: Any) -> tuple[int, int, float, list[int], list[str]]:
@@ -854,7 +854,7 @@ def _restore_episode_result(
         raise ValueError(f"resume metadata mismatch in {path}: expected {expected}, got {actual}")
     stored_protocol = record.get("result", {}).get("evaluation_protocol")
     if evaluation_protocol is not None:
-        strict = evaluation_protocol["scoring"] == "ordered_prefix_v1" or evaluation_protocol["switch_mode"] == "oracle"
+        strict = evaluation_protocol["scoring"] == "sequence_final_goals_v1" or evaluation_protocol["switch_mode"] == "oracle"
         if (strict or stored_protocol is not None) and stored_protocol != evaluation_protocol:
             raise ValueError(f"resume evaluation protocol mismatch in {path}")
     if "result" in record:
@@ -1054,7 +1054,7 @@ def _evaluate_task(
     is_sequence = num_subtasks > 1
     sequence_spec = _sequence_spec(task, num_subtasks)
     evaluation_protocol = _evaluation_protocol(
-        args, max_steps, scoring="ordered_prefix_v1" if is_sequence else "final_goals",
+        args, max_steps, scoring="sequence_final_goals_v1" if is_sequence else "final_goals",
     )
     client.switch_mode = args.switch_mode if is_sequence or args.switch_mode == "oracle" else None
     initial_states = task_suite.get_task_init_states(task_id)
@@ -1289,7 +1289,7 @@ def _evaluate_task(
                 )
 
             task_episodes += 1
-            env_success = (sequence_progress.success if sequence_progress is not None else bool(done)) and not interrupted
+            env_success = sequence_progress.success if sequence_progress is not None else bool(done) and not interrupted
             if env_success:
                 task_successes += 1
             if server_done:
@@ -1512,7 +1512,7 @@ def main() -> None:
     sequence_specs = [_sequence_spec(task, count) for task, count in zip(selected_tasks, subtask_counts)]
     scoring = "final_goals"
     if has_sequences:
-        scoring = "ordered_prefix_v1" if all(count > 1 for count in subtask_counts) else "per_task"
+        scoring = "sequence_final_goals_v1" if all(count > 1 for count in subtask_counts) else "per_task"
 
     ckpt_path, progress_threshold, args.image_obs_steps, args.observation_keys = _server_info(
         host=args.host, port=args.port, embodiment=args.embodiment,

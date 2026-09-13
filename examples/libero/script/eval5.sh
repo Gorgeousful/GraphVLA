@@ -13,10 +13,10 @@ python -m script.server \
 --locator-mode box \
 --keep-locator-loaded
 
-#! Seq-OOD
+#! Oracle
 python -m examples.libero.eval.client \
   --task-suite-name libero_custom_0906 \
-  --tasks 6 7 8 9 10 11 \
+  --tasks 0 1 2 3 4 5 \
   --num-trials-per-task 10 \
   --max-steps 1000 \
   --control-freq 20 \
@@ -24,7 +24,7 @@ python -m examples.libero.eval.client \
   --num-workers 3 \
   --switch-mode oracle
   
-#! Seq-ID
+#! Predicted
 python -m examples.libero.eval.client \
   --task-suite-name libero_custom_0906 \
   --tasks 0 1 2 3 4 5 \

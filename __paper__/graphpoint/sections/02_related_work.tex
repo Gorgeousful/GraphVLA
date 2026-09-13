@@ -7,7 +7,7 @@ ACT~\cite{zhao2023act} predicts action chunks for fine-grained manipulation, whi
 At larger scale, $\pi_{0.5}$~\cite{physicalintelligence2025pi05} combines heterogeneous training data with vision-language-action modeling to support generalization to new environments.
 These approaches establish strong image-conditioned policies, while 3D representations offer a complementary geometric interface.
 DP3~\cite{ze2024dp3} conditions diffusion policies on compact features extracted from sparse scene point clouds.
-Point Policy~\cite{haldar2025pp} represents observations and actions using semantic key points, enabling policy learning from human demonstration videos.
+PointPolicy~\cite{haldar2025pp} represents observations and actions using semantic key points, enabling policy learning from human demonstration videos.
 More recently, Point Bridge~\cite{haldar2026pb} uses unified point representations for synthetic-data training and sim-to-real transfer.
 GraphPoint builds on this point-based perspective, organizing task-relevant observations by semantic entity roles and predicting actor point trajectories.
 Our focus is how this organization supports instruction-dependent task composition.
@@ -31,4 +31,4 @@ VIMA~\cite{jiang2023vima} introduces multimodal task prompts and a benchmark wit
 LIBERO~\cite{liu2023libero} studies declarative and procedural knowledge transfer across manipulation tasks, and CALVIN~\cite{mees2022calvin} evaluates language-conditioned continuous control over multi-step task sequences.
 These benchmarks address complementary forms of transfer whose difficulty depends on the factors held out during training.
 CoMani provides a focused LIBERO-based evaluation of modifier combinations at a fixed action type, action-type combinations at a fixed modifier, and unseen sequences of atomic tasks.
-Its Seq-ID and Seq-OOD sets distinguish composition of familiar atomic tasks from sequences containing a held-out atomic combination, while matched initial scenes reduce opportunities to infer the task from visual context alone.
+CoMani-Seq tests execution of fixed 3-step instructions composed of familiar and held-out atomic combinations, while matched initial scenes reduce opportunities to infer the task from visual context alone.

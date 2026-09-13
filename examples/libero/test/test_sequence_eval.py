@@ -11,6 +11,36 @@ from script.server import InferenceServer, InferenceSession, TopLevelTaskPlanner
 from src.common.observation_wire import decode_observation, encode_observation
 
 
+def test_point_policy_oracle_switches_atomic_inputs_after_release(tmp_path):
+    from script.server import PointPolicyInferenceServer
+
+    server = object.__new__(PointPolicyInferenceServer)
+    server.sessions = {}
+    server.planner = TopLevelTaskPlanner(dataset_dir=tmp_path)
+    server._validate_request = lambda request: None
+    server.execute_chunk_len = 10
+    server.embodiment = SimpleNamespace(release_actions=lambda *args: [[-1]])
+    calls = []
+    server._predict_action = lambda request: calls.append(request) or {"action": [[1]]}
+    request = {"session_id": "pp", "benchmark": "libero", "language": "sequence",
+               "switch_mode": "oracle"}
+    session = server._session_for(request)
+    session.taskstructure = {"subtasks": [{"subtask": "first"}, {"subtask": "second"}]}
+    assert server.infer_from_observation(request)["subtask_index"] == 0
+    assert calls[-1]["language"] == "first"
+    assert calls[-1]["session_id"] == "pp::atomic"
+    release = server.infer_from_observation({**request, "completed_subtask_index": 0})
+    assert release["release_pending"] and len(calls) == 1
+    response = server.infer_from_observation({**request, "completed_subtask_index": 0})
+    assert response["subtask_switched"] and response["subtask_index"] == 1
+    assert calls[-1]["language"] == "second" and calls[-1]["reset"]
+    server.infer_from_observation({**request, "completed_subtask_index": 1})
+    assert server.infer_from_observation(request)["episode_done"]
+    assert len(calls) == 2
+    with pytest.raises(ValueError, match="oracle"):
+        server.infer_from_observation({**request, "switch_mode": "predicted"})
+
+
 def test_ordered_progress_never_backfills_early_goals_or_loses_history():
     progress = evaluation.SequenceProgress([False] * 3)
     progress.update([False, True, False], 1)
@@ -18,7 +48,7 @@ def test_ordered_progress_never_backfills_early_goals_or_loses_history():
     progress.update([True, True, True], 3)
     assert progress.completion_steps == [2]
     assert progress.progress == pytest.approx(1 / 3)
-    assert not progress.success
+    assert progress.success
     progress.update([True, False, False], 4)
     progress.update([True, True, False], 5)
     progress.update([True, True, True], 6)
@@ -223,11 +253,11 @@ def test_client_server_three_stage_release_handshake(monkeypatch, tmp_path, mode
 
 
 def test_resume_rejects_different_switch_mode_or_budget(tmp_path):
-    protocol = evaluation._evaluation_protocol(evaluation.Args(task_suite_name="arbitrary_suite"), 1500, scoring="ordered_prefix_v1")
+    protocol = evaluation._evaluation_protocol(evaluation.Args(task_suite_name="arbitrary_suite"), 1500, scoring="sequence_final_goals_v1")
     path = tmp_path / "episode.json"
     path.write_text(json.dumps({"metadata": {"task_id": 0, "episode_id": 0, "init_state_id": 0},
                                 "result": {"evaluation_protocol": protocol}}))
-    for change in ({"switch_mode": "oracle"}, {"max_steps": 1600}):
+    for change in ({"switch_mode": "oracle"}, {"max_steps": 1600}, {"scoring": "ordered_prefix_v1"}, {"scoring": "ordered_prefix_v2"}):
         with pytest.raises(ValueError, match="protocol mismatch"):
             evaluation._restore_episode_result(path, task_id=0, episode_idx=0, init_state_id=0,
                                                evaluation_protocol={**protocol, **change})
@@ -236,12 +266,13 @@ def test_resume_rejects_different_switch_mode_or_budget(tmp_path):
 @pytest.mark.parametrize("statuses,expected_pr,expected_sr", [
     ([[True, False, False], [True, True, False], [True, True, True]], 1., True),
     ([[True, False, False], [True, True, False], [True, True, True], [False, True, True]], 1., False),
-    ([[False, True, False], [True, True, False], [True, True, True]], 1 / 3, False),
+    ([[False, True, False], [True, True, False], [True, True, True]], 1 / 3, True),
+    ([[True, False, False], [False, True, False], [False, False, True], [False, False, False]], 1., False),
     ([[False, False, False]], 0., False),
 ])
 @pytest.mark.parametrize("finish", [True, False])
 @pytest.mark.parametrize("declared_sequence", [True, False])
-def test_rollout_scores_final_state_and_ignores_environment_done(
+def test_rollout_scores_final_goals_with_ordered_pr_and_preserves_atomic_behavior(
     monkeypatch, tmp_path, statuses, expected_pr, expected_sr, finish, declared_sequence,
 ):
     import libero.libero

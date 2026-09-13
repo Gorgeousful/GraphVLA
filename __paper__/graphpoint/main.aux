@@ -29,17 +29,31 @@
 \newlabel{fig:framework}{{1}{2}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-C}Role-Structured Entity Graph Encoder}{2}{}\protected@file@percent }
 \newlabel{eq:encoder}{{1}{2}{}{}{}}
-\newlabel{eq:adaln}{{2}{2}{}{}{}}
 \citation{lipman2022flow}
-\citation{mandlekar2023mimicgen}
+\newlabel{eq:adaln}{{2}{3}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-D}Point-Trajectory Flow Policy}{3}{}\protected@file@percent }
 \newlabel{eq:point_trajectory}{{3}{3}{}{}{}}
 \newlabel{eq:decoder}{{4}{3}{}{}{}}
 \newlabel{eq:flow}{{5}{3}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-E}Subtask Progress and Long-Horizon Composition}{3}{}\protected@file@percent }
 \newlabel{eq:progress}{{6}{3}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {IV}CoMani Benchmark}{3}{}\protected@file@percent }
-\newlabel{sec:benchmark}{{IV}{3}{}{}{}}
+\citation{mandlekar2023mimicgen}
+\citation{zhao2023act}
+\citation{chi2023dp}
+\citation{ze2024dp3}
+\citation{haldar2025pp}
+\citation{physicalintelligence2025pi05}
+\citation{haldar2026pb}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}CoMani Benchmark}{4}{}\protected@file@percent }
+\newlabel{sec:benchmark}{{IV}{4}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Experiments}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Can GraphPoint Generalize Across Modifiers?}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Can GraphPoint Generalize Across Actions?}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Can GraphPoint Compose Atomic Skills?}{4}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces CoMani task construction and splits. Left: CoMani-Mod varies modifiers with a fixed put action. Center: CoMani-Act varies action types with a fixed right modifier. Right: CoMani-Seq composes atomic tasks from CoMani-Mod into six three-step sequences, shown in three rows with execution proceeding from left to right.}}{5}{}\protected@file@percent }
+\newlabel{fig:benchmark}{{2}{5}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces CoMani task lists and ID/OOD splits. In (c), ID/OOD gives atomic task counts; atomic IDs refer to (a), with OOD IDs underlined.}}{5}{}\protected@file@percent }
+\newlabel{tab:comani_tasks}{{I}{5}{}{}{}}
 \bibstyle{IEEEtranBST/IEEEtran}
 \bibdata{IEEEtranBST/ref}
 \bibcite{zhao2023act}{1}
@@ -51,18 +65,15 @@
 \bibcite{zhu2023groot}{7}
 \bibcite{chen2025graphmimic}{8}
 \bibcite{qi2026compose}{9}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Success rates (\%) on CoMani-Mod. Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
+\newlabel{tab:modifier_comparison}{{II}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Success rates (\%) on CoMani-Act. Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
+\newlabel{tab:action_comparison}{{III}{6}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-D}Which Components Matter?}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{6}{}\protected@file@percent }
 \bibcite{shridhar2022cliport}{10}
 \bibcite{jiang2023vima}{11}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces CoMani task construction and splits. CoMani-Modifier (left) varies spatial relations with a fixed action type, while CoMani-Action (right) varies action types with a fixed modifier. Solid and dotted arrows indicate training and held-out combinations, respectively. In the left panel, filled circles at arrow starting points and red symbols at the upper-right corners of scenes highlight the atomic tasks selected for CoMani-Seq.}}{4}{}\protected@file@percent }
-\newlabel{fig:benchmark}{{2}{4}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {V}Experiments}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Experimental Setup}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}How Does GraphPoint Compare with Established Policies?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Does the Structured Entity Graph Enable Compositional Semantic Generalization?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-D}Does Point-Based Action Representation Enable Cross-Embodiment Transfer?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-E}Can Atomic Subtask Policies Compose into Long-Horizon Behaviors?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{References}{4}{}\protected@file@percent }
 \bibcite{mendez2022composuite}{12}
 \bibcite{liu2023libero}{13}
 \bibcite{mees2022calvin}{14}
@@ -71,6 +82,8 @@
 \bibcite{jung2026tapnextpp}{17}
 \bibcite{lipman2022flow}{18}
 \bibcite{mandlekar2023mimicgen}{19}
-\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Complete CoMani task lists. Subtables (a) and (b) retain the fixed evaluation order and 0-based task IDs; ID/OOD denotes seen/held-out atomic combinations. Subtable (c) lists all 12 unseen sequences in provisional order pending the executable evaluation list. Atomic tasks use 30 evaluation trials each, and sequences use 10.}}{5}{}\protected@file@percent }
-\newlabel{tab:comani_tasks}{{I}{5}{}{}{}}
-\gdef \@abspage@last{5}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces CoMani-Seq success rate (SR) and progress rate (PR), in \%. ES/SS use environment/predicted-progress signals for switching. Mean groups by OOD count; task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
+\newlabel{tab:sequence_comparison}{{IV}{7}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces CoMani-Mod ablations: success rates (\%). Task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
+\newlabel{tab:modifier_ablation}{{V}{7}{}{}{}}
+\gdef \@abspage@last{7}
