@@ -5,6 +5,16 @@
 \citation{ze2024dp3}
 \citation{haldar2025pp}
 \citation{haldar2026pb}
+\citation{liu2023libero}
+\citation{zhao2023act}
+\citation{chi2023dp}
+\citation{physicalintelligence2025pi05}
+\citation{ze2024dp3}
+\citation{haldar2025pp}
+\citation{haldar2026pb}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Policy representation interfaces. GraphPoint organizes entity points into a language-conditioned role graph and converts predicted actor points into robot actions through gripper geometry.}}{1}{}\protected@file@percent }
+\newlabel{fig:representation_comparison}{{1}{1}{}{}{}}
 \citation{zhu2023groot}
 \citation{chen2025graphmimic}
 \citation{qi2026compose}
@@ -14,76 +24,75 @@
 \citation{liu2023libero}
 \citation{mees2022calvin}
 \citation{xiao2024bge}
-\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {II-A}Visual and Point-Based Manipulation Policies}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {II-B}Object-Centric and Graph-Based Representations}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {II-C}Compositional Generalization in Manipulation}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {III}Method}{1}{}\protected@file@percent }
-\newlabel{sec:method}{{III}{1}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {III-A}Overview}{1}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {III-B}Task-to-Graph Construction}{1}{}\protected@file@percent }
 \citation{ravi2024sam2}
 \citation{jung2026tapnextpp}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces GraphPoint framework. Language analysis identifies ordered subtasks and their semantic roles, while visual localization and tracking ground the relevant entities as 3D points. The policy alternates local entity encoding with temporal graph attention, conditioned on roles, action types, and modifiers. A flow decoder predicts future actor points and gripper commands, and a progress head supports subtask transitions. Robot geometry converts predicted points into executable gripper poses.}}{2}{}\protected@file@percent }
-\newlabel{fig:framework}{{1}{2}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}Method}{2}{}\protected@file@percent }
+\newlabel{sec:method}{{III}{2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-A}Overview}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-B}Task-to-Graph Construction}{2}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-C}Role-Structured Entity Graph Encoder}{2}{}\protected@file@percent }
 \newlabel{eq:encoder}{{1}{2}{}{}{}}
+\newlabel{eq:adaln}{{2}{2}{}{}{}}
 \citation{lipman2022flow}
-\newlabel{eq:adaln}{{2}{3}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces GraphPoint framework. Language analysis identifies ordered subtasks and their semantic roles, while visual localization and tracking ground the relevant entities as 3D points. The policy alternates local entity encoding with temporal graph attention, conditioned on roles, action types, and modifiers. A flow decoder predicts future actor points and gripper commands, and a progress head supports subtask transitions. Robot geometry converts predicted points into executable gripper poses.}}{3}{}\protected@file@percent }
+\newlabel{fig:framework}{{2}{3}{}{}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-D}Point-Trajectory Flow Policy}{3}{}\protected@file@percent }
 \newlabel{eq:point_trajectory}{{3}{3}{}{}{}}
 \newlabel{eq:decoder}{{4}{3}{}{}{}}
 \newlabel{eq:flow}{{5}{3}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {III-E}Subtask Progress and Long-Horizon Composition}{3}{}\protected@file@percent }
-\newlabel{eq:progress}{{6}{3}{}{}{}}
 \citation{mandlekar2023mimicgen}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces CoMani task construction and splits. Left: CoMani-Mod varies modifiers with a fixed put action. Center: CoMani-Act varies action types with a fixed right modifier. Right: CoMani-Seq composes atomic tasks from CoMani-Mod into 6 sequences of 3 steps, shown in 3 rows with execution proceeding from left to right.}}{4}{}\protected@file@percent }
+\newlabel{fig:benchmark}{{3}{4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-E}Subtask Progress and Long-Horizon Composition}{4}{}\protected@file@percent }
+\newlabel{eq:progress}{{6}{4}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}CoMani Benchmark}{4}{}\protected@file@percent }
+\newlabel{sec:benchmark}{{IV}{4}{}{}{}}
 \citation{zhao2023act}
 \citation{chi2023dp}
 \citation{ze2024dp3}
 \citation{haldar2025pp}
-\citation{physicalintelligence2025pi05}
 \citation{haldar2026pb}
-\@writefile{toc}{\contentsline {section}{\numberline {IV}CoMani Benchmark}{4}{}\protected@file@percent }
-\newlabel{sec:benchmark}{{IV}{4}{}{}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {V}Experiments}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Can GraphPoint Generalize Across Modifiers?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Can GraphPoint Generalize Across Actions?}{4}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Can GraphPoint Compose Atomic Skills?}{4}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces CoMani task construction and splits. Left: CoMani-Mod varies modifiers with a fixed put action. Center: CoMani-Act varies action types with a fixed right modifier. Right: CoMani-Seq composes atomic tasks from CoMani-Mod into six three-step sequences, shown in three rows with execution proceeding from left to right.}}{5}{}\protected@file@percent }
-\newlabel{fig:benchmark}{{2}{5}{}{}{}}
+\citation{physicalintelligence2025pi05}
 \@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces CoMani task lists and ID/OOD splits. In (c), ID/OOD gives atomic task counts; atomic IDs refer to (a), with OOD IDs underlined.}}{5}{}\protected@file@percent }
 \newlabel{tab:comani_tasks}{{I}{5}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Experiments}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Experimental Setup}{5}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces CoMani-Mod success rates. Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
+\newlabel{tab:modifier_comparison}{{II}{6}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces CoMani-Act action-consistent success rates (ACSR). Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
+\newlabel{tab:action_comparison}{{III}{6}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Successful GraphPoint SS rollouts on CoMani-Seq. Rows show sequences containing 0, 1, and 2 OOD subtasks, respectively, from top to bottom. Each row proceeds from left to right, with 3 frames per subtask showing its start, execution, and completion. Upper-right values show predicted subtask progress. Apparent point-tracking mismatches are visualization artifacts, not actual tracking failures.}}{6}{}\protected@file@percent }
+\newlabel{fig:sequence_rollouts}{{4}{6}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Can GraphPoint Generalize Across Modifiers?}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Can GraphPoint Generalize Across Actions?}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-D}Can GraphPoint Compose Atomic Skills?}{6}{}\protected@file@percent }
 \bibstyle{IEEEtranBST/IEEEtran}
 \bibdata{IEEEtranBST/ref}
 \bibcite{zhao2023act}{1}
 \bibcite{chi2023dp}{2}
 \bibcite{physicalintelligence2025pi05}{3}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces CoMani-Seq success rate (SR) and progress rate (PR). Environment-based switching (ES) uses goal signals; self-switching (SS) uses predicted progress. Mean groups by OOD count; task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
+\newlabel{tab:sequence_comparison}{{IV}{7}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces CoMani-Mod ablation success rates. Task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
+\newlabel{tab:modifier_ablation}{{V}{7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-E}Which Components Matter?}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
 \bibcite{ze2024dp3}{4}
 \bibcite{haldar2025pp}{5}
 \bibcite{haldar2026pb}{6}
-\bibcite{zhu2023groot}{7}
-\bibcite{chen2025graphmimic}{8}
-\bibcite{qi2026compose}{9}
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Success rates (\%) on CoMani-Mod. Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
-\newlabel{tab:modifier_comparison}{{II}{6}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Success rates (\%) on CoMani-Act. Task IDs follow Table~\ref {tab:comani_tasks}.}}{6}{}\protected@file@percent }
-\newlabel{tab:action_comparison}{{III}{6}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-D}Which Components Matter?}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{References}{6}{}\protected@file@percent }
-\bibcite{shridhar2022cliport}{10}
-\bibcite{jiang2023vima}{11}
-\bibcite{mendez2022composuite}{12}
-\bibcite{liu2023libero}{13}
+\bibcite{liu2023libero}{7}
+\bibcite{zhu2023groot}{8}
+\bibcite{chen2025graphmimic}{9}
+\bibcite{qi2026compose}{10}
+\bibcite{shridhar2022cliport}{11}
+\bibcite{jiang2023vima}{12}
+\bibcite{mendez2022composuite}{13}
 \bibcite{mees2022calvin}{14}
 \bibcite{xiao2024bge}{15}
 \bibcite{ravi2024sam2}{16}
 \bibcite{jung2026tapnextpp}{17}
 \bibcite{lipman2022flow}{18}
 \bibcite{mandlekar2023mimicgen}{19}
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces CoMani-Seq success rate (SR) and progress rate (PR), in \%. ES/SS use environment/predicted-progress signals for switching. Mean groups by OOD count; task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
-\newlabel{tab:sequence_comparison}{{IV}{7}{}{}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces CoMani-Mod ablations: success rates (\%). Task IDs follow Table~\ref {tab:comani_tasks}.}}{7}{}\protected@file@percent }
-\newlabel{tab:modifier_ablation}{{V}{7}{}{}{}}
-\gdef \@abspage@last{7}
+\gdef \@abspage@last{8}

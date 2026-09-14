@@ -1,3 +1,11 @@
+# Current reference source
+
+The active ref.bib now uses the 19 Google Scholar Cite -> BibTeX entries supplied by the author. The unmodified supplied text is preserved in ref.scholar.bib. Only citation keys were changed in the active file to retain manuscript links; all bibliographic fields follow the supplied export. These exports were supplied by the author, not fetched independently by this agent.
+
+The supplied VIMA entry has no journal or conference field; this omission is retained. The historical audit below describes the superseded bibliography.
+
+---
+
 # Reference source audit
 
 Google Scholar Cite → BibTeX verification is INCOMPLETE for all 19 entries.

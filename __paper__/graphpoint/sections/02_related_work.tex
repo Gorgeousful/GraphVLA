@@ -1,34 +1,17 @@
 \section{Related Work}
 
-\subsection{Visual and Point-Based Manipulation Policies}
+\textbf{Visual and point-based policies.}
+ACT~\cite{zhao2023act} predicts action chunks, DP~\cite{chi2023dp} generates actions through conditional denoising, and $\pi_{0.5}$~\cite{physicalintelligence2025pi05} uses large-scale vision-language-action pretraining.
+Geometric alternatives include DP3's sparse scene point clouds~\cite{ze2024dp3}, PointPolicy's semantic observation and action keypoints learned from human videos~\cite{haldar2025pp}, and PointBridge's unified points for synthetic-data training and sim-to-real transfer~\cite{haldar2026pb}.
+GraphPoint organizes task-relevant points by semantic role and conditions their interaction on action types and modifiers.
 
-Visual imitation learning provides a practical route from demonstrations to robot control.
-ACT~\cite{zhao2023act} predicts action chunks for fine-grained manipulation, while Diffusion Policy~\cite{chi2023dp} models action sequences through conditional denoising.
-At larger scale, $\pi_{0.5}$~\cite{physicalintelligence2025pi05} combines heterogeneous training data with vision-language-action modeling to support generalization to new environments.
-These approaches establish strong image-conditioned policies, while 3D representations offer a complementary geometric interface.
-DP3~\cite{ze2024dp3} conditions diffusion policies on compact features extracted from sparse scene point clouds.
-PointPolicy~\cite{haldar2025pp} represents observations and actions using semantic key points, enabling policy learning from human demonstration videos.
-More recently, Point Bridge~\cite{haldar2026pb} uses unified point representations for synthetic-data training and sim-to-real transfer.
-GraphPoint builds on this point-based perspective, organizing task-relevant observations by semantic entity roles and predicting actor point trajectories.
-Our focus is how this organization supports instruction-dependent task composition.
+\textbf{Object-centric and graph representations.}
+GROOT~\cite{zhu2023groot} uses segmented object point clouds and segmentation correspondence for visual generalization.
+GraphMimic~\cite{chen2025graphmimic} predicts object and visual-action graphs from videos to condition control.
+Compose by Focus~\cite{qi2026compose} encodes task-relevant subgraphs and combines diffusion-based atomic skills with a vision-language planner.
+Building on these established object-centric and graph-based approaches, GraphPoint couples actor/patient/target roles with explicit action/modifier conditioning and point-trajectory generation.
 
-\subsection{Object-Centric and Graph-Based Representations}
-
-Object-centric representations expose individual entities as reusable components of a scene.
-GROOT~\cite{zhu2023groot} combines segmented object point clouds with a transformer policy and segmentation correspondence to handle changes in backgrounds, viewpoints, and object instances.
-Graph-based approaches further represent interactions between entities.
-GraphMimic~\cite{chen2025graphmimic} abstracts videos into object and visual-action vertices, pretrains a model to generate future graphs, and conditions a control policy on these predictions.
-Compose by Focus~\cite{qi2026compose} selects task-relevant scene subgraphs, encodes them with a graph attention network, and combines diffusion-based atomic skills with a vision-language task planner.
-These works establish object structure and task-relevant relations as useful priors for control and skill composition.
-GraphPoint studies a specific combination of actor/patient/target roles, explicit action-type and modifier conditioning, and point-trajectory generation.
-Its distinction lies in this representation and policy interface; object-centric inputs and graph-based skill composition are established ingredients.
-
-\subsection{Compositional Generalization in Manipulation}
-
-Compositional generalization concerns new combinations of familiar task factors as well as new sequences of learned behaviors.
-CLIPort~\cite{shridhar2022cliport} couples pretrained semantic features with spatially precise action prediction for language-conditioned manipulation.
-VIMA~\cite{jiang2023vima} introduces multimodal task prompts and a benchmark with 4 generalization levels, while CompoSuite~\cite{mendez2022composuite} explicitly combines robots, objects, obstacles, and objectives to evaluate unseen task combinations.
-LIBERO~\cite{liu2023libero} studies declarative and procedural knowledge transfer across manipulation tasks, and CALVIN~\cite{mees2022calvin} evaluates language-conditioned continuous control over multi-step task sequences.
-These benchmarks address complementary forms of transfer whose difficulty depends on the factors held out during training.
-CoMani provides a focused LIBERO-based evaluation of modifier combinations at a fixed action type, action-type combinations at a fixed modifier, and unseen sequences of atomic tasks.
-CoMani-Seq tests execution of fixed 3-step instructions composed of familiar and held-out atomic combinations, while matched initial scenes reduce opportunities to infer the task from visual context alone.
+\textbf{Compositional generalization.}
+CLIPort~\cite{shridhar2022cliport} combines semantic features with spatial action prediction; VIMA~\cite{jiang2023vima} evaluates multimodal prompting across four generalization levels.
+CompoSuite~\cite{mendez2022composuite} holds out combinations of robots, objects, obstacles, and objectives, while LIBERO~\cite{liu2023libero} studies declarative and procedural transfer and CALVIN~\cite{mees2022calvin} evaluates language-conditioned task sequences.
+CoMani isolates modifier composition, action-type composition, and three-step execution in LIBERO, using matched scenes to reduce visual task shortcuts and atomic-only training to test sequential reuse.

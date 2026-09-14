@@ -1,0 +1,3612 @@
+{
+  "run": 2,
+  "workers": 3,
+  "wall_s": 33.51369453081861,
+  "returncode": 0,
+  "events": [
+    {
+      "elapsed_s": 9.63247228693217,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 1/300"
+    },
+    {
+      "elapsed_s": 9.722864821087569,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 1/300"
+    },
+    {
+      "elapsed_s": 9.734409478958696,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 1/300"
+    },
+    {
+      "elapsed_s": 9.768314559012651,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 2/300"
+    },
+    {
+      "elapsed_s": 9.796308449003845,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 3/300"
+    },
+    {
+      "elapsed_s": 9.817643356043845,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 4/300"
+    },
+    {
+      "elapsed_s": 9.853207794949412,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 5/300"
+    },
+    {
+      "elapsed_s": 9.868009049911052,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 2/300"
+    },
+    {
+      "elapsed_s": 9.896866825874895,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 6/300"
+    },
+    {
+      "elapsed_s": 9.912713513243943,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 3/300"
+    },
+    {
+      "elapsed_s": 9.956217369996011,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 7/300"
+    },
+    {
+      "elapsed_s": 9.969321701209992,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 4/300"
+    },
+    {
+      "elapsed_s": 9.981049980036914,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 2/300"
+    },
+    {
+      "elapsed_s": 10.01269440818578,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 8/300"
+    },
+    {
+      "elapsed_s": 10.023883479181677,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 5/300"
+    },
+    {
+      "elapsed_s": 10.049612322822213,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 3/300"
+    },
+    {
+      "elapsed_s": 10.05839545186609,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 9/300"
+    },
+    {
+      "elapsed_s": 10.067744633182883,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 6/300"
+    },
+    {
+      "elapsed_s": 10.089183918200433,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 4/300"
+    },
+    {
+      "elapsed_s": 10.104920666199178,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 10/300"
+    },
+    {
+      "elapsed_s": 10.114564119838178,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 7/300"
+    },
+    {
+      "elapsed_s": 10.126826473046094,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 5/300"
+    },
+    {
+      "elapsed_s": 10.143231862224638,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 11/300"
+    },
+    {
+      "elapsed_s": 10.153356132097542,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 8/300"
+    },
+    {
+      "elapsed_s": 10.166612563189119,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 6/300"
+    },
+    {
+      "elapsed_s": 10.18498310027644,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 9/300"
+    },
+    {
+      "elapsed_s": 10.191968871280551,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 7/300"
+    },
+    {
+      "elapsed_s": 10.212297642137855,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 10/300"
+    },
+    {
+      "elapsed_s": 10.220463888254017,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 8/300"
+    },
+    {
+      "elapsed_s": 10.24474776815623,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 11/300"
+    },
+    {
+      "elapsed_s": 10.2540462189354,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 9/300"
+    },
+    {
+      "elapsed_s": 10.292044610250741,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 10/300"
+    },
+    {
+      "elapsed_s": 10.29998375987634,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 12/300"
+    },
+    {
+      "elapsed_s": 10.318795213010162,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 11/300"
+    },
+    {
+      "elapsed_s": 10.350845315027982,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 13/300"
+    },
+    {
+      "elapsed_s": 10.371686370112002,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 12/300"
+    },
+    {
+      "elapsed_s": 10.390562869142741,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 14/300"
+    },
+    {
+      "elapsed_s": 10.405068214051425,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 13/300"
+    },
+    {
+      "elapsed_s": 10.4227908779867,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 15/300"
+    },
+    {
+      "elapsed_s": 10.43533780798316,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 14/300"
+    },
+    {
+      "elapsed_s": 10.47631512209773,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 12/300"
+    },
+    {
+      "elapsed_s": 10.477899209130555,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 16/300"
+    },
+    {
+      "elapsed_s": 10.479910030961037,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 15/300"
+    },
+    {
+      "elapsed_s": 10.520890389103442,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 16/300"
+    },
+    {
+      "elapsed_s": 10.526976382825524,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 17/300"
+    },
+    {
+      "elapsed_s": 10.52968748100102,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 13/300"
+    },
+    {
+      "elapsed_s": 10.560736571904272,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 17/300"
+    },
+    {
+      "elapsed_s": 10.574448123108596,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 18/300"
+    },
+    {
+      "elapsed_s": 10.579871497116983,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 14/300"
+    },
+    {
+      "elapsed_s": 10.600850980263203,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 18/300"
+    },
+    {
+      "elapsed_s": 10.622585320845246,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 19/300"
+    },
+    {
+      "elapsed_s": 10.62984137609601,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 15/300"
+    },
+    {
+      "elapsed_s": 10.639502520207316,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 19/300"
+    },
+    {
+      "elapsed_s": 10.670211079064757,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 20/300"
+    },
+    {
+      "elapsed_s": 10.676281616091728,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 16/300"
+    },
+    {
+      "elapsed_s": 10.68062092224136,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 20/300"
+    },
+    {
+      "elapsed_s": 10.726399139966816,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 21/300"
+    },
+    {
+      "elapsed_s": 10.727299138903618,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 21/300"
+    },
+    {
+      "elapsed_s": 10.731235619168729,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 17/300"
+    },
+    {
+      "elapsed_s": 10.772985686082393,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 18/300"
+    },
+    {
+      "elapsed_s": 10.82826500525698,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 19/300"
+    },
+    {
+      "elapsed_s": 10.85717640304938,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 20/300"
+    },
+    {
+      "elapsed_s": 10.866647352930158,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 22/300"
+    },
+    {
+      "elapsed_s": 10.891115244943649,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 21/300"
+    },
+    {
+      "elapsed_s": 10.908432479016483,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 23/300"
+    },
+    {
+      "elapsed_s": 10.937544425949454,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 22/300"
+    },
+    {
+      "elapsed_s": 10.950200215913355,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 24/300"
+    },
+    {
+      "elapsed_s": 10.96457724319771,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 23/300"
+    },
+    {
+      "elapsed_s": 10.985329331830144,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 25/300"
+    },
+    {
+      "elapsed_s": 11.004527099896222,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 24/300"
+    },
+    {
+      "elapsed_s": 11.02006645128131,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 22/300"
+    },
+    {
+      "elapsed_s": 11.025575870182365,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 26/300"
+    },
+    {
+      "elapsed_s": 11.042005884926766,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 25/300"
+    },
+    {
+      "elapsed_s": 11.066224839072675,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 23/300"
+    },
+    {
+      "elapsed_s": 11.073210717178881,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 27/300"
+    },
+    {
+      "elapsed_s": 11.075988554861397,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 26/300"
+    },
+    {
+      "elapsed_s": 11.116025892086327,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 24/300"
+    },
+    {
+      "elapsed_s": 11.128252529073507,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 28/300"
+    },
+    {
+      "elapsed_s": 11.130854080896825,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 27/300"
+    },
+    {
+      "elapsed_s": 11.155375849921256,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 25/300"
+    },
+    {
+      "elapsed_s": 11.178597618825734,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 28/300"
+    },
+    {
+      "elapsed_s": 11.184655018150806,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 29/300"
+    },
+    {
+      "elapsed_s": 11.192603261210024,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 26/300"
+    },
+    {
+      "elapsed_s": 11.233295368030667,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 29/300"
+    },
+    {
+      "elapsed_s": 11.242082208860666,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 27/300"
+    },
+    {
+      "elapsed_s": 11.248449582140893,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 30/300"
+    },
+    {
+      "elapsed_s": 11.276576442178339,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 30/300"
+    },
+    {
+      "elapsed_s": 11.28384846681729,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 28/300"
+    },
+    {
+      "elapsed_s": 11.296503424178809,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 31/300"
+    },
+    {
+      "elapsed_s": 11.315887928009033,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 31/300"
+    },
+    {
+      "elapsed_s": 11.319780902937055,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 29/300"
+    },
+    {
+      "elapsed_s": 11.34257361292839,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 30/300"
+    },
+    {
+      "elapsed_s": 11.361404077149928,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 31/300"
+    },
+    {
+      "elapsed_s": 11.425786821171641,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 32/300"
+    },
+    {
+      "elapsed_s": 11.454618006013334,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 33/300"
+    },
+    {
+      "elapsed_s": 11.483597141224891,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 34/300"
+    },
+    {
+      "elapsed_s": 11.515782698988914,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 32/300"
+    },
+    {
+      "elapsed_s": 11.519675225950778,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 35/300"
+    },
+    {
+      "elapsed_s": 11.558675891254097,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 36/300"
+    },
+    {
+      "elapsed_s": 11.560827128123492,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 33/300"
+    },
+    {
+      "elapsed_s": 11.597962696105242,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 32/300"
+    },
+    {
+      "elapsed_s": 11.606796278152615,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 37/300"
+    },
+    {
+      "elapsed_s": 11.615342292003334,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 34/300"
+    },
+    {
+      "elapsed_s": 11.632037202827632,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 33/300"
+    },
+    {
+      "elapsed_s": 11.656088876072317,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 38/300"
+    },
+    {
+      "elapsed_s": 11.665298330131918,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 35/300"
+    },
+    {
+      "elapsed_s": 11.673675770871341,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 34/300"
+    },
+    {
+      "elapsed_s": 11.6993682901375,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 39/300"
+    },
+    {
+      "elapsed_s": 11.718928744085133,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 36/300"
+    },
+    {
+      "elapsed_s": 11.727498176973313,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 35/300"
+    },
+    {
+      "elapsed_s": 11.741382390260696,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 40/300"
+    },
+    {
+      "elapsed_s": 11.777484278194606,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 37/300"
+    },
+    {
+      "elapsed_s": 11.789914960041642,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 36/300"
+    },
+    {
+      "elapsed_s": 11.793787985108793,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 41/300"
+    },
+    {
+      "elapsed_s": 11.807186527177691,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 38/300"
+    },
+    {
+      "elapsed_s": 11.827644267119467,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 37/300"
+    },
+    {
+      "elapsed_s": 11.837709939107299,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 39/300"
+    },
+    {
+      "elapsed_s": 11.852632496971637,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 38/300"
+    },
+    {
+      "elapsed_s": 11.864457100164145,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 40/300"
+    },
+    {
+      "elapsed_s": 11.888291308190674,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 39/300"
+    },
+    {
+      "elapsed_s": 11.896758561953902,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 41/300"
+    },
+    {
+      "elapsed_s": 11.923895405139774,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 42/300"
+    },
+    {
+      "elapsed_s": 11.929294765926898,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 40/300"
+    },
+    {
+      "elapsed_s": 11.963994940277189,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 43/300"
+    },
+    {
+      "elapsed_s": 11.967566973064095,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 41/300"
+    },
+    {
+      "elapsed_s": 11.990924120880663,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 44/300"
+    },
+    {
+      "elapsed_s": 12.016776505857706,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 42/300"
+    },
+    {
+      "elapsed_s": 12.022391499951482,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 45/300"
+    },
+    {
+      "elapsed_s": 12.049175639171153,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 46/300"
+    },
+    {
+      "elapsed_s": 12.05682219285518,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 43/300"
+    },
+    {
+      "elapsed_s": 12.082905184943229,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 47/300"
+    },
+    {
+      "elapsed_s": 12.102467760909349,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 42/300"
+    },
+    {
+      "elapsed_s": 12.104699116200209,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 44/300"
+    },
+    {
+      "elapsed_s": 12.121375195216388,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 48/300"
+    },
+    {
+      "elapsed_s": 12.152693923097104,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 45/300"
+    },
+    {
+      "elapsed_s": 12.155738669913262,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 43/300"
+    },
+    {
+      "elapsed_s": 12.160368687007576,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 49/300"
+    },
+    {
+      "elapsed_s": 12.198943172115833,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 50/300"
+    },
+    {
+      "elapsed_s": 12.203894507139921,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 46/300"
+    },
+    {
+      "elapsed_s": 12.206288427114487,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 44/300"
+    },
+    {
+      "elapsed_s": 12.241007695905864,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 51/300"
+    },
+    {
+      "elapsed_s": 12.263712870888412,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 47/300"
+    },
+    {
+      "elapsed_s": 12.26597384084016,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 45/300"
+    },
+    {
+      "elapsed_s": 12.30361032485962,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 48/300"
+    },
+    {
+      "elapsed_s": 12.308032386936247,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 46/300"
+    },
+    {
+      "elapsed_s": 12.348000199068338,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 49/300"
+    },
+    {
+      "elapsed_s": 12.354028725996614,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 47/300"
+    },
+    {
+      "elapsed_s": 12.394815388135612,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 52/300"
+    },
+    {
+      "elapsed_s": 12.404617961030453,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 50/300"
+    },
+    {
+      "elapsed_s": 12.41193462908268,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 48/300"
+    },
+    {
+      "elapsed_s": 12.460026999004185,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 53/300"
+    },
+    {
+      "elapsed_s": 12.461391845252365,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 51/300"
+    },
+    {
+      "elapsed_s": 12.466973605100065,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 49/300"
+    },
+    {
+      "elapsed_s": 12.50842901924625,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 50/300"
+    },
+    {
+      "elapsed_s": 12.5122806369327,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 54/300"
+    },
+    {
+      "elapsed_s": 12.555668047163635,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 51/300"
+    },
+    {
+      "elapsed_s": 12.561778914183378,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 55/300"
+    },
+    {
+      "elapsed_s": 12.600495678838342,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 52/300"
+    },
+    {
+      "elapsed_s": 12.61024719197303,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 56/300"
+    },
+    {
+      "elapsed_s": 12.642136703245342,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 53/300"
+    },
+    {
+      "elapsed_s": 12.649311752058566,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 57/300"
+    },
+    {
+      "elapsed_s": 12.693695348221809,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 54/300"
+    },
+    {
+      "elapsed_s": 12.703608289826661,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 58/300"
+    },
+    {
+      "elapsed_s": 12.717547402251512,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 52/300"
+    },
+    {
+      "elapsed_s": 12.74685530923307,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 55/300"
+    },
+    {
+      "elapsed_s": 12.75831472594291,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 59/300"
+    },
+    {
+      "elapsed_s": 12.784164011012763,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 53/300"
+    },
+    {
+      "elapsed_s": 12.799802742898464,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 56/300"
+    },
+    {
+      "elapsed_s": 12.820609852205962,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 60/300"
+    },
+    {
+      "elapsed_s": 12.855067464057356,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 54/300"
+    },
+    {
+      "elapsed_s": 12.856648453976959,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 57/300"
+    },
+    {
+      "elapsed_s": 12.889603469055146,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 61/300"
+    },
+    {
+      "elapsed_s": 12.906180607154965,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 58/300"
+    },
+    {
+      "elapsed_s": 12.91165528120473,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 55/300"
+    },
+    {
+      "elapsed_s": 12.943358453921974,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 59/300"
+    },
+    {
+      "elapsed_s": 12.946309153921902,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 56/300"
+    },
+    {
+      "elapsed_s": 12.977589352056384,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 60/300"
+    },
+    {
+      "elapsed_s": 12.981080173049122,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 57/300"
+    },
+    {
+      "elapsed_s": 13.030111989937723,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 61/300"
+    },
+    {
+      "elapsed_s": 13.040211638901383,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 58/300"
+    },
+    {
+      "elapsed_s": 13.042374921031296,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 62/300"
+    },
+    {
+      "elapsed_s": 13.07868827227503,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 59/300"
+    },
+    {
+      "elapsed_s": 13.088642538990825,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 63/300"
+    },
+    {
+      "elapsed_s": 13.104807700030506,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 60/300"
+    },
+    {
+      "elapsed_s": 13.125221960246563,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 64/300"
+    },
+    {
+      "elapsed_s": 13.142828862182796,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 61/300"
+    },
+    {
+      "elapsed_s": 13.161734168883413,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 65/300"
+    },
+    {
+      "elapsed_s": 13.165558371227235,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 62/300"
+    },
+    {
+      "elapsed_s": 13.204069699160755,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 66/300"
+    },
+    {
+      "elapsed_s": 13.211079942062497,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 63/300"
+    },
+    {
+      "elapsed_s": 13.236048473976552,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 67/300"
+    },
+    {
+      "elapsed_s": 13.259967753197998,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 64/300"
+    },
+    {
+      "elapsed_s": 13.26903553493321,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 62/300"
+    },
+    {
+      "elapsed_s": 13.275944330263883,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 68/300"
+    },
+    {
+      "elapsed_s": 13.302089704200625,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 65/300"
+    },
+    {
+      "elapsed_s": 13.308650754857808,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 63/300"
+    },
+    {
+      "elapsed_s": 13.322418395895511,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 69/300"
+    },
+    {
+      "elapsed_s": 13.341110294219106,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 66/300"
+    },
+    {
+      "elapsed_s": 13.341852261219174,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 64/300"
+    },
+    {
+      "elapsed_s": 13.371982750017196,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 70/300"
+    },
+    {
+      "elapsed_s": 13.382040135096759,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 65/300"
+    },
+    {
+      "elapsed_s": 13.388080073986202,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 67/300"
+    },
+    {
+      "elapsed_s": 13.409515033010393,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 71/300"
+    },
+    {
+      "elapsed_s": 13.417086380068213,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 66/300"
+    },
+    {
+      "elapsed_s": 13.43179551884532,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 68/300"
+    },
+    {
+      "elapsed_s": 13.448813559953123,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 67/300"
+    },
+    {
+      "elapsed_s": 13.46211522584781,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 69/300"
+    },
+    {
+      "elapsed_s": 13.475591884925961,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 68/300"
+    },
+    {
+      "elapsed_s": 13.496883790940046,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 70/300"
+    },
+    {
+      "elapsed_s": 13.50751966284588,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 69/300"
+    },
+    {
+      "elapsed_s": 13.536909363232553,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 71/300"
+    },
+    {
+      "elapsed_s": 13.537950768135488,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 72/300"
+    },
+    {
+      "elapsed_s": 13.548221059143543,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 70/300"
+    },
+    {
+      "elapsed_s": 13.565104275941849,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 73/300"
+    },
+    {
+      "elapsed_s": 13.577392605133355,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 71/300"
+    },
+    {
+      "elapsed_s": 13.591885415837169,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 74/300"
+    },
+    {
+      "elapsed_s": 13.612576432991773,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 75/300"
+    },
+    {
+      "elapsed_s": 13.635692061856389,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 76/300"
+    },
+    {
+      "elapsed_s": 13.659712310880423,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 72/300"
+    },
+    {
+      "elapsed_s": 13.66367286304012,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 77/300"
+    },
+    {
+      "elapsed_s": 13.68987036217004,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 73/300"
+    },
+    {
+      "elapsed_s": 13.69221700495109,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 78/300"
+    },
+    {
+      "elapsed_s": 13.724550684913993,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 79/300"
+    },
+    {
+      "elapsed_s": 13.726012256927788,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 74/300"
+    },
+    {
+      "elapsed_s": 13.76434663310647,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 72/300"
+    },
+    {
+      "elapsed_s": 13.767510815057904,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 80/300"
+    },
+    {
+      "elapsed_s": 13.768355368170887,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 75/300"
+    },
+    {
+      "elapsed_s": 13.814980913884938,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 81/300"
+    },
+    {
+      "elapsed_s": 13.820245060138404,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 76/300"
+    },
+    {
+      "elapsed_s": 13.832012357190251,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 73/300"
+    },
+    {
+      "elapsed_s": 13.861771360971034,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 77/300"
+    },
+    {
+      "elapsed_s": 13.876430043019354,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 74/300"
+    },
+    {
+      "elapsed_s": 13.89748785411939,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 78/300"
+    },
+    {
+      "elapsed_s": 13.923961617983878,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 75/300"
+    },
+    {
+      "elapsed_s": 13.935935907997191,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 79/300"
+    },
+    {
+      "elapsed_s": 13.946013789158314,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 82/300"
+    },
+    {
+      "elapsed_s": 13.976407824084163,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 76/300"
+    },
+    {
+      "elapsed_s": 13.98160207690671,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 80/300"
+    },
+    {
+      "elapsed_s": 13.988542621023953,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 83/300"
+    },
+    {
+      "elapsed_s": 14.01791649311781,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 77/300"
+    },
+    {
+      "elapsed_s": 14.027284859213978,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 81/300"
+    },
+    {
+      "elapsed_s": 14.03561753500253,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 84/300"
+    },
+    {
+      "elapsed_s": 14.050518020056188,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 78/300"
+    },
+    {
+      "elapsed_s": 14.068580884020776,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 85/300"
+    },
+    {
+      "elapsed_s": 14.087226701900363,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 79/300"
+    },
+    {
+      "elapsed_s": 14.101898849010468,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 86/300"
+    },
+    {
+      "elapsed_s": 14.115842406172305,
+      "line": "PROFILE {\"session\": \"libero-b020d2d2\", \"worker\": 1, \"client\": {\"visual_record_s\": 0.002957221120595932, \"env_s\": 0.3831078330986202, \"env_steps\": 10.0, \"observation_s\": 0.006151772104203701, \"request_build_s\": 5.171261727809906e-05, \"request_roundtrip_s\": 0.08735298039391637}, \"transport\": {\"connect_s\": 0.0008376510813832283, \"encode_s\": 0.00013332022354006767, \"send_s\": 0.0002050548791885376, \"wait_response_s\": 0.0851202430203557, \"close_s\": 0.0005984008312225342, \"decode_s\": 6.526103243231773e-05, \"request_bytes\": 393748}, \"server\": {}}[worker 0] task 1/1 id=0 episode 1/3 step 80/300"
+    },
+    {
+      "elapsed_s": 14.143575296271592,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 87/300"
+    },
+    {
+      "elapsed_s": 14.155282374005765,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 81/300"
+    },
+    {
+      "elapsed_s": 14.16165968310088,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 82/300"
+    },
+    {
+      "elapsed_s": 14.173105053137988,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 88/300"
+    },
+    {
+      "elapsed_s": 14.207041161134839,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 89/300"
+    },
+    {
+      "elapsed_s": 14.214292970951647,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 83/300"
+    },
+    {
+      "elapsed_s": 14.237551637925208,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 90/300"
+    },
+    {
+      "elapsed_s": 14.266765050124377,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 84/300"
+    },
+    {
+      "elapsed_s": 14.27646951796487,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 91/300"
+    },
+    {
+      "elapsed_s": 14.28404618613422,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 82/300"
+    },
+    {
+      "elapsed_s": 14.314668308012187,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 85/300"
+    },
+    {
+      "elapsed_s": 14.324780172202736,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 83/300"
+    },
+    {
+      "elapsed_s": 14.349060213193297,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 86/300"
+    },
+    {
+      "elapsed_s": 14.358509362209588,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 84/300"
+    },
+    {
+      "elapsed_s": 14.386506276205182,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 87/300"
+    },
+    {
+      "elapsed_s": 14.399783982895315,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 92/300"
+    },
+    {
+      "elapsed_s": 14.402059103827924,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 85/300"
+    },
+    {
+      "elapsed_s": 14.42607263289392,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 88/300"
+    },
+    {
+      "elapsed_s": 14.43970864918083,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 93/300"
+    },
+    {
+      "elapsed_s": 14.444596910849214,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 86/300"
+    },
+    {
+      "elapsed_s": 14.466896957252175,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 89/300"
+    },
+    {
+      "elapsed_s": 14.481194749940187,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 94/300"
+    },
+    {
+      "elapsed_s": 14.487565162125975,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 87/300"
+    },
+    {
+      "elapsed_s": 14.50852872012183,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 90/300"
+    },
+    {
+      "elapsed_s": 14.522361170966178,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 95/300"
+    },
+    {
+      "elapsed_s": 14.531052703037858,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 88/300"
+    },
+    {
+      "elapsed_s": 14.54973080707714,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 91/300"
+    },
+    {
+      "elapsed_s": 14.566199521999806,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 96/300"
+    },
+    {
+      "elapsed_s": 14.576118752826005,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 89/300"
+    },
+    {
+      "elapsed_s": 14.593846689909697,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 97/300"
+    },
+    {
+      "elapsed_s": 14.60473693208769,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 90/300"
+    },
+    {
+      "elapsed_s": 14.628931039012969,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 98/300"
+    },
+    {
+      "elapsed_s": 14.637077215127647,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 91/300"
+    },
+    {
+      "elapsed_s": 14.658068124204874,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 99/300"
+    },
+    {
+      "elapsed_s": 14.685795850120485,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 92/300"
+    },
+    {
+      "elapsed_s": 14.694835650268942,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 100/300"
+    },
+    {
+      "elapsed_s": 14.726001923903823,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 93/300"
+    },
+    {
+      "elapsed_s": 14.72801834018901,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 101/300"
+    },
+    {
+      "elapsed_s": 14.767128025181592,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 94/300"
+    },
+    {
+      "elapsed_s": 14.782703035045415,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 92/300"
+    },
+    {
+      "elapsed_s": 14.807774324901402,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 95/300"
+    },
+    {
+      "elapsed_s": 14.83512919023633,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 93/300"
+    },
+    {
+      "elapsed_s": 14.857610065024346,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 96/300"
+    },
+    {
+      "elapsed_s": 14.867971842177212,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 102/300"
+    },
+    {
+      "elapsed_s": 14.88519185082987,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 94/300"
+    },
+    {
+      "elapsed_s": 14.901819221209735,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 97/300"
+    },
+    {
+      "elapsed_s": 14.924180218949914,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 103/300"
+    },
+    {
+      "elapsed_s": 14.93374389782548,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 95/300"
+    },
+    {
+      "elapsed_s": 14.941478159278631,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 98/300"
+    },
+    {
+      "elapsed_s": 14.978294144850224,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 104/300"
+    },
+    {
+      "elapsed_s": 14.992616477888077,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 96/300"
+    },
+    {
+      "elapsed_s": 14.994203018024564,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 99/300"
+    },
+    {
+      "elapsed_s": 15.017232560086995,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 105/300"
+    },
+    {
+      "elapsed_s": 15.046990388073027,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 100/300"
+    },
+    {
+      "elapsed_s": 15.049597276840359,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 97/300"
+    },
+    {
+      "elapsed_s": 15.05576747097075,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 106/300"
+    },
+    {
+      "elapsed_s": 15.09565673302859,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 101/300"
+    },
+    {
+      "elapsed_s": 15.106288174167275,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 98/300"
+    },
+    {
+      "elapsed_s": 15.108031990937889,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 107/300"
+    },
+    {
+      "elapsed_s": 15.140825435053557,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 108/300"
+    },
+    {
+      "elapsed_s": 15.145375727210194,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 99/300"
+    },
+    {
+      "elapsed_s": 15.171271501109004,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 109/300"
+    },
+    {
+      "elapsed_s": 15.175443939864635,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 100/300"
+    },
+    {
+      "elapsed_s": 15.209793699905276,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 110/300"
+    },
+    {
+      "elapsed_s": 15.214972537010908,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 101/300"
+    },
+    {
+      "elapsed_s": 15.22620524186641,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 102/300"
+    },
+    {
+      "elapsed_s": 15.244836071971804,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 111/300"
+    },
+    {
+      "elapsed_s": 15.265635870862752,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 103/300"
+    },
+    {
+      "elapsed_s": 15.29068106925115,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 104/300"
+    },
+    {
+      "elapsed_s": 15.316667201928794,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 105/300"
+    },
+    {
+      "elapsed_s": 15.344281700905412,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 102/300"
+    },
+    {
+      "elapsed_s": 15.34953590715304,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 106/300"
+    },
+    {
+      "elapsed_s": 15.382738584186882,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 107/300"
+    },
+    {
+      "elapsed_s": 15.383994461037219,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 103/300"
+    },
+    {
+      "elapsed_s": 15.422916412819177,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 108/300"
+    },
+    {
+      "elapsed_s": 15.427575075998902,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 112/300"
+    },
+    {
+      "elapsed_s": 15.432004497852176,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 104/300"
+    },
+    {
+      "elapsed_s": 15.468805993907154,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 109/300"
+    },
+    {
+      "elapsed_s": 15.479306482244283,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 113/300"
+    },
+    {
+      "elapsed_s": 15.48218634724617,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 105/300"
+    },
+    {
+      "elapsed_s": 15.514981254935265,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 110/300"
+    },
+    {
+      "elapsed_s": 15.527931715827435,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 106/300"
+    },
+    {
+      "elapsed_s": 15.531647723168135,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 114/300"
+    },
+    {
+      "elapsed_s": 15.553273268043995,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 111/300"
+    },
+    {
+      "elapsed_s": 15.577481034211814,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 107/300"
+    },
+    {
+      "elapsed_s": 15.583013362251222,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 115/300"
+    },
+    {
+      "elapsed_s": 15.610665012151003,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 108/300"
+    },
+    {
+      "elapsed_s": 15.625595916062593,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 116/300"
+    },
+    {
+      "elapsed_s": 15.642713846173137,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 109/300"
+    },
+    {
+      "elapsed_s": 15.665816671214998,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 117/300"
+    },
+    {
+      "elapsed_s": 15.693072774913162,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 112/300"
+    },
+    {
+      "elapsed_s": 15.697193004190922,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 110/300"
+    },
+    {
+      "elapsed_s": 15.70122430101037,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 118/300"
+    },
+    {
+      "elapsed_s": 15.753872971981764,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 111/300"
+    },
+    {
+      "elapsed_s": 15.757038895972073,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 113/300"
+    },
+    {
+      "elapsed_s": 15.759760927874595,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 119/300"
+    },
+    {
+      "elapsed_s": 15.801487302873284,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 120/300"
+    },
+    {
+      "elapsed_s": 15.808062872849405,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 114/300"
+    },
+    {
+      "elapsed_s": 15.834591023158282,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 121/300"
+    },
+    {
+      "elapsed_s": 15.855658621992916,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 115/300"
+    },
+    {
+      "elapsed_s": 15.887350616045296,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 112/300"
+    },
+    {
+      "elapsed_s": 15.892772716935724,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 116/300"
+    },
+    {
+      "elapsed_s": 15.924701930955052,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 117/300"
+    },
+    {
+      "elapsed_s": 15.93204921297729,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 113/300"
+    },
+    {
+      "elapsed_s": 15.96928311092779,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 118/300"
+    },
+    {
+      "elapsed_s": 15.984118490014225,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 114/300"
+    },
+    {
+      "elapsed_s": 15.990933269262314,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 122/300"
+    },
+    {
+      "elapsed_s": 16.01723502902314,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 119/300"
+    },
+    {
+      "elapsed_s": 16.040465902071446,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 115/300"
+    },
+    {
+      "elapsed_s": 16.053912909235805,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 123/300"
+    },
+    {
+      "elapsed_s": 16.062419339083135,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 120/300"
+    },
+    {
+      "elapsed_s": 16.1002902132459,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 116/300"
+    },
+    {
+      "elapsed_s": 16.11112501984462,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 121/300"
+    },
+    {
+      "elapsed_s": 16.116733516100794,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 124/300"
+    },
+    {
+      "elapsed_s": 16.14489672984928,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 117/300"
+    },
+    {
+      "elapsed_s": 16.165658827871084,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 125/300"
+    },
+    {
+      "elapsed_s": 16.18000462790951,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 118/300"
+    },
+    {
+      "elapsed_s": 16.204087640158832,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 126/300"
+    },
+    {
+      "elapsed_s": 16.225631691981107,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 119/300"
+    },
+    {
+      "elapsed_s": 16.245450893882662,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 127/300"
+    },
+    {
+      "elapsed_s": 16.25561248883605,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 122/300"
+    },
+    {
+      "elapsed_s": 16.28065109020099,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 120/300"
+    },
+    {
+      "elapsed_s": 16.29268213827163,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 128/300"
+    },
+    {
+      "elapsed_s": 16.30137970019132,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 123/300"
+    },
+    {
+      "elapsed_s": 16.328641491010785,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 121/300"
+    },
+    {
+      "elapsed_s": 16.340451789088547,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 129/300"
+    },
+    {
+      "elapsed_s": 16.351098041050136,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 124/300"
+    },
+    {
+      "elapsed_s": 16.37216961197555,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 130/300"
+    },
+    {
+      "elapsed_s": 16.391799998935312,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 125/300"
+    },
+    {
+      "elapsed_s": 16.40434102108702,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 131/300"
+    },
+    {
+      "elapsed_s": 16.420293231960386,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 126/300"
+    },
+    {
+      "elapsed_s": 16.45594709319994,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 127/300"
+    },
+    {
+      "elapsed_s": 16.467402962967753,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 122/300"
+    },
+    {
+      "elapsed_s": 16.48515238519758,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 128/300"
+    },
+    {
+      "elapsed_s": 16.51212773192674,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 123/300"
+    },
+    {
+      "elapsed_s": 16.52064380887896,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 129/300"
+    },
+    {
+      "elapsed_s": 16.53974221320823,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 132/300"
+    },
+    {
+      "elapsed_s": 16.554366928059608,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 124/300"
+    },
+    {
+      "elapsed_s": 16.566834206227213,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 130/300"
+    },
+    {
+      "elapsed_s": 16.583317258860916,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 133/300"
+    },
+    {
+      "elapsed_s": 16.592540686018765,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 125/300"
+    },
+    {
+      "elapsed_s": 16.604139057919383,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 131/300"
+    },
+    {
+      "elapsed_s": 16.624294897075742,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 134/300"
+    },
+    {
+      "elapsed_s": 16.632692247163504,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 126/300"
+    },
+    {
+      "elapsed_s": 16.65218854509294,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 135/300"
+    },
+    {
+      "elapsed_s": 16.663210144266486,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 127/300"
+    },
+    {
+      "elapsed_s": 16.678584969136864,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 136/300"
+    },
+    {
+      "elapsed_s": 16.689411747269332,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 128/300"
+    },
+    {
+      "elapsed_s": 16.711579548195004,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 137/300"
+    },
+    {
+      "elapsed_s": 16.724049393087626,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 129/300"
+    },
+    {
+      "elapsed_s": 16.734703477006406,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 132/300"
+    },
+    {
+      "elapsed_s": 16.748118359129876,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 138/300"
+    },
+    {
+      "elapsed_s": 16.76116727106273,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 130/300"
+    },
+    {
+      "elapsed_s": 16.77487066714093,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 133/300"
+    },
+    {
+      "elapsed_s": 16.784403642173856,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 139/300"
+    },
+    {
+      "elapsed_s": 16.797989019192755,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 131/300"
+    },
+    {
+      "elapsed_s": 16.812420273199677,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 134/300"
+    },
+    {
+      "elapsed_s": 16.816647646017373,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 140/300"
+    },
+    {
+      "elapsed_s": 16.840977506246418,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 135/300"
+    },
+    {
+      "elapsed_s": 16.84453482925892,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 141/300"
+    },
+    {
+      "elapsed_s": 16.871861448977143,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 136/300"
+    },
+    {
+      "elapsed_s": 16.89483763091266,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 137/300"
+    },
+    {
+      "elapsed_s": 16.93106962321326,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 138/300"
+    },
+    {
+      "elapsed_s": 16.941083839163184,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 132/300"
+    },
+    {
+      "elapsed_s": 16.958662981167436,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 139/300"
+    },
+    {
+      "elapsed_s": 16.97686641290784,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 133/300"
+    },
+    {
+      "elapsed_s": 17.000297266058624,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 140/300"
+    },
+    {
+      "elapsed_s": 17.025480850134045,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 134/300"
+    },
+    {
+      "elapsed_s": 17.037094849161804,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 142/300"
+    },
+    {
+      "elapsed_s": 17.052002490032464,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 141/300"
+    },
+    {
+      "elapsed_s": 17.068030960857868,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 135/300"
+    },
+    {
+      "elapsed_s": 17.094652332831174,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 143/300"
+    },
+    {
+      "elapsed_s": 17.10716850683093,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 136/300"
+    },
+    {
+      "elapsed_s": 17.139422729145736,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 144/300"
+    },
+    {
+      "elapsed_s": 17.143958882894367,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 137/300"
+    },
+    {
+      "elapsed_s": 17.1850463449955,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 138/300"
+    },
+    {
+      "elapsed_s": 17.194698293227702,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 142/300"
+    },
+    {
+      "elapsed_s": 17.198067509103566,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 145/300"
+    },
+    {
+      "elapsed_s": 17.231302096042782,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 139/300"
+    },
+    {
+      "elapsed_s": 17.252762211021036,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 146/300"
+    },
+    {
+      "elapsed_s": 17.256531067192554,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 143/300"
+    },
+    {
+      "elapsed_s": 17.276233660057187,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 140/300"
+    },
+    {
+      "elapsed_s": 17.306120411958545,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 147/300"
+    },
+    {
+      "elapsed_s": 17.312889722175896,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 144/300"
+    },
+    {
+      "elapsed_s": 17.319494653958827,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 141/300"
+    },
+    {
+      "elapsed_s": 17.35435684211552,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 148/300"
+    },
+    {
+      "elapsed_s": 17.358499743044376,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 145/300"
+    },
+    {
+      "elapsed_s": 17.399359946139157,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 149/300"
+    },
+    {
+      "elapsed_s": 17.40995480492711,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 146/300"
+    },
+    {
+      "elapsed_s": 17.443948979023844,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 150/300"
+    },
+    {
+      "elapsed_s": 17.45842122286558,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 147/300"
+    },
+    {
+      "elapsed_s": 17.462201261892915,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 142/300"
+    },
+    {
+      "elapsed_s": 17.491111420094967,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 151/300"
+    },
+    {
+      "elapsed_s": 17.505257240962237,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 148/300"
+    },
+    {
+      "elapsed_s": 17.511425674892962,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 143/300"
+    },
+    {
+      "elapsed_s": 17.541025922168046,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 149/300"
+    },
+    {
+      "elapsed_s": 17.555398595053703,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 144/300"
+    },
+    {
+      "elapsed_s": 17.57638221187517,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 150/300"
+    },
+    {
+      "elapsed_s": 17.601799143012613,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 145/300"
+    },
+    {
+      "elapsed_s": 17.624734722077847,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 151/300"
+    },
+    {
+      "elapsed_s": 17.642758627887815,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 146/300"
+    },
+    {
+      "elapsed_s": 17.663281282875687,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 152/300"
+    },
+    {
+      "elapsed_s": 17.671940892003477,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 147/300"
+    },
+    {
+      "elapsed_s": 17.70546569209546,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 148/300"
+    },
+    {
+      "elapsed_s": 17.729677974246442,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 153/300"
+    },
+    {
+      "elapsed_s": 17.743430563248694,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 149/300"
+    },
+    {
+      "elapsed_s": 17.777559847105294,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 152/300"
+    },
+    {
+      "elapsed_s": 17.7882259930484,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 154/300"
+    },
+    {
+      "elapsed_s": 17.791277459822595,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 150/300"
+    },
+    {
+      "elapsed_s": 17.832420302089304,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 153/300"
+    },
+    {
+      "elapsed_s": 17.845935862045735,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 155/300"
+    },
+    {
+      "elapsed_s": 17.848912230227143,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 151/300"
+    },
+    {
+      "elapsed_s": 17.872284643817693,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 154/300"
+    },
+    {
+      "elapsed_s": 17.893722761888057,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 156/300"
+    },
+    {
+      "elapsed_s": 17.905395343899727,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 155/300"
+    },
+    {
+      "elapsed_s": 17.927870322950184,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 157/300"
+    },
+    {
+      "elapsed_s": 17.946184994187206,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 156/300"
+    },
+    {
+      "elapsed_s": 17.964604705106467,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 158/300"
+    },
+    {
+      "elapsed_s": 17.987630689982325,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 157/300"
+    },
+    {
+      "elapsed_s": 18.01324298698455,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 159/300"
+    },
+    {
+      "elapsed_s": 18.02382414182648,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 152/300"
+    },
+    {
+      "elapsed_s": 18.027834875974804,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 158/300"
+    },
+    {
+      "elapsed_s": 18.065330444835126,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 160/300"
+    },
+    {
+      "elapsed_s": 18.075727213174105,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 159/300"
+    },
+    {
+      "elapsed_s": 18.094576869159937,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 153/300"
+    },
+    {
+      "elapsed_s": 18.116860582027584,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 161/300"
+    },
+    {
+      "elapsed_s": 18.12422151910141,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 160/300"
+    },
+    {
+      "elapsed_s": 18.147500255145133,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 154/300"
+    },
+    {
+      "elapsed_s": 18.158711289055645,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 161/300"
+    },
+    {
+      "elapsed_s": 18.189601628109813,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 155/300"
+    },
+    {
+      "elapsed_s": 18.21777223981917,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 156/300"
+    },
+    {
+      "elapsed_s": 18.245289459824562,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 157/300"
+    },
+    {
+      "elapsed_s": 18.251059755217284,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 162/300"
+    },
+    {
+      "elapsed_s": 18.272983518894762,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 158/300"
+    },
+    {
+      "elapsed_s": 18.296168689150363,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 163/300"
+    },
+    {
+      "elapsed_s": 18.306158639956266,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 159/300"
+    },
+    {
+      "elapsed_s": 18.34450030187145,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 160/300"
+    },
+    {
+      "elapsed_s": 18.34697570791468,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 162/300"
+    },
+    {
+      "elapsed_s": 18.350032763089985,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 164/300"
+    },
+    {
+      "elapsed_s": 18.38608513493091,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 161/300"
+    },
+    {
+      "elapsed_s": 18.399666358251125,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 165/300"
+    },
+    {
+      "elapsed_s": 18.40220350213349,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 163/300"
+    },
+    {
+      "elapsed_s": 18.444378565065563,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 166/300"
+    },
+    {
+      "elapsed_s": 18.446366108953953,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 164/300"
+    },
+    {
+      "elapsed_s": 18.488263719249517,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 167/300"
+    },
+    {
+      "elapsed_s": 18.497139158193022,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 165/300"
+    },
+    {
+      "elapsed_s": 18.519668010994792,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 162/300"
+    },
+    {
+      "elapsed_s": 18.55124587006867,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 168/300"
+    },
+    {
+      "elapsed_s": 18.556367997080088,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 166/300"
+    },
+    {
+      "elapsed_s": 18.563276942819357,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 163/300"
+    },
+    {
+      "elapsed_s": 18.603599238209426,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 169/300"
+    },
+    {
+      "elapsed_s": 18.616490528918803,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 167/300"
+    },
+    {
+      "elapsed_s": 18.621267970185727,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 164/300"
+    },
+    {
+      "elapsed_s": 18.641478650271893,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 170/300"
+    },
+    {
+      "elapsed_s": 18.675626036245376,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 168/300"
+    },
+    {
+      "elapsed_s": 18.678173454012722,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 165/300"
+    },
+    {
+      "elapsed_s": 18.68240377912298,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 171/300"
+    },
+    {
+      "elapsed_s": 18.727657040115446,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 172/300"
+    },
+    {
+      "elapsed_s": 18.735881102271378,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 169/300"
+    },
+    {
+      "elapsed_s": 18.7379981148988,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 166/300"
+    },
+    {
+      "elapsed_s": 18.77730499394238,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 173/300"
+    },
+    {
+      "elapsed_s": 18.79349645320326,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 170/300"
+    },
+    {
+      "elapsed_s": 18.79602194717154,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 167/300"
+    },
+    {
+      "elapsed_s": 18.81682168599218,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 174/300"
+    },
+    {
+      "elapsed_s": 18.851368496194482,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 171/300"
+    },
+    {
+      "elapsed_s": 18.852888370864093,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 168/300"
+    },
+    {
+      "elapsed_s": 18.859893505927175,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 175/300"
+    },
+    {
+      "elapsed_s": 18.895472586154938,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 176/300"
+    },
+    {
+      "elapsed_s": 18.905036131851375,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 169/300"
+    },
+    {
+      "elapsed_s": 18.925454995129257,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 177/300"
+    },
+    {
+      "elapsed_s": 18.94644218403846,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 170/300"
+    },
+    {
+      "elapsed_s": 18.958922706078738,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 178/300"
+    },
+    {
+      "elapsed_s": 18.998795235995203,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 179/300"
+    },
+    {
+      "elapsed_s": 19.003318233881146,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 171/300"
+    },
+    {
+      "elapsed_s": 19.01554581616074,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 172/300"
+    },
+    {
+      "elapsed_s": 19.042670344933867,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 180/300"
+    },
+    {
+      "elapsed_s": 19.05080474494025,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 172/300"
+    },
+    {
+      "elapsed_s": 19.078755629248917,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 173/300"
+    },
+    {
+      "elapsed_s": 19.086807237006724,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 181/300"
+    },
+    {
+      "elapsed_s": 19.100197435822338,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 173/300"
+    },
+    {
+      "elapsed_s": 19.13809037115425,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 174/300"
+    },
+    {
+      "elapsed_s": 19.14108153199777,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 182/300"
+    },
+    {
+      "elapsed_s": 19.149385028984398,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 174/300"
+    },
+    {
+      "elapsed_s": 19.195546473842114,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 183/300"
+    },
+    {
+      "elapsed_s": 19.20814888784662,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 175/300"
+    },
+    {
+      "elapsed_s": 19.215129039250314,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 175/300"
+    },
+    {
+      "elapsed_s": 19.239771348889917,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 184/300"
+    },
+    {
+      "elapsed_s": 19.27025537425652,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 176/300"
+    },
+    {
+      "elapsed_s": 19.277833139989525,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 176/300"
+    },
+    {
+      "elapsed_s": 19.285111338831484,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 185/300"
+    },
+    {
+      "elapsed_s": 19.32770877610892,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 177/300"
+    },
+    {
+      "elapsed_s": 19.33706215908751,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 186/300"
+    },
+    {
+      "elapsed_s": 19.33897391986102,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 177/300"
+    },
+    {
+      "elapsed_s": 19.386552896816283,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 178/300"
+    },
+    {
+      "elapsed_s": 19.391420661006123,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 187/300"
+    },
+    {
+      "elapsed_s": 19.399422497022897,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 178/300"
+    },
+    {
+      "elapsed_s": 19.438197823241353,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 179/300"
+    },
+    {
+      "elapsed_s": 19.447947116103023,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 179/300"
+    },
+    {
+      "elapsed_s": 19.475247734226286,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 180/300"
+    },
+    {
+      "elapsed_s": 19.505527242086828,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 180/300"
+    },
+    {
+      "elapsed_s": 19.524650316219777,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 181/300"
+    },
+    {
+      "elapsed_s": 19.563986386172473,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 188/300"
+    },
+    {
+      "elapsed_s": 19.568190834019333,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 181/300"
+    },
+    {
+      "elapsed_s": 19.577407367061824,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 182/300"
+    },
+    {
+      "elapsed_s": 19.617290514986962,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 183/300"
+    },
+    {
+      "elapsed_s": 19.633382636122406,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 189/300"
+    },
+    {
+      "elapsed_s": 19.662233302835375,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 184/300"
+    },
+    {
+      "elapsed_s": 19.69091766513884,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 190/300"
+    },
+    {
+      "elapsed_s": 19.723156984895468,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 185/300"
+    },
+    {
+      "elapsed_s": 19.762800915166736,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 182/300"
+    },
+    {
+      "elapsed_s": 19.764898411929607,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 191/300"
+    },
+    {
+      "elapsed_s": 19.779760552104563,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 186/300"
+    },
+    {
+      "elapsed_s": 19.836088673211634,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 192/300"
+    },
+    {
+      "elapsed_s": 19.840638790279627,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 187/300"
+    },
+    {
+      "elapsed_s": 19.845275399275124,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 183/300"
+    },
+    {
+      "elapsed_s": 19.901359847281128,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 188/300"
+    },
+    {
+      "elapsed_s": 19.907896967139095,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 193/300"
+    },
+    {
+      "elapsed_s": 19.921286506112665,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 184/300"
+    },
+    {
+      "elapsed_s": 19.969867459032685,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 189/300"
+    },
+    {
+      "elapsed_s": 19.982507929205894,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 194/300"
+    },
+    {
+      "elapsed_s": 19.9903208729811,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 185/300"
+    },
+    {
+      "elapsed_s": 20.038354774937034,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 190/300"
+    },
+    {
+      "elapsed_s": 20.048921018838882,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 195/300"
+    },
+    {
+      "elapsed_s": 20.060131064150482,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 186/300"
+    },
+    {
+      "elapsed_s": 20.101203301921487,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 196/300"
+    },
+    {
+      "elapsed_s": 20.111729898955673,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 187/300"
+    },
+    {
+      "elapsed_s": 20.15748341428116,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 197/300"
+    },
+    {
+      "elapsed_s": 20.174856264144182,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 188/300"
+    },
+    {
+      "elapsed_s": 20.207567458972335,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 191/300"
+    },
+    {
+      "elapsed_s": 20.22808889206499,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 189/300"
+    },
+    {
+      "elapsed_s": 20.278701703064144,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 192/300"
+    },
+    {
+      "elapsed_s": 20.293007389176637,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 190/300"
+    },
+    {
+      "elapsed_s": 20.33672697423026,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 198/300"
+    },
+    {
+      "elapsed_s": 20.366523149888963,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 193/300"
+    },
+    {
+      "elapsed_s": 20.37628905195743,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 191/300"
+    },
+    {
+      "elapsed_s": 20.422612936235964,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 199/300"
+    },
+    {
+      "elapsed_s": 20.438728286884725,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 194/300"
+    },
+    {
+      "elapsed_s": 20.491246942896396,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 200/300"
+    },
+    {
+      "elapsed_s": 20.500724885147065,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 195/300"
+    },
+    {
+      "elapsed_s": 20.55655612796545,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 192/300"
+    },
+    {
+      "elapsed_s": 20.571805464103818,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 201/300"
+    },
+    {
+      "elapsed_s": 20.582398424856365,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 196/300"
+    },
+    {
+      "elapsed_s": 20.642564996145666,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 202/300"
+    },
+    {
+      "elapsed_s": 20.66040685493499,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 193/300"
+    },
+    {
+      "elapsed_s": 20.66260193614289,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 197/300"
+    },
+    {
+      "elapsed_s": 20.716962717939168,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 203/300"
+    },
+    {
+      "elapsed_s": 20.744850187096745,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 198/300"
+    },
+    {
+      "elapsed_s": 20.773792556021363,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 194/300"
+    },
+    {
+      "elapsed_s": 20.802129031158984,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 204/300"
+    },
+    {
+      "elapsed_s": 20.823421217966825,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 199/300"
+    },
+    {
+      "elapsed_s": 20.86712000425905,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 195/300"
+    },
+    {
+      "elapsed_s": 20.89264870993793,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 205/300"
+    },
+    {
+      "elapsed_s": 20.905120881274343,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 200/300"
+    },
+    {
+      "elapsed_s": 20.94335545413196,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 196/300"
+    },
+    {
+      "elapsed_s": 20.96763948118314,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 206/300"
+    },
+    {
+      "elapsed_s": 21.003243133891374,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 197/300"
+    },
+    {
+      "elapsed_s": 21.03638533409685,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 207/300"
+    },
+    {
+      "elapsed_s": 21.072693816851825,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 198/300"
+    },
+    {
+      "elapsed_s": 21.094633163884282,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 201/300"
+    },
+    {
+      "elapsed_s": 21.131838887929916,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 199/300"
+    },
+    {
+      "elapsed_s": 21.181429952848703,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 202/300"
+    },
+    {
+      "elapsed_s": 21.220271631143987,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 200/300"
+    },
+    {
+      "elapsed_s": 21.22864836221561,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 208/300"
+    },
+    {
+      "elapsed_s": 21.277081571985036,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 203/300"
+    },
+    {
+      "elapsed_s": 21.310377289075404,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 201/300"
+    },
+    {
+      "elapsed_s": 21.32747036125511,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 209/300"
+    },
+    {
+      "elapsed_s": 21.365559745114297,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 204/300"
+    },
+    {
+      "elapsed_s": 21.400825180113316,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 202/300"
+    },
+    {
+      "elapsed_s": 21.42071064794436,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 210/300"
+    },
+    {
+      "elapsed_s": 21.45821082824841,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 205/300"
+    },
+    {
+      "elapsed_s": 21.495596632827073,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 203/300"
+    },
+    {
+      "elapsed_s": 21.523693285882473,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 211/300"
+    },
+    {
+      "elapsed_s": 21.562025215942413,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 206/300"
+    },
+    {
+      "elapsed_s": 21.594753846991807,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 204/300"
+    },
+    {
+      "elapsed_s": 21.631703013088554,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 212/300"
+    },
+    {
+      "elapsed_s": 21.666759610176086,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 207/300"
+    },
+    {
+      "elapsed_s": 21.703641150146723,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 205/300"
+    },
+    {
+      "elapsed_s": 21.744497233070433,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 213/300"
+    },
+    {
+      "elapsed_s": 21.77107879985124,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 208/300"
+    },
+    {
+      "elapsed_s": 21.813817379064858,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 206/300"
+    },
+    {
+      "elapsed_s": 21.85552530689165,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 214/300"
+    },
+    {
+      "elapsed_s": 21.87018745718524,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 209/300"
+    },
+    {
+      "elapsed_s": 21.917172814253718,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 207/300"
+    },
+    {
+      "elapsed_s": 21.948693003039807,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 215/300"
+    },
+    {
+      "elapsed_s": 21.970556769985706,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 210/300"
+    },
+    {
+      "elapsed_s": 22.006546035874635,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 208/300"
+    },
+    {
+      "elapsed_s": 22.031952610239387,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 216/300"
+    },
+    {
+      "elapsed_s": 22.072842304129153,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 209/300"
+    },
+    {
+      "elapsed_s": 22.10250095417723,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 217/300"
+    },
+    {
+      "elapsed_s": 22.144829922821373,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 211/300"
+    },
+    {
+      "elapsed_s": 22.15308406483382,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 210/300"
+    },
+    {
+      "elapsed_s": 22.21685464307666,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 212/300"
+    },
+    {
+      "elapsed_s": 22.225652989000082,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 211/300"
+    },
+    {
+      "elapsed_s": 22.289109996985644,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 218/300"
+    },
+    {
+      "elapsed_s": 22.30742185888812,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 213/300"
+    },
+    {
+      "elapsed_s": 22.319149299990386,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 212/300"
+    },
+    {
+      "elapsed_s": 22.392802314832807,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 219/300"
+    },
+    {
+      "elapsed_s": 22.404049158096313,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 214/300"
+    },
+    {
+      "elapsed_s": 22.414108366239816,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 213/300"
+    },
+    {
+      "elapsed_s": 22.469137771986425,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 220/300"
+    },
+    {
+      "elapsed_s": 22.481352399103343,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 215/300"
+    },
+    {
+      "elapsed_s": 22.539212787058204,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 221/300"
+    },
+    {
+      "elapsed_s": 22.560498457867652,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 216/300"
+    },
+    {
+      "elapsed_s": 22.62399295391515,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 222/300"
+    },
+    {
+      "elapsed_s": 22.634181790053844,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 214/300"
+    },
+    {
+      "elapsed_s": 22.64179767202586,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 217/300"
+    },
+    {
+      "elapsed_s": 22.708699224051088,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 223/300"
+    },
+    {
+      "elapsed_s": 22.743891144171357,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 218/300"
+    },
+    {
+      "elapsed_s": 22.750342370942235,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 215/300"
+    },
+    {
+      "elapsed_s": 22.787622407078743,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 224/300"
+    },
+    {
+      "elapsed_s": 22.839022528845817,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 219/300"
+    },
+    {
+      "elapsed_s": 22.851891946047544,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 216/300"
+    },
+    {
+      "elapsed_s": 22.872957311104983,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 225/300"
+    },
+    {
+      "elapsed_s": 22.92860763799399,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 220/300"
+    },
+    {
+      "elapsed_s": 22.944218622986227,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 217/300"
+    },
+    {
+      "elapsed_s": 22.952003431040794,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 226/300"
+    },
+    {
+      "elapsed_s": 23.010931671131402,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 227/300"
+    },
+    {
+      "elapsed_s": 23.01635769288987,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 218/300"
+    },
+    {
+      "elapsed_s": 23.076806457247585,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 219/300"
+    },
+    {
+      "elapsed_s": 23.112193373031914,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 221/300"
+    },
+    {
+      "elapsed_s": 23.151334702968597,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 220/300"
+    },
+    {
+      "elapsed_s": 23.204412607010454,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 222/300"
+    },
+    {
+      "elapsed_s": 23.223137547262013,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 228/300"
+    },
+    {
+      "elapsed_s": 23.22847250616178,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 221/300"
+    },
+    {
+      "elapsed_s": 23.28386307321489,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 223/300"
+    },
+    {
+      "elapsed_s": 23.309769437182695,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 222/300"
+    },
+    {
+      "elapsed_s": 23.323086907155812,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 229/300"
+    },
+    {
+      "elapsed_s": 23.373089767992496,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 224/300"
+    },
+    {
+      "elapsed_s": 23.399772707838565,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 223/300"
+    },
+    {
+      "elapsed_s": 23.41499374806881,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 230/300"
+    },
+    {
+      "elapsed_s": 23.451920254155993,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 225/300"
+    },
+    {
+      "elapsed_s": 23.477944349870086,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 231/300"
+    },
+    {
+      "elapsed_s": 23.524929833132774,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 226/300"
+    },
+    {
+      "elapsed_s": 23.55809899326414,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 232/300"
+    },
+    {
+      "elapsed_s": 23.60612363787368,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 224/300"
+    },
+    {
+      "elapsed_s": 23.609843051061034,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 227/300"
+    },
+    {
+      "elapsed_s": 23.644719157833606,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 233/300"
+    },
+    {
+      "elapsed_s": 23.68989751720801,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 228/300"
+    },
+    {
+      "elapsed_s": 23.711264461278915,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 225/300"
+    },
+    {
+      "elapsed_s": 23.73392437817529,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 234/300"
+    },
+    {
+      "elapsed_s": 23.774601827841252,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 229/300"
+    },
+    {
+      "elapsed_s": 23.82025168184191,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 226/300"
+    },
+    {
+      "elapsed_s": 23.83235107222572,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 235/300"
+    },
+    {
+      "elapsed_s": 23.872120087035,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 230/300"
+    },
+    {
+      "elapsed_s": 23.924230866134167,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 227/300"
+    },
+    {
+      "elapsed_s": 23.934275530278683,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 236/300"
+    },
+    {
+      "elapsed_s": 24.00742447702214,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 228/300"
+    },
+    {
+      "elapsed_s": 24.01818885700777,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 237/300"
+    },
+    {
+      "elapsed_s": 24.069611427839845,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 231/300"
+    },
+    {
+      "elapsed_s": 24.092328167054802,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 229/300"
+    },
+    {
+      "elapsed_s": 24.15308923088014,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 232/300"
+    },
+    {
+      "elapsed_s": 24.174984232056886,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 230/300"
+    },
+    {
+      "elapsed_s": 24.222343957051635,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 238/300"
+    },
+    {
+      "elapsed_s": 24.245712410192937,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 233/300"
+    },
+    {
+      "elapsed_s": 24.27099328301847,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 231/300"
+    },
+    {
+      "elapsed_s": 24.321833421941847,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 239/300"
+    },
+    {
+      "elapsed_s": 24.33313890825957,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 234/300"
+    },
+    {
+      "elapsed_s": 24.359942423179746,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 232/300"
+    },
+    {
+      "elapsed_s": 24.40857193991542,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 240/300"
+    },
+    {
+      "elapsed_s": 24.417795692104846,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 235/300"
+    },
+    {
+      "elapsed_s": 24.450853457208723,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 233/300"
+    },
+    {
+      "elapsed_s": 24.483831475954503,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 241/300"
+    },
+    {
+      "elapsed_s": 24.496030047070235,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 236/300"
+    },
+    {
+      "elapsed_s": 24.54357300698757,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 242/300"
+    },
+    {
+      "elapsed_s": 24.571842506993562,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 237/300"
+    },
+    {
+      "elapsed_s": 24.629060392268002,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 243/300"
+    },
+    {
+      "elapsed_s": 24.653325523249805,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 234/300"
+    },
+    {
+      "elapsed_s": 24.663057568948716,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 238/300"
+    },
+    {
+      "elapsed_s": 24.716167476959527,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 244/300"
+    },
+    {
+      "elapsed_s": 24.753849293105304,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 235/300"
+    },
+    {
+      "elapsed_s": 24.760393942240626,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 239/300"
+    },
+    {
+      "elapsed_s": 24.798042193986475,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 245/300"
+    },
+    {
+      "elapsed_s": 24.86950951302424,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 236/300"
+    },
+    {
+      "elapsed_s": 24.87536117201671,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 240/300"
+    },
+    {
+      "elapsed_s": 24.879461877048016,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 246/300"
+    },
+    {
+      "elapsed_s": 24.952036585193127,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 247/300"
+    },
+    {
+      "elapsed_s": 24.961408017203212,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 237/300"
+    },
+    {
+      "elapsed_s": 25.02230279194191,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 238/300"
+    },
+    {
+      "elapsed_s": 25.06412338092923,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 241/300"
+    },
+    {
+      "elapsed_s": 25.089361670892686,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 239/300"
+    },
+    {
+      "elapsed_s": 25.155574744101614,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 242/300"
+    },
+    {
+      "elapsed_s": 25.16685502184555,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 240/300"
+    },
+    {
+      "elapsed_s": 25.174853953998536,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 248/300"
+    },
+    {
+      "elapsed_s": 25.245340778958052,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 243/300"
+    },
+    {
+      "elapsed_s": 25.254690785892308,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 241/300"
+    },
+    {
+      "elapsed_s": 25.279147557914257,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 249/300"
+    },
+    {
+      "elapsed_s": 25.343119020108134,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 244/300"
+    },
+    {
+      "elapsed_s": 25.35163634084165,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 242/300"
+    },
+    {
+      "elapsed_s": 25.384015289135277,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 250/300"
+    },
+    {
+      "elapsed_s": 25.445664891041815,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 245/300"
+    },
+    {
+      "elapsed_s": 25.456599719822407,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 243/300"
+    },
+    {
+      "elapsed_s": 25.48167577618733,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 251/300"
+    },
+    {
+      "elapsed_s": 25.531235298141837,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 246/300"
+    },
+    {
+      "elapsed_s": 25.54958120919764,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 252/300"
+    },
+    {
+      "elapsed_s": 25.609644346870482,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 247/300"
+    },
+    {
+      "elapsed_s": 25.627500482834876,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 253/300"
+    },
+    {
+      "elapsed_s": 25.669704899191856,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 244/300"
+    },
+    {
+      "elapsed_s": 25.6933178990148,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 248/300"
+    },
+    {
+      "elapsed_s": 25.71285793511197,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 254/300"
+    },
+    {
+      "elapsed_s": 25.764078515116125,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 245/300"
+    },
+    {
+      "elapsed_s": 25.779587366152555,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 249/300"
+    },
+    {
+      "elapsed_s": 25.801138823851943,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 255/300"
+    },
+    {
+      "elapsed_s": 25.843339334242046,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 246/300"
+    },
+    {
+      "elapsed_s": 25.85460498696193,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 250/300"
+    },
+    {
+      "elapsed_s": 25.877982216887176,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 256/300"
+    },
+    {
+      "elapsed_s": 25.90637773508206,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 247/300"
+    },
+    {
+      "elapsed_s": 25.93489763326943,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 257/300"
+    },
+    {
+      "elapsed_s": 25.952978756278753,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 248/300"
+    },
+    {
+      "elapsed_s": 25.999734999146312,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 249/300"
+    },
+    {
+      "elapsed_s": 26.022736493032426,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 251/300"
+    },
+    {
+      "elapsed_s": 26.052917276043445,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 250/300"
+    },
+    {
+      "elapsed_s": 26.10398136312142,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 252/300"
+    },
+    {
+      "elapsed_s": 26.1156513299793,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 251/300"
+    },
+    {
+      "elapsed_s": 26.119211034849286,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 258/300"
+    },
+    {
+      "elapsed_s": 26.186393695883453,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 253/300"
+    },
+    {
+      "elapsed_s": 26.191444708034396,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 252/300"
+    },
+    {
+      "elapsed_s": 26.20616004616022,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 259/300"
+    },
+    {
+      "elapsed_s": 26.272576320916414,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 254/300"
+    },
+    {
+      "elapsed_s": 26.278409266844392,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 253/300"
+    },
+    {
+      "elapsed_s": 26.29116646712646,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 260/300"
+    },
+    {
+      "elapsed_s": 26.341919283848256,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 255/300"
+    },
+    {
+      "elapsed_s": 26.354697443079203,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 261/300"
+    },
+    {
+      "elapsed_s": 26.413864776026458,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 256/300"
+    },
+    {
+      "elapsed_s": 26.437176930252463,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 262/300"
+    },
+    {
+      "elapsed_s": 26.465153648983687,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 254/300"
+    },
+    {
+      "elapsed_s": 26.49769827723503,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 257/300"
+    },
+    {
+      "elapsed_s": 26.51975034410134,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 263/300"
+    },
+    {
+      "elapsed_s": 26.560719444882125,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 255/300"
+    },
+    {
+      "elapsed_s": 26.580240848939866,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 258/300"
+    },
+    {
+      "elapsed_s": 26.603201117832214,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 264/300"
+    },
+    {
+      "elapsed_s": 26.648592587094754,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 256/300"
+    },
+    {
+      "elapsed_s": 26.653341316152364,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 259/300"
+    },
+    {
+      "elapsed_s": 26.682417271193117,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 265/300"
+    },
+    {
+      "elapsed_s": 26.725458879955113,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 260/300"
+    },
+    {
+      "elapsed_s": 26.738947273232043,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 257/300"
+    },
+    {
+      "elapsed_s": 26.75388015806675,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 266/300"
+    },
+    {
+      "elapsed_s": 26.804025716148317,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 258/300"
+    },
+    {
+      "elapsed_s": 26.810327799990773,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 267/300"
+    },
+    {
+      "elapsed_s": 26.865644117817283,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 259/300"
+    },
+    {
+      "elapsed_s": 26.92633577110246,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 261/300"
+    },
+    {
+      "elapsed_s": 26.930814628023654,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 260/300"
+    },
+    {
+      "elapsed_s": 26.99925952916965,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 261/300"
+    },
+    {
+      "elapsed_s": 27.013756902888417,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 268/300"
+    },
+    {
+      "elapsed_s": 27.03145113401115,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 262/300"
+    },
+    {
+      "elapsed_s": 27.09044705191627,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 262/300"
+    },
+    {
+      "elapsed_s": 27.106278827879578,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 269/300"
+    },
+    {
+      "elapsed_s": 27.123951046261936,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 263/300"
+    },
+    {
+      "elapsed_s": 27.177089259959757,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 263/300"
+    },
+    {
+      "elapsed_s": 27.203014806844294,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 270/300"
+    },
+    {
+      "elapsed_s": 27.214023812208325,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 264/300"
+    },
+    {
+      "elapsed_s": 27.270169428084046,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 271/300"
+    },
+    {
+      "elapsed_s": 27.278956491034478,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 265/300"
+    },
+    {
+      "elapsed_s": 27.346482675988227,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 272/300"
+    },
+    {
+      "elapsed_s": 27.355372068006545,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 266/300"
+    },
+    {
+      "elapsed_s": 27.36915681604296,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 264/300"
+    },
+    {
+      "elapsed_s": 27.426410587970167,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 273/300"
+    },
+    {
+      "elapsed_s": 27.437815587967634,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 267/300"
+    },
+    {
+      "elapsed_s": 27.45993882417679,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 265/300"
+    },
+    {
+      "elapsed_s": 27.501681171823293,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 274/300"
+    },
+    {
+      "elapsed_s": 27.51719744782895,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 268/300"
+    },
+    {
+      "elapsed_s": 27.545876514166594,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 266/300"
+    },
+    {
+      "elapsed_s": 27.580855084117502,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 275/300"
+    },
+    {
+      "elapsed_s": 27.597934478893876,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 269/300"
+    },
+    {
+      "elapsed_s": 27.636602406855673,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 267/300"
+    },
+    {
+      "elapsed_s": 27.662356687244028,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 276/300"
+    },
+    {
+      "elapsed_s": 27.683788451831788,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 270/300"
+    },
+    {
+      "elapsed_s": 27.71568609820679,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 268/300"
+    },
+    {
+      "elapsed_s": 27.735742730088532,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 277/300"
+    },
+    {
+      "elapsed_s": 27.76562080811709,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 269/300"
+    },
+    {
+      "elapsed_s": 27.803205789998174,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 270/300"
+    },
+    {
+      "elapsed_s": 27.859720701817423,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 271/300"
+    },
+    {
+      "elapsed_s": 27.869424022268504,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 271/300"
+    },
+    {
+      "elapsed_s": 27.91760258609429,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 278/300"
+    },
+    {
+      "elapsed_s": 27.924620551988482,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 272/300"
+    },
+    {
+      "elapsed_s": 27.94249802082777,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 272/300"
+    },
+    {
+      "elapsed_s": 27.98524145781994,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 279/300"
+    },
+    {
+      "elapsed_s": 27.992382898926735,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 273/300"
+    },
+    {
+      "elapsed_s": 28.028843260835856,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 273/300"
+    },
+    {
+      "elapsed_s": 28.04055641312152,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 280/300"
+    },
+    {
+      "elapsed_s": 28.09064708184451,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 274/300"
+    },
+    {
+      "elapsed_s": 28.09485120791942,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 281/300"
+    },
+    {
+      "elapsed_s": 28.147359835915267,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 275/300"
+    },
+    {
+      "elapsed_s": 28.152371253818274,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 282/300"
+    },
+    {
+      "elapsed_s": 28.18406221503392,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 274/300"
+    },
+    {
+      "elapsed_s": 28.211498114280403,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 276/300"
+    },
+    {
+      "elapsed_s": 28.21658406825736,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 283/300"
+    },
+    {
+      "elapsed_s": 28.26157517498359,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 275/300"
+    },
+    {
+      "elapsed_s": 28.276471014134586,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 277/300"
+    },
+    {
+      "elapsed_s": 28.277791207190603,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 284/300"
+    },
+    {
+      "elapsed_s": 28.31633403385058,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 285/300"
+    },
+    {
+      "elapsed_s": 28.322635638993233,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 276/300"
+    },
+    {
+      "elapsed_s": 28.337198378052562,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 278/300"
+    },
+    {
+      "elapsed_s": 28.36218050122261,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 286/300"
+    },
+    {
+      "elapsed_s": 28.389596472959965,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 277/300"
+    },
+    {
+      "elapsed_s": 28.402275421191007,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 279/300"
+    },
+    {
+      "elapsed_s": 28.408559371251613,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 287/300"
+    },
+    {
+      "elapsed_s": 28.449959706049412,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 278/300"
+    },
+    {
+      "elapsed_s": 28.456777186132967,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 280/300"
+    },
+    {
+      "elapsed_s": 28.494474831968546,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 279/300"
+    },
+    {
+      "elapsed_s": 28.525858712848276,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 288/300"
+    },
+    {
+      "elapsed_s": 28.529236221220344,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 280/300"
+    },
+    {
+      "elapsed_s": 28.569937684107572,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 281/300"
+    },
+    {
+      "elapsed_s": 28.573313115164638,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 289/300"
+    },
+    {
+      "elapsed_s": 28.624761980958283,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 282/300"
+    },
+    {
+      "elapsed_s": 28.63035165006295,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 290/300"
+    },
+    {
+      "elapsed_s": 28.64614399522543,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 281/300"
+    },
+    {
+      "elapsed_s": 28.68322261888534,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 283/300"
+    },
+    {
+      "elapsed_s": 28.701239062007517,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 291/300"
+    },
+    {
+      "elapsed_s": 28.71879790024832,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 282/300"
+    },
+    {
+      "elapsed_s": 28.751869928091764,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 292/300"
+    },
+    {
+      "elapsed_s": 28.778897987212986,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 283/300"
+    },
+    {
+      "elapsed_s": 28.801891903858632,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 293/300"
+    },
+    {
+      "elapsed_s": 28.821818909142166,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 284/300"
+    },
+    {
+      "elapsed_s": 28.839475877117366,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 284/300"
+    },
+    {
+      "elapsed_s": 28.859173689968884,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 294/300"
+    },
+    {
+      "elapsed_s": 28.86825779825449,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 285/300"
+    },
+    {
+      "elapsed_s": 28.898297457955778,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 285/300"
+    },
+    {
+      "elapsed_s": 28.910929026082158,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 295/300"
+    },
+    {
+      "elapsed_s": 28.917663948144764,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 286/300"
+    },
+    {
+      "elapsed_s": 28.944113897159696,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 286/300"
+    },
+    {
+      "elapsed_s": 28.957971532829106,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 296/300"
+    },
+    {
+      "elapsed_s": 28.966339237987995,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 287/300"
+    },
+    {
+      "elapsed_s": 28.990739963017404,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 287/300"
+    },
+    {
+      "elapsed_s": 29.003658671863377,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 297/300"
+    },
+    {
+      "elapsed_s": 29.014550021849573,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 288/300"
+    },
+    {
+      "elapsed_s": 29.033515428192914,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 288/300"
+    },
+    {
+      "elapsed_s": 29.05008083116263,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 289/300"
+    },
+    {
+      "elapsed_s": 29.068676580209285,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 289/300"
+    },
+    {
+      "elapsed_s": 29.08454735018313,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 290/300"
+    },
+    {
+      "elapsed_s": 29.105031460057944,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 290/300"
+    },
+    {
+      "elapsed_s": 29.123642310965806,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 291/300"
+    },
+    {
+      "elapsed_s": 29.160128081217408,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 298/300"
+    },
+    {
+      "elapsed_s": 29.16468418110162,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 292/300"
+    },
+    {
+      "elapsed_s": 29.2066777581349,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 293/300"
+    },
+    {
+      "elapsed_s": 29.222623956855386,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 299/300"
+    },
+    {
+      "elapsed_s": 29.271379332989454,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 291/300"
+    },
+    {
+      "elapsed_s": 29.280811697244644,
+      "line": "[worker 2] task 1/1 id=0 episode 3/3 step 300/300"
+    },
+    {
+      "elapsed_s": 29.338700625114143,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 292/300"
+    },
+    {
+      "elapsed_s": 29.348506237845868,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 294/300"
+    },
+    {
+      "elapsed_s": 29.39417258510366,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 293/300"
+    },
+    {
+      "elapsed_s": 29.396814472973347,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 295/300"
+    },
+    {
+      "elapsed_s": 29.43659761827439,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 294/300"
+    },
+    {
+      "elapsed_s": 29.44023738009855,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 296/300"
+    },
+    {
+      "elapsed_s": 29.4666110239923,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 295/300"
+    },
+    {
+      "elapsed_s": 29.470874393824488,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 297/300"
+    },
+    {
+      "elapsed_s": 29.499072304926813,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 296/300"
+    },
+    {
+      "elapsed_s": 29.506567500997335,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 298/300"
+    },
+    {
+      "elapsed_s": 29.527100416831672,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 297/300"
+    },
+    {
+      "elapsed_s": 29.54178793914616,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 299/300"
+    },
+    {
+      "elapsed_s": 29.5604017409496,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 298/300"
+    },
+    {
+      "elapsed_s": 29.570193588268012,
+      "line": "[worker 1] task 1/1 id=0 episode 2/3 step 300/300"
+    },
+    {
+      "elapsed_s": 29.590641131158918,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 299/300"
+    },
+    {
+      "elapsed_s": 29.622588029131293,
+      "line": "[worker 0] task 1/1 id=0 episode 1/3 step 300/300"
+    },
+    {
+      "elapsed_s": 32.9568363558501,
+      "line": "[worker 0] saved results to:"
+    }
+  ]
+}

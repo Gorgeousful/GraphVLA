@@ -21,7 +21,7 @@ def test_point_policy_oracle_switches_atomic_inputs_after_release(tmp_path):
     server.execute_chunk_len = 10
     server.embodiment = SimpleNamespace(release_actions=lambda *args: [[-1]])
     calls = []
-    server._predict_action = lambda request: calls.append(request) or {"action": [[1]]}
+    server._predict_action = lambda request, **kwargs: calls.append(request) or {"action": [[1]]}
     request = {"session_id": "pp", "benchmark": "libero", "language": "sequence",
                "switch_mode": "oracle"}
     session = server._session_for(request)
@@ -39,6 +39,41 @@ def test_point_policy_oracle_switches_atomic_inputs_after_release(tmp_path):
     assert len(calls) == 2
     with pytest.raises(ValueError, match="oracle"):
         server.infer_from_observation({**request, "switch_mode": "predicted"})
+
+
+def test_point_policy_reuses_sequence_structure_without_atomic_cache(tmp_path):
+    from script.server import PointPolicyInferenceServer
+
+    server = object.__new__(PointPolicyInferenceServer)
+    server.sessions = {}
+    server.planner = TopLevelTaskPlanner(dataset_dir=tmp_path)
+    subtasks = [{"subtask": name, "nodes": [{"name": name, "role": "patient"}]}
+                for name in ("put the small blue box right", "put the bottle on cabinet")]
+    server.planner.task_cache["sequence"] = {"task": "sequence", "subtasks": subtasks}
+    server._validate_request = lambda request: None
+    server.execute_chunk_len = 10
+    server.embodiment = SimpleNamespace(release_actions=lambda *args: [[-1]],
+                                       to_action=lambda *args: [[1]])
+    seen = []
+
+    def build(request, session, structure):
+        seen.append(session.taskstructure)
+        session.feature_history.append({})
+        return {}
+
+    server.preprocessor = SimpleNamespace(build=build)
+    server._infer_model = lambda *args, **kwargs: ({}, None)
+    server.inference = SimpleNamespace(to_json=lambda value: value)
+    server._tracking_response = lambda *args: (None, None, None)
+    request = {"session_id": "pp", "benchmark": "libero", "language": "sequence",
+               "switch_mode": "oracle", "reset": True}
+    server.infer_from_observation(request)
+    request.pop("reset")
+    server.infer_from_observation(request)
+    server.infer_from_observation({**request, "completed_subtask_index": 0})
+    server.infer_from_observation(request)
+    assert [entry["subtasks"] for entry in seen] == [[subtasks[0]], [subtasks[0]], [subtasks[1]]]
+    assert set(server.planner.task_cache) == {"sequence"}
 
 
 def test_ordered_progress_never_backfills_early_goals_or_loses_history():

@@ -1,52 +1,7 @@
 \section{CoMani Benchmark}
 \label{sec:benchmark}
 
-CoMani comprises 3 suites testing modifier, action-type, and sequential composition (Fig.~\ref{fig:benchmark}; Table~\ref{tab:comani_tasks}).
-We generate 50 trajectories per atomic task using MimicGen~\cite{mandlekar2023mimicgen}.
-Within each suite, initial scenes are matched wherever feasible to require instruction-dependent behavior and discourage fixed vision-to-action mappings.
-We report success rates by split over 30 trials per atomic task and 10 per sequence.
-
-\begin{figure*}[t]
-    \centering
-    \includegraphics[width=\textwidth]{fig/benchmark.png}
-    \caption{CoMani task construction and splits.
-    Left: CoMani-Mod varies modifiers with a fixed put action.
-    Center: CoMani-Act varies action types with a fixed right modifier.
-    Right: CoMani-Seq composes atomic tasks from CoMani-Mod into six three-step sequences, shown in three rows with execution proceeding from left to right.}
-    \label{fig:benchmark}
-\end{figure*}
-
-% Figure corrections pending: in the CoMani-Mod legend, dotted yellow means
-% on/OOD and solid blue means right/ID.
-
-\textbf{CoMani-Mod.} With pick-and-place (\emph{put}) fixed, this suite combines 3 objects, 3 targets, and 2 modifiers (\emph{on}/\emph{right of}) into 18 tasks: 12 in-distribution (ID) and 6 out-of-distribution (OOD).
-Each OOD object--target pair appears in the ID split with the opposite modifier, isolating generalization to unseen combinations of familiar factors.
-The ID/OOD comparison therefore tests whether a policy can apply the instructed relation to a familiar object--target pair beyond its demonstrated placement.
-
-% Internal suite: 0902. Code ID-split IDs: 1,2,3,5,6,8,9,10,12,13,16,17.
-% OOD IDs: 0,4,7,11,14,15. Held-out on: bowl/plate, cheese/stove,
-% bottle/cabinet. Held-out right: bowl/stove, cheese/cabinet, bottle/plate.
-
-\textbf{CoMani-Act.} With \emph{right} fixed, this suite varies \emph{put}, \emph{sweep}, and \emph{rotate} across 10 tasks: 7 ID and 3 OOD.
-For put/sweep, each OOD object--target pair appears in the ID split with the other action; for rotation, the ID task uses the stove knob and the OOD task uses cream cheese.
-These tests examine whether a policy can reuse an action with familiar entities in a new combination and transfer rotation across different manipulated entities.
-Put/sweep pairs share initial states and final-position goals, so success measures goal attainment rather than interaction mode.
-
-% Internal suite: 0904. Code ID-split IDs: 0,1,2,5,7,8,9. Code OOD-split IDs: 3,4,6.
-% Rotation details: dataset term "right" means counterclockwise about world +Z
-% viewed from above. Knob: joint position >= 0.5 rad. Cheese: reset-relative
-% signed rotation >= 0.5 rad, with tilt <= 15 degrees.
-
-\textbf{CoMani-Seq.} This suite tests whether policies learned from CoMani-Mod atomic demonstrations can execute 3-step instructions without sequence-level demonstrations.
-It contains 6 sequences organized into 3 fixed-order pairs, each varying one modifier between \emph{on} and \emph{right of}, without permuting subtasks.
-The 3 pairs contain 3 ID, 2 ID + 1 OOD, and 2/1 ID + 1/2 OOD atomic tasks, respectively (Fig.~\ref{fig:benchmark}, right).
-The all-ID pair tests composition and transitions among familiar skills; the remaining pairs test whether execution also generalizes to held-out atomic combinations, with the last pair increasing the OOD count from 1 to 2 through a single modifier change.
-
-% Internal suite: libero_custom_0906. Evaluation order: 0,1,2,3,4,5.
-% Figure pair order: tasks 2/3 (3 ID), 0/1 (2 ID + 1 OOD), 4/5 (mixed).
-% TODO: Specify shared-scene initialization, ordered subtask completion checks,
-% whether earlier goals must remain satisfied, and the sequence time budget.
-\begin{table*}[t]
+\begin{table*}[!t]
 \centering
 \caption{CoMani task lists and ID/OOD splits.
 In (c), ID/OOD gives atomic task counts; atomic IDs refer to (a), with OOD IDs underlined.}
@@ -60,7 +15,7 @@ In (c), ID/OOD gives atomic task counts; atomic IDs refer to (a), with OOD IDs u
 \centering
 \textbf{(a) CoMani-Mod}\par\smallskip
 % Match the height of the stacked Act and Seq tables on the right.
-\renewcommand{\arraystretch}{1.532}
+\renewcommand{\arraystretch}{1.538}
 \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}r|p{6.35cm}|l}
 \noalign{\hrule height 1pt}
 ID & Task instruction & Split \\
@@ -126,3 +81,53 @@ ID & ID/OOD & Sequence & Atomic IDs \\
 \end{tabular*}
 \end{minipage}
 \end{table*}
+
+CoMani comprises 3 suites testing modifier, action-type, and sequential composition, illustrated in Fig.~\ref{fig:benchmark} and listed in Table~\ref{tab:comani_tasks}.
+We construct the dataset with 50 trajectories for each atomic task, generated using MimicGen~\cite{mandlekar2023mimicgen}.
+Within each suite, initial scenes are matched wherever feasible to require instruction-dependent behavior and discourage fixed vision-to-action mappings.
+We evaluate each split over 30 trials per atomic task and 10 per sequence.
+
+% Figure corrections pending: in the CoMani-Mod legend, dotted yellow means
+% on/OOD and solid blue means right/ID.
+
+\textbf{CoMani-Mod.} With the pick-and-place action \emph{put} fixed, this suite combines 3 objects, 3 targets, and the modifiers \emph{on} and \emph{right} into 18 tasks.
+The split contains 12 in-distribution tasks, denoted ID, and 6 out-of-distribution tasks, denoted OOD.
+Each OOD object--target pair appears in the ID split with the opposite modifier, isolating generalization to unseen combinations of familiar factors.
+The ID/OOD comparison therefore tests whether a policy can apply the instructed relation to a familiar object--target pair beyond its demonstrated placement.
+
+% Internal suite: 0902. Code ID-split IDs: 1,2,3,5,6,8,9,10,12,13,16,17.
+% OOD IDs: 0,4,7,11,14,15. Held-out on: bowl/plate, cheese/stove,
+% bottle/cabinet. Held-out right: bowl/stove, cheese/cabinet, bottle/plate.
+
+\textbf{CoMani-Act.} With \emph{right} fixed, this suite varies \emph{put}, \emph{sweep}, and \emph{rotate} across 10 tasks: 7 ID and 3 OOD.
+For put/sweep, each OOD object--target pair appears in the ID split with the other action; for rotation, the ID task uses the stove knob and the OOD task uses cream cheese.
+These tests examine whether a policy can reuse an action with familiar entities in a new combination and transfer rotation across different manipulated entities.
+Put/sweep pairs share initial states and final-position goals, but success additionally requires the execution to exhibit the instructed action.
+CoMani-Act therefore evaluates both goal attainment and whether the manipulation process follows the specified put, sweep, or rotate behavior.
+
+% Internal suite: 0904. Code ID-split IDs: 0,1,2,5,7,8,9. Code OOD-split IDs: 3,4,6.
+% Rotation details: dataset term "right" means counterclockwise about world +Z
+% viewed from above. Knob: joint position >= 0.5 rad. Cheese: reset-relative
+% signed rotation >= 0.5 rad, with tilt <= 15 degrees.
+
+\textbf{CoMani-Seq.} This suite tests whether policies learned from CoMani-Mod atomic demonstrations can execute 3-step instructions without sequence-level demonstrations.
+It contains 6 sequences organized into 3 fixed-order pairs, each varying one modifier between \emph{on} and \emph{right of}, without permuting subtasks.
+The 3 pairs contain 3 ID, 2 ID + 1 OOD, and 2/1 ID + 1/2 OOD atomic tasks, respectively, as shown on the right of Fig.~\ref{fig:benchmark}.
+The all-ID pair tests composition and transitions among familiar skills; the remaining pairs test whether execution also generalizes to held-out atomic combinations, with the last pair increasing the OOD count from 1 to 2 through a single modifier change.
+
+% Internal suite: libero_custom_0906. Evaluation order: 0,1,2,3,4,5.
+% Figure pair order: tasks 2/3 (3 ID), 0/1 (2 ID + 1 OOD), 4/5 (mixed).
+% Sequence initialization, scoring, and time budget are specified in Experiments.
+
+\textbf{Evaluation metrics.}
+CoMani-Mod uses success rate (SR), the fraction of trials satisfying the instructed final-goal predicates.
+CoMani-Act uses \emph{action-consistent success rate} (ACSR):
+\begin{equation}
+\mathrm{ACSR}=\frac{100}{N}\sum_{i=1}^{N}g_i a_i,
+\end{equation}
+where $g_i$ indicates final-goal satisfaction and $a_i$ indicates execution of the instructed action type.
+Put requires lifting, transporting, and placing the object; sweep requires pushing it along the support surface; rotate requires turning the object or knob in the instructed direction.
+Reaching the same final position through a different action does not count.
+We screen object and robot state trajectories and manually review ambiguous successful trials in video, applying the same action criteria across models.
+CoMani-Seq reports SR for satisfaction of all final-goal predicates and progress rate (PR), the mean fraction of the ordered subtask prefix completed during execution.
+All rates are reported as percentages; a high PR need not imply final success.

@@ -1,0 +1,26 @@
+[
+  {
+    "run": 1,
+    "workers": 1,
+    "wall_s": 47.58192640123889,
+    "returncode": 0
+  },
+  {
+    "run": 2,
+    "workers": 3,
+    "wall_s": 33.51369453081861,
+    "returncode": 0
+  },
+  {
+    "run": 3,
+    "workers": 3,
+    "wall_s": 39.9710410409607,
+    "returncode": 0
+  },
+  {
+    "run": 4,
+    "workers": 1,
+    "wall_s": 49.688885536044836,
+    "returncode": 0
+  }
+]

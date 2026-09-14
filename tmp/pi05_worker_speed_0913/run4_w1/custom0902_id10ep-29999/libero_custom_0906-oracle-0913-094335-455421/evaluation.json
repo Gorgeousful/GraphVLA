@@ -1,0 +1,1 @@
+{"scoring":"sequence_final_goals_v1","switch_mode":"oracle","max_steps":300,"control_freq":20,"num_steps_wait":30,"seed":42,"embodiment":"franka_panda","action_delta":true}

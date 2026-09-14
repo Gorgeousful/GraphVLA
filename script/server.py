@@ -1732,6 +1732,9 @@ class PointPolicyInferenceServer(InferenceServer):
                 **request, "session_id": f"{session.session_id}::atomic",
                 "language": session.current_subtask,
                 "reset": bool(request.get("reset", False)) or switched,
+            }, taskstructure={
+                "task": session.current_subtask,
+                "subtasks": [session.taskstructure["subtasks"][session.subtask_index]],
             })
         response.update({
             "switch_mode": "oracle", "subtask": session.current_subtask,
@@ -1740,10 +1743,12 @@ class PointPolicyInferenceServer(InferenceServer):
         })
         return response
 
-    def _predict_action(self, request):
+    def _predict_action(self, request, *, taskstructure=None):
         started = time.perf_counter()
         self._validate_request(request)
         session = self._session_for(request)
+        if taskstructure is not None:
+            session.taskstructure = taskstructure
         if session.taskstructure is None:
             session.taskstructure = self.planner._taskstructure(session.language)
         model_input = self.preprocessor.build(request, session, {})

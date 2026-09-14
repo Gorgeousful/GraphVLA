@@ -4,6 +4,12 @@
 \usepackage{amsmath,amssymb}
 \usepackage{array}
 \usepackage{multirow}
+\usepackage{placeins}
+\usepackage{afterpage}
+% Allow multiple wide result tables near their discussion.
+\setcounter{dbltopnumber}{4}
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\textfraction}{0.05}
 
 \IEEEoverridecommandlockouts
 \overrideIEEEmargins
@@ -26,6 +32,7 @@ Kang Luo, Hesheng Wang$^\dagger$
 \input{sections/03_method}
 \input{sections/04_benchmark}
 \input{sections/04_experiments}
+\FloatBarrier
 \input{sections/05_conclusion}
 
 \bibliographystyle{IEEEtranBST/IEEEtran}

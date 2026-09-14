@@ -19,176 +19,104 @@
 #2}}
 
 \bibitem{zhao2023act}
-\BIBentryALTinterwordspacing
 T.~Z. Zhao, V.~Kumar, S.~Levine, and C.~Finn, ``Learning fine-grained bimanual
-  manipulation with low-cost hardware,'' in \emph{Proceedings of Robotics:
-  Science and Systems}, 2023. [Online]. Available:
-  \url{https://roboticsproceedings.org/rss19/p016.html}
-\BIBentrySTDinterwordspacing
+  manipulation with low-cost hardware,'' \emph{arXiv preprint
+  arXiv:2304.13705}, 2023.
 
 \bibitem{chi2023dp}
-\BIBentryALTinterwordspacing
-C.~Chi, S.~Feng, Y.~Du, Z.~Xu, E.~Cousineau, B.~Burchfiel, and S.~Song,
-  ``{Diffusion Policy}: Visuomotor policy learning via action diffusion,'' in
-  \emph{Proceedings of Robotics: Science and Systems}, 2023. [Online].
-  Available: \url{https://diffusion-policy.cs.columbia.edu/}
-\BIBentrySTDinterwordspacing
+C.~Chi, Z.~Xu, S.~Feng, E.~Cousineau, Y.~Du, B.~Burchfiel, R.~Tedrake, and
+  S.~Song, ``Diffusion policy: Visuomotor policy learning via action
+  diffusion,'' \emph{The International Journal of Robotics Research}, vol.~44,
+  no. 10-11, pp. 1684--1704, 2025.
 
 \bibitem{physicalintelligence2025pi05}
-\BIBentryALTinterwordspacing
-{Physical Intelligence}, K.~Black, N.~Brown, J.~Darpinian, K.~Dhabalia,
-  D.~Driess, A.~Esmail, M.~Equi, C.~Finn, N.~Fusai, M.~Y. Galliker, D.~Ghosh,
-  L.~Groom, K.~Hausman, B.~Ichter, S.~Jakubczak, T.~Jones, L.~Ke, D.~LeBlanc,
-  S.~Levine, A.~Li-Bell, M.~Mothukuri, S.~Nair, K.~Pertsch, A.~Z. Ren, L.~X.
-  Shi, L.~Smith, J.~T. Springenberg, K.~Stachowicz, J.~Tanner, Q.~Vuong,
-  H.~Walke, A.~Walling, H.~Wang, L.~Yu, and U.~Zhilinsky, ``{$\pi_{0.5}$}: A
+P.~Intelligence, K.~Black, N.~Brown, J.~Darpinian, K.~Dhabalia, D.~Driess,
+  A.~Esmail, M.~Equi, C.~Finn, N.~Fusai, \emph{et~al.}, ``$\pi_{0.5}$: A
   vision-language-action model with open-world generalization,'' \emph{arXiv
-  preprint arXiv:2504.16054}, 2025. [Online]. Available:
-  \url{https://arxiv.org/abs/2504.16054}
-\BIBentrySTDinterwordspacing
+  preprint arXiv:2504.16054}, 2025.
 
 \bibitem{ze2024dp3}
-\BIBentryALTinterwordspacing
-Y.~Ze, G.~Zhang, K.~Zhang, C.~Hu, M.~Wang, and H.~Xu, ``{3D Diffusion Policy}:
-  Generalizable visuomotor policy learning via simple {3D} representations,''
-  in \emph{Proceedings of Robotics: Science and Systems}, 2024. [Online].
-  Available: \url{https://3d-diffusion-policy.github.io/}
-\BIBentrySTDinterwordspacing
+Y.~Ze, G.~Zhang, K.~Zhang, C.~Hu, M.~Wang, and H.~Xu, ``3d diffusion policy:
+  Generalizable visuomotor policy learning via simple 3d representations,''
+  \emph{arXiv preprint arXiv:2403.03954}, 2024.
 
 \bibitem{haldar2025pp}
-\BIBentryALTinterwordspacing
-S.~Haldar and L.~Pinto, ``{Point Policy}: Unifying observations and actions
-  with key points for robot manipulation,'' in \emph{Proceedings of The 9th
-  Conference on Robot Learning}, ser. Proceedings of Machine Learning Research,
-  vol. 305.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2025, pp. 1825--1846.
-  [Online]. Available: \url{https://proceedings.mlr.press/v305/haldar25a.html}
-\BIBentrySTDinterwordspacing
+S.~Haldar and L.~Pinto, ``Point policy: Unifying observations and actions with
+  key points for robot manipulation,'' \emph{arXiv preprint arXiv:2502.20391},
+  2025.
 
 \bibitem{haldar2026pb}
-\BIBentryALTinterwordspacing
 S.~Haldar, L.~Johannsmeier, L.~Pinto, A.~Gupta, D.~Fox, Y.~Narang, and
-  A.~Mandlekar, ``{Point Bridge}: {3D} representations for cross domain policy
-  learning,'' \emph{arXiv preprint arXiv:2601.16212}, 2026. [Online].
-  Available: \url{https://arxiv.org/abs/2601.16212}
-\BIBentrySTDinterwordspacing
-
-\bibitem{zhu2023groot}
-\BIBentryALTinterwordspacing
-Y.~Zhu, Z.~Jiang, P.~Stone, and Y.~Zhu, ``Learning generalizable manipulation
-  policies with object-centric {3D} representations,'' in \emph{Proceedings of
-  The 7th Conference on Robot Learning}, ser. Proceedings of Machine Learning
-  Research, vol. 229.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2023, pp.
-  3418--3433. [Online]. Available:
-  \url{https://proceedings.mlr.press/v229/zhu23b.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{chen2025graphmimic}
-\BIBentryALTinterwordspacing
-G.~Chen, T.~Cui, M.~Wang, C.~Yang, M.~Hu, H.~Lu, Y.~Mu, Z.~Peng, T.~Zhou,
-  X.~Jiang, Y.~Yang, and Y.~Yue, ``{GraphMimic}: Graph-to-graphs generative
-  modeling from videos for policy learning,'' in \emph{Proceedings of the
-  IEEE/CVF Conference on Computer Vision and Pattern Recognition}, 2025, pp.
-  1756--1768. [Online]. Available:
-  \url{https://openaccess.thecvf.com/content/CVPR2025/html/Chen_GraphMimic_Graph-to-Graphs_Generative_Modeling_from_Videos_for_Policy_Learning_CVPR_2025_paper.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{qi2026compose}
-\BIBentryALTinterwordspacing
-H.~Qi, C.~Chen, and H.~Yang, ``{Compose by Focus}: Scene graph-based atomic
-  skills,'' in \emph{IEEE International Conference on Robotics and Automation},
-  2026. [Online]. Available: \url{https://arxiv.org/abs/2509.16053}
-\BIBentrySTDinterwordspacing
-
-\bibitem{shridhar2022cliport}
-\BIBentryALTinterwordspacing
-M.~Shridhar, L.~Manuelli, and D.~Fox, ``{CLIPort}: What and where pathways for
-  robotic manipulation,'' in \emph{Proceedings of the 5th Conference on Robot
-  Learning}, ser. Proceedings of Machine Learning Research, vol. 164.\hskip 1em
-  plus 0.5em minus 0.4em\relax PMLR, 2022, pp. 894--906. [Online]. Available:
-  \url{https://proceedings.mlr.press/v164/shridhar22a.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{jiang2023vima}
-\BIBentryALTinterwordspacing
-Y.~Jiang, A.~Gupta, Z.~Zhang, G.~Wang, Y.~Dou, Y.~Chen, L.~Fei-Fei,
-  A.~Anandkumar, Y.~Zhu, and L.~Fan, ``{VIMA}: Robot manipulation with
-  multimodal prompts,'' in \emph{Proceedings of the 40th International
-  Conference on Machine Learning}, ser. Proceedings of Machine Learning
-  Research, vol. 202.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2023, pp.
-  14\,975--15\,022. [Online]. Available:
-  \url{https://proceedings.mlr.press/v202/jiang23b.html}
-\BIBentrySTDinterwordspacing
-
-\bibitem{mendez2022composuite}
-\BIBentryALTinterwordspacing
-J.~A. Mendez, M.~Hussing, M.~Gummadi, and E.~Eaton, ``{CompoSuite}: A
-  compositional reinforcement learning benchmark,'' in \emph{Proceedings of The
-  1st Conference on Lifelong Learning Agents}, ser. Proceedings of Machine
-  Learning Research, vol. 199.\hskip 1em plus 0.5em minus 0.4em\relax PMLR,
-  2022, pp. 982--1003. [Online]. Available:
-  \url{https://proceedings.mlr.press/v199/mendez22a.html}
-\BIBentrySTDinterwordspacing
+  A.~Mandlekar, ``Point bridge: 3d representations for cross domain policy
+  learning,'' \emph{arXiv preprint arXiv:2601.16212}, 2026.
 
 \bibitem{liu2023libero}
-\BIBentryALTinterwordspacing
-B.~Liu, Y.~Zhu, C.~Gao, Y.~Feng, Q.~Liu, Y.~Zhu, and P.~Stone, ``{LIBERO}:
-  Benchmarking knowledge transfer for lifelong robot learning,'' in
-  \emph{Advances in Neural Information Processing Systems}, vol.~36, 2023.
-  [Online]. Available: \url{https://arxiv.org/abs/2306.03310}
-\BIBentrySTDinterwordspacing
+B.~Liu, Y.~Zhu, C.~Gao, Y.~Feng, Q.~Liu, Y.~Zhu, and P.~Stone, ``Libero:
+  Benchmarking knowledge transfer for lifelong robot learning,'' \emph{Advances
+  in Neural Information Processing Systems}, vol.~36, pp. 44\,776--44\,791,
+  2023.
+
+\bibitem{zhu2023groot}
+Y.~Zhu, Z.~Jiang, P.~Stone, and Y.~Zhu, ``Learning generalizable manipulation
+  policies with object-centric 3d representations,'' \emph{arXiv preprint
+  arXiv:2310.14386}, 2023.
+
+\bibitem{chen2025graphmimic}
+G.~Chen, T.~Cui, M.~Wang, C.~Yang, M.~Hu, H.~Lu, Y.~Mu, Z.~Peng, T.~Zhou,
+  X.~Jiang, \emph{et~al.}, ``Graphmimic: Graph-to-graphs generative modeling
+  from videos for policy learning,'' in \emph{2025 IEEE/CVF Conference on
+  Computer Vision and Pattern Recognition (CVPR)}.\hskip 1em plus 0.5em minus
+  0.4em\relax IEEE, 2025, pp. 1756--1768.
+
+\bibitem{qi2026compose}
+H.~Qi, C.~Chen, and H.~Yang, ``Compose by focus: Scene graph-based atomic
+  skills,'' \emph{arXiv preprint arXiv:2509.16053}, 2025.
+
+\bibitem{shridhar2022cliport}
+M.~Shridhar, L.~Manuelli, and D.~Fox, ``Cliport: What and where pathways for
+  robotic manipulation,'' in \emph{Conference on robot learning}.\hskip 1em
+  plus 0.5em minus 0.4em\relax pmlr, 2022, pp. 894--906.
+
+\bibitem{jiang2023vima}
+Y.~Jiang, A.~Gupta, Z.~Zhang, G.~Wang, Y.~Dou, Y.~Chen, L.~Fei-Fei,
+  A.~Anandkumar, Y.~Zhu, and L.~Fan, ``Vima: Robot manipulation with multimodal
+  prompts,'' 2023.
+
+\bibitem{mendez2022composuite}
+J.~A. Mendez, M.~Hussing, M.~Gummadi, and E.~Eaton, ``Composuite: A
+  compositional reinforcement learning benchmark,'' \emph{arXiv preprint
+  arXiv:2207.04136}, 2022.
 
 \bibitem{mees2022calvin}
-\BIBentryALTinterwordspacing
-O.~Mees, L.~Hermann, E.~Rosete-Beas, and W.~Burgard, ``{CALVIN}: A benchmark
-  for language-conditioned policy learning for long-horizon robot manipulation
+O.~Mees, L.~Hermann, E.~Rosete-Beas, and W.~Burgard, ``Calvin: A benchmark for
+  language-conditioned policy learning for long-horizon robot manipulation
   tasks,'' \emph{IEEE Robotics and Automation Letters}, vol.~7, no.~3, pp.
-  7327--7334, 2022. [Online]. Available: \url{https://arxiv.org/abs/2112.03227}
-\BIBentrySTDinterwordspacing
+  7327--7334, 2022.
 
 \bibitem{xiao2024bge}
-\BIBentryALTinterwordspacing
-S.~Xiao, Z.~Liu, P.~Zhang, N.~Muennighoff, D.~Lian, and J.-Y. Nie, ``{C-Pack}:
+S.~Xiao, Z.~Liu, P.~Zhang, N.~Muennighoff, D.~Lian, and J.-Y. Nie, ``C-pack:
   Packed resources for general chinese embeddings,'' in \emph{Proceedings of
-  the International ACM SIGIR Conference on Research and Development in
-  Information Retrieval}, 2024. [Online]. Available:
-  \url{https://arxiv.org/abs/2309.07597}
-\BIBentrySTDinterwordspacing
+  the 47th international ACM SIGIR conference on research and development in
+  information retrieval}, 2024, pp. 641--649.
 
 \bibitem{ravi2024sam2}
-\BIBentryALTinterwordspacing
 N.~Ravi, V.~Gabeur, Y.-T. Hu, R.~Hu, C.~Ryali, T.~Ma, H.~Khedr, R.~R{\"a}dle,
-  C.~Rolland, L.~Gustafson, E.~Mintun, J.~Pan, K.~V. Alwala, N.~Carion, C.-Y.
-  Wu, R.~Girshick, P.~Doll{\'a}r, and C.~Feichtenhofer, ``{SAM 2}: Segment
-  anything in images and videos,'' in \emph{The Thirteenth International
-  Conference on Learning Representations}, 2025. [Online]. Available:
-  \url{https://proceedings.iclr.cc/paper_files/paper/2025/file/45c1f6a8cbf2da59ebf2c802b4f742cd-Paper-Conference.pdf}
-\BIBentrySTDinterwordspacing
+  C.~Rolland, L.~Gustafson, \emph{et~al.}, ``Sam 2: Segment anything in images
+  and videos,'' in \emph{International Conference on Learning Representations},
+  vol. 2025, 2025, pp. 28\,085--28\,128.
 
 \bibitem{jung2026tapnextpp}
-\BIBentryALTinterwordspacing
 S.~Jung, A.~Zholus, M.~Sundermeyer, C.~Doersch, R.~Goroshin, D.~J. Tan,
-  S.~Chandar, R.~Triebel, and F.~Tombari, ``{TAPNext++}: What's next for
-  tracking any point ({TAP})?'' \emph{arXiv preprint arXiv:2604.10582}, 2026.
-  [Online]. Available: \url{https://arxiv.org/abs/2604.10582}
-\BIBentrySTDinterwordspacing
+  S.~Chandar, R.~Triebel, and F.~Tombari, ``Tapnext++: What's next for tracking
+  any point (tap)?'' \emph{arXiv preprint arXiv:2604.10582}, 2026.
 
 \bibitem{lipman2022flow}
-\BIBentryALTinterwordspacing
-Y.~Lipman, R.~T.~Q. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching
-  for generative modeling,'' in \emph{The Eleventh International Conference on
-  Learning Representations}, 2023. [Online]. Available:
-  \url{https://openreview.net/forum?id=PqvMRDCJT9t}
-\BIBentrySTDinterwordspacing
+Y.~Lipman, R.~T. Chen, H.~Ben-Hamu, M.~Nickel, and M.~Le, ``Flow matching for
+  generative modeling,'' \emph{arXiv preprint arXiv:2210.02747}, 2022.
 
 \bibitem{mandlekar2023mimicgen}
-\BIBentryALTinterwordspacing
 A.~Mandlekar, S.~Nasiriany, B.~Wen, I.~Akinola, Y.~Narang, L.~Fan, Y.~Zhu, and
-  D.~Fox, ``{MimicGen}: A data generation system for scalable robot learning
-  using human demonstrations,'' in \emph{Proceedings of The 7th Conference on
-  Robot Learning}, ser. Proceedings of Machine Learning Research, vol.
-  229.\hskip 1em plus 0.5em minus 0.4em\relax PMLR, 2023, pp. 1820--1864.
-  [Online]. Available:
-  \url{https://proceedings.mlr.press/v229/mandlekar23a.html}
-\BIBentrySTDinterwordspacing
+  D.~Fox, ``Mimicgen: A data generation system for scalable robot learning
+  using human demonstrations,'' \emph{arXiv preprint arXiv:2310.17596}, 2023.
 
 \end{thebibliography}
