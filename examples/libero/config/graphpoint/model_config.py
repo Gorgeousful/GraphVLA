@@ -37,6 +37,10 @@ class ModelConfig:
     sample_steps: int = 10
     action_delta: bool = False  # Derived from action_mode in __post_init__.
     point_coordinate_frame: str = "tcp_relative" # "tcp_relative"
+    # structured: condition on the parsed action type and modifier.
+    # raw_language: ablation that conditions on the raw subtask instruction instead.
+    # null: ablation without any language condition.
+    semantic_injection: str = "null"
     # A missing target is replaced by the subtask-initial patient, for progress only.
     progresshead_input: list[str] = field(default_factory=lambda: ["patient", "target"])
     gripper_flow_weight: float = 1.0
@@ -99,6 +103,11 @@ class ModelConfig:
                 "('camera' is kept as a legacy alias for 'tcp_absolute'), "
                 f"got {self.point_coordinate_frame!r}"
             )
+        if self.semantic_injection not in ("structured", "raw_language", "null"):
+            raise ValueError(
+                "semantic_injection must be 'structured', 'raw_language', or 'null', "
+                f"got {self.semantic_injection!r}"
+            )
 
     def to_kwargs(self) -> dict[str, Any]:
         kwargs = asdict(self)
@@ -106,6 +115,7 @@ class ModelConfig:
         kwargs.pop("action_delta")
         kwargs.pop("history_frames")
         kwargs.pop("point_coordinate_frame")
+        kwargs.pop("semantic_injection")
         return kwargs
 
 

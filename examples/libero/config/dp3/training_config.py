@@ -14,7 +14,7 @@ class TrainingConfig:
     gradient_clip_norm: float | None = None
     warmup_steps: int = 500
     peak_lr: float = 1e-4
-    decay_steps: int = 15_000
+    decay_steps: int = 30_000
     decay_lr: float = 1e-6
     weight_decay: float = 1e-6
     betas: tuple[float, float] = (0.95, 0.999)

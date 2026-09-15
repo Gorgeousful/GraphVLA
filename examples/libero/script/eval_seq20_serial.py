@@ -141,7 +141,8 @@ try:
                            "--upstream-port", str(upstream), "--ckpt-path", job["checkpoint"]]
             else:
                 command = [PYTHON, "-u", "-m", "script.server", "--example", "libero",
-                           "--ckpt-path", job["checkpoint"], "--execute-chunk-len", "10", "--port", str(port)]
+                           "--ckpt-path", job["checkpoint"], "--execute-chunk-len",
+                           str(job.get("execute_chunk_len", 10)), "--port", str(port)]
                 if job["name"].startswith("GP"):
                     command += ["--progress-window", "2", "--progress-threshold", "0.9", "--sam-only",
                                 "--devices", json.dumps(dict.fromkeys(

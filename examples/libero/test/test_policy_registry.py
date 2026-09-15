@@ -56,3 +56,18 @@ def test_dp_is_registered() -> None:
 
     config = ModelConfig(down_dims=(16, 32), diffusion_step_embed_dim=16, num_groups=8)
     assert isinstance(build_policy(config), DiffusionPolicy)
+
+
+def test_cbf_code_is_registered() -> None:
+    from examples.libero.config.cbf_code.model_config import ModelConfig
+    from src.policy.cbf_code.model import CbFCodePolicy
+
+    config = ModelConfig(
+        clip_model_path=None,
+        clip_bpe_path=None,
+        down_dims=(16, 32),
+        diffusion_step_embed_dim=16,
+        num_groups=8,
+        inference_steps=2,
+    )
+    assert isinstance(build_policy(config), CbFCodePolicy)

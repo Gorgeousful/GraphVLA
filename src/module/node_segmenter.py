@@ -335,11 +335,20 @@ class NodeSegmenterSAM2:
                 masks = masks[:, None]
             return points, labels, masks
 
-    def __init__(self, model_path="/data0/luokang/dataset/luokang/ckpts/sam2/sam2.1_l.pt", device="cuda", mode=None, model=None):
+    def __init__(
+        self,
+        model_path="/data0/luokang/dataset/luokang/ckpts/sam2/sam2.1_l.pt",
+        device="cuda",
+        mode=None,
+        model=None,
+        imgsz: int = 1024,
+    ):
+        if imgsz <= 0 or imgsz % 32:
+            raise ValueError(f"imgsz must be a positive multiple of 32, got {imgsz}")
         self.model_path = model_path
         self.device = device
         overrides = {
-            "conf": 0.25, "task": "segment", "mode": "predict", "imgsz": 1024,
+            "conf": 0.25, "task": "segment", "mode": "predict", "imgsz": int(imgsz),
             "model": model_path, "device": device,
             "quantize": 16 if isinstance(device, str) and device.startswith("cuda") else None,
             "save": False, "verbose": False,

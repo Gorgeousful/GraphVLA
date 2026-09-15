@@ -2,6 +2,7 @@ __history__/
 __note__/
 __tmp__/
 __test__/
+__paper__/
 tmp/
 *.pt
 examples/*/result/

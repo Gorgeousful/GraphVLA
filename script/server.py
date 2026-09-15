@@ -56,6 +56,18 @@ PROFILE = os.environ.get("GRAPHVLA_PROFILE", "0") == "1"
 def _worker_prefix() -> str:
     return f"\\[worker {getattr(_WORKER_CONTEXT, 'worker_id', 0)}]"
 
+
+def _gpu_memory_mb() -> dict[str, float]:
+    if not torch.cuda.is_available():
+        return {}
+    return {
+        "gpu_alloc_mb": torch.cuda.memory_allocated() / 2**20,
+        "gpu_reserved_mb": torch.cuda.memory_reserved() / 2**20,
+        "gpu_peak_alloc_mb": torch.cuda.max_memory_allocated() / 2**20,
+        "gpu_peak_reserved_mb": torch.cuda.max_memory_reserved() / 2**20,
+    }
+
+
 LIBERO_DELTA_POSITION_SCALE = 0.05
 REQUIRED_REQUEST_FIELDS = (
     "benchmark",
@@ -82,6 +94,7 @@ class Args:
     locator_mode: str = "point"
     locator_scale: float = 1.0
     segmenter: str = "sam2"
+    segmenter_imgsz: int = 1024
     sam_only: bool = False
     keep_locator_loaded: bool = False
     execute_chunk_len: int = 5
@@ -315,10 +328,12 @@ class InputPreprocessor:
         dataset_dir: str | Path,
         embodiment: str = "franka_panda",
         point_coordinate_frame: str = "camera",
+        semantic_injection: str = "structured",
         locator: str = "locateanything",
         locator_mode: str = "point",
         locator_scale: float = 1.0,
         segmenter: str = "sam2",
+        segmenter_imgsz: int = 1024,
         sam_only: bool = False,
         keep_locator_loaded: bool = False,
         devices: Mapping[str, str] | None = None,
@@ -336,6 +351,9 @@ class InputPreprocessor:
         self.point_coordinate_frame = (
             "tcp_absolute" if point_coordinate_frame == "camera" else point_coordinate_frame
         )
+        if semantic_injection not in ("structured", "raw_language", "null"):
+            raise ValueError(f"Unsupported semantic_injection: {semantic_injection!r}")
+        self.semantic_injection = semantic_injection
         if self.num_points < self.actor_num_points:
             raise ValueError(
                 f"num_points must be at least {self.actor_num_points}, got {self.num_points}"
@@ -343,10 +361,16 @@ class InputPreprocessor:
         self.robot_cls = robot_cls
         self.embodiment = embodiment
         self._robot_local = threading.local()
+        # Profiled sub-timers, active only when PROFILE=1.
+        self._locator_s = 0.0
+        self._perception_s = 0.0
+        self._assemble_s = 0.0
+        self._frames_n = 0
         self.locator = locator
         self.locator_mode = locator_mode
         self.locator_scale = locator_scale
         self.segmenter = segmenter
+        self.segmenter_imgsz = int(segmenter_imgsz)
         self.sam_only = sam_only
         self.keep_locator_loaded = keep_locator_loaded
         self.devices = dict(devices or {})
@@ -365,19 +389,32 @@ class InputPreprocessor:
         subtaskstructure: Mapping[str, Any],
     ) -> dict[str, Any]:
         frames = self._frames_from_request(request)
+        if PROFILE:
+            self._frames_n += len(frames)
         for frame in frames:
             features = self._process_frame(session, frame)
             self._append_feature_history(session, features)
-        return self._build_model_input(session, self._feature_window(session), subtaskstructure)
+        if PROFILE:
+            assemble_started = time.perf_counter()
+        model_input = self._build_model_input(
+            session, self._feature_window(session), subtaskstructure
+        )
+        if PROFILE:
+            self._assemble_s += time.perf_counter() - assemble_started
+        return model_input
 
     def _device(self, name: str) -> str:
         return self.devices.get(name, self.devices.get("default", "cuda"))
 
     def _process_frame(self, session: InferenceSession, frame: ObservationFrame) -> dict[str, np.ndarray]:
+        if PROFILE:
+            perception_started = time.perf_counter()
         if session.tracked_points is None:
             self._initialize_perception(session, frame)
         else:
             self._update_perception(session, frame)
+        if PROFILE:
+            self._perception_s += time.perf_counter() - perception_started
 
         gripper_points_xyz = self._state_to_gripper_points_xyz(frame)
         if session.tracked_points is None:
@@ -446,13 +483,13 @@ class InputPreprocessor:
 
         node_segmenter_device = self._device("node_segmenter")
         segmenter_cls = NodeSegmenterSAM2 if self.segmenter == "sam2" else NodeSegmenter
+        segmenter_kwargs = {"device": node_segmenter_device}
+        if self.segmenter == "sam2":
+            segmenter_kwargs["imgsz"] = self.segmenter_imgsz
         with self._shared_model_init_lock:
             if self.node_segmenter_model is None:
-                self.node_segmenter_model = segmenter_cls(device=node_segmenter_device).model
-        session.object_segmenter = segmenter_cls(
-            device=node_segmenter_device,
-            model=self.node_segmenter_model,
-        )
+                self.node_segmenter_model = segmenter_cls(**segmenter_kwargs).model
+        session.object_segmenter = segmenter_cls(**segmenter_kwargs, model=self.node_segmenter_model)
 
         if perception_nodes:
             object_masks = session.object_segmenter.predict(
@@ -597,9 +634,15 @@ class InputPreprocessor:
         entity_points[:, 1:3] = object_points
         for object_index in range(2):
             entity_mask[:, object_index + 1] = object_valid[:, object_index, None]
-        action_type = str(subtaskstructure.get("action_type", ""))
-        action_degree = subtaskstructure.get("action_degree")
-        scene_condition_texts = [action_type, action_degree]
+        semantic_injection = getattr(self, "semantic_injection", "structured")
+        if semantic_injection == "null":
+            scene_condition_texts = [None, None]
+        elif semantic_injection == "raw_language":
+            scene_condition_texts = [str(subtaskstructure.get("subtask", "")), None]
+        else:
+            action_type = str(subtaskstructure.get("action_type", ""))
+            action_degree = subtaskstructure.get("action_degree")
+            scene_condition_texts = [action_type, action_degree]
         gripper_width = np.linalg.norm(
             full_gripper_xyz[:, 3] - full_gripper_xyz[:, 4], axis=-1,
         )
@@ -751,11 +794,14 @@ class InputPreprocessor:
         image: np.ndarray,
         node_name: str,
     ) -> list[list[float]]:
+        locate_started = time.perf_counter() if PROFILE else 0.0
         result = node_locator.inference(
             text=node_name,
             image=Image.fromarray(image),
             resize_scale=self.locator_scale,
         )
+        if PROFILE:
+            self._locator_s += time.perf_counter() - locate_started
         points = result.get("points") or []
         if not points:
             raise RuntimeError(f"Node locator found no points for node={node_name!r}")
@@ -767,12 +813,15 @@ class InputPreprocessor:
         image: np.ndarray,
         node_name: str,
     ) -> list[float]:
+        locate_started = time.perf_counter() if PROFILE else 0.0
         result = node_locator.inference(
             text=node_name,
             image=Image.fromarray(image),
             task="grounding",
             resize_scale=self.locator_scale,
         )
+        if PROFILE:
+            self._locator_s += time.perf_counter() - locate_started
         boxes = result.get("boxes") or []
         if not boxes:
             raise RuntimeError(f"Node locator found no boxes for node={node_name!r}")
@@ -1029,6 +1078,51 @@ class PointBridgePreprocessor(InputPreprocessor):
         return {**{k: v.unsqueeze(0).tolist() for k, v in batch.items()}, "language": [session.language]}
 
 
+class CbFCodePreprocessor(InputPreprocessor):
+    """Build three 32-point nodes from fresh per-frame segmentation masks."""
+
+    def __init__(self, **kwargs):
+        # CbF consumes segmented point clouds, not persistent point identities.
+        kwargs["sam_only"] = True
+        super().__init__(**kwargs)
+
+    def _process_frame(self, session, frame):
+        features = super()._process_frame(session, frame)
+        if frame.state.shape != (8,):
+            raise ValueError(f"CbF-Code requires observation.state [8], got {frame.state.shape}")
+        features["state"] = np.asarray(frame.state, dtype=np.float32)
+        return features
+
+    def _build_model_input(self, session, frames, subtaskstructure):
+        session.active_object_indices = self._subtask_object_indices(session, subtaskstructure)
+        roles = [str(node.get("role", "")) for node in self._object_nodes(subtaskstructure)][:2]
+        objects = np.stack([
+            self._object_feats(
+                self._active_tracks(frame["tracks"], session.active_object_indices),
+                roles,
+                frame["metric_depth"],
+                frame["intrinsic"],
+                *frame["metric_depth"].shape,
+            )
+            for frame in frames
+        ])
+        gripper = np.stack([frame["gripper_points_xyz"] for frame in frames])
+        entities = np.zeros((len(frames), 3, self.num_points, 3), dtype=np.float32)
+        entities[:, 0] = gripper[:, np.arange(self.num_points) % GRIPPER_NUM_POINTS]
+        entities[:, 1:3] = objects
+        mask = np.any(entities != 0, axis=-1)
+        state = self._normalize_field(np.stack([frame["state"] for frame in frames]), "state")
+        language = str(subtaskstructure.get("subtask", session.current_subtask or session.language))
+        return {
+            "node_point_clouds": entities[None].tolist(),
+            "state": state[None].tolist(),
+            "language": [language],
+            # Common response visualization aliases; the policy does not read these.
+            "entity_points": entities[None].tolist(),
+            "entity_point_mask": mask[None].tolist(),
+        }
+
+
 class EmbodimentAdapter:
     """Convert routed model plans into executable LIBERO world-frame actions."""
 
@@ -1272,7 +1366,20 @@ class InferenceModel:
         def tensor(name: str, dtype: torch.dtype) -> torch.Tensor:
             return torch.as_tensor(input_data[name], device=self.device).to(dtype=dtype)
 
-        if getattr(self, "policy_name", "graphpoint") in ("point_policy", "point_bridge"):
+        if getattr(self, "policy_name", "graphpoint") in ("point_policy", "point_bridge", "cbf_code"):
+            if self.policy_name == "cbf_code":
+                infer_inputs = {
+                    "node_point_clouds": tensor("node_point_clouds", torch.float32),
+                    "state": tensor("state", torch.float32),
+                    "language": input_data["language"],
+                }
+                if "language_embedding" in input_data:
+                    infer_inputs["language_embedding"] = tensor("language_embedding", torch.float32)
+                output_data = {"outputs": self.model.sample(infer_inputs), "batch": infer_inputs}
+                for transform in self.out_transforms:
+                    output_data = transform(output_data)
+                outputs = self.to_json(output_data["outputs"])
+                return (outputs, self.to_json(infer_inputs)) if return_model_input else outputs
             fields = (("point_tracks", torch.float32), ("point_mask", torch.bool),
                       ("gripper_history", torch.float32)) if self.policy_name == "point_policy" else (
                           ("robot_points", torch.float32), ("object_points", torch.float32),
@@ -1498,6 +1605,12 @@ class InferenceServer:
                 del _WORKER_CONTEXT.worker_id
 
     def infer_from_observation(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        if PROFILE:
+            self.preprocessor._locator_s = 0.0
+            self.preprocessor._perception_s = 0.0
+            self.preprocessor._assemble_s = 0.0
+            self.preprocessor._frames_n = 0
+            profile_started = time.perf_counter()
         self._validate_request(request)
         expected_embodiment = getattr(self.embodiment, "embodiment", "franka_panda")
         if request.get("embodiment", "franka_panda") != expected_embodiment:
@@ -1505,7 +1618,11 @@ class InferenceServer:
         session = self._session_for(request)
         if request.get("completed_subtask_index", -1) > session.subtask_index:
             raise ValueError("Environment completion event is ahead of the active subtask")
+        if PROFILE:
+            planner_started = time.perf_counter()
         subtaskstructure = self.planner.plan(request, session)
+        if PROFILE:
+            planner_s = time.perf_counter() - planner_started
         model_input = self.preprocessor.build(request, session, subtaskstructure)
         current_features = session.feature_history[-1]
 
@@ -1521,8 +1638,11 @@ class InferenceServer:
                     subtaskstructure,
                 )
 
+        if PROFILE:
+            profile_built = time.perf_counter()
         return_model_input = bool(request.get("return_model_input", False))
         release_requested = False
+        model_called = False
         if session.task_complete:
             outputs = {}
             captured_model_input = None
@@ -1531,6 +1651,10 @@ class InferenceServer:
                 model_input,
                 return_model_input=return_model_input,
             )
+            model_called = True
+        if PROFILE:
+            profile_model_done = time.perf_counter()
+        if not session.task_complete:
             release_requested = self.planner.update_after_inference(
                 outputs, session, request.get("completed_subtask_index"),
             )
@@ -1577,6 +1701,19 @@ class InferenceServer:
         }
         if captured_model_input is not None:
             response["model_input"] = captured_model_input
+        if PROFILE:
+            response["_timing"] = {
+                "preprocess_s": profile_built - profile_started,
+                "model_s": profile_model_done - profile_built,
+                "postprocess_s": time.perf_counter() - profile_model_done,
+                "locator_s": self.preprocessor._locator_s,
+                "perception_s": self.preprocessor._perception_s,
+                "assemble_s": self.preprocessor._assemble_s,
+                "planner_s": planner_s,
+                "frames_n": self.preprocessor._frames_n,
+                "model_called": model_called,
+                **_gpu_memory_mb(),
+            }
         return response
 
     def _infer_model(
@@ -1798,6 +1935,24 @@ class PointBridgeInferenceServer(PointPolicyInferenceServer):
     def server_info(self):
         return {"ckpt_path": self.ckpt_path, "policy_name": "point_bridge", "action_delta": False,
                 "action_mode": self.inference.model.action_mode, "progress_threshold": 1.0}
+
+
+class CbFCodeInferenceServer(InferenceServer):
+    """CbF has no progress head, so composite tasks use oracle switching."""
+
+    def server_info(self):
+        return {
+            **super().server_info(),
+            "policy_name": "cbf_code",
+            "switch_modes": ["oracle"],
+            "action_mode": "delta_action",
+            "action_delta": True,
+        }
+
+    def infer_from_observation(self, request):
+        if request.get("switch_mode") not in (None, "oracle"):
+            raise ValueError("CbF-Code only supports oracle subtask switching")
+        return super().infer_from_observation(request)
 
 
 class ImagePolicyInferenceServer(InferenceServer):
@@ -2058,6 +2213,12 @@ def parse_args() -> Args:
         help="Node segmenter used to initialize object masks.",
     )
     parser.add_argument(
+        "--segmenter-imgsz",
+        type=int,
+        default=Args.segmenter_imgsz,
+        help="Input resolution fed to the SAM2 segmenter (multiple of 32).",
+    )
+    parser.add_argument(
         "--sam-only",
         action="store_true",
         help="Track masks with SAM and resample object points every frame without PointTracker.",
@@ -2106,6 +2267,8 @@ def parse_args() -> Args:
     namespace = parser.parse_args()
     if namespace.locator_scale <= 0:
         parser.error("--locator-scale must be positive")
+    if namespace.segmenter_imgsz <= 0 or namespace.segmenter_imgsz % 32:
+        parser.error("--segmenter-imgsz must be a positive multiple of 32")
     if namespace.release_lift_height < 0:
         parser.error("--release-lift-height must be non-negative")
     namespace.devices = parse_devices(namespace.devices, default_device=namespace.device)
@@ -2153,7 +2316,7 @@ def main() -> None:
         )
         server.serve_forever()
         return
-    if policy_name not in ("graphpoint", "graphpoint_gc", "point_policy", "point_bridge"):
+    if policy_name not in ("graphpoint", "graphpoint_gc", "cbf_code", "point_policy", "point_bridge"):
         raise ValueError(f"Unsupported inference policy: {policy_name!r}")
 
     history_horizon = int(model_config.history_horizon)
@@ -2165,6 +2328,10 @@ def main() -> None:
     preprocessor_kwargs = {}
     embodiment_class = EmbodimentAdapter
     embodiment_kwargs = {}
+    if policy_name == "cbf_code":
+        server_class = CbFCodeInferenceServer
+        preprocessor_class = CbFCodePreprocessor
+        embodiment_kwargs["action_mode"] = "delta_action"
     if policy_name == "graphpoint":
         embodiment_kwargs["action_mode"] = getattr(model_config, "action_mode", "points")
         if args.embodiment in ("ur5e", "sawyer") and embodiment_kwargs["action_mode"] == "abs_action":
@@ -2206,6 +2373,7 @@ def main() -> None:
             num_points=model_kwargs["num_points"],
             actor_point_indices=actor_point_indices,
             point_coordinate_frame=str(getattr(model_config, "point_coordinate_frame", "camera")),
+            semantic_injection=str(getattr(model_config, "semantic_injection", "structured")),
             robot_cls=GeomRobot,
             dataset_dir=data_kwargs["dataset_dir"],
             embodiment=args.embodiment,
@@ -2213,6 +2381,7 @@ def main() -> None:
             locator_mode=args.locator_mode,
             locator_scale=args.locator_scale,
             segmenter=args.segmenter,
+            segmenter_imgsz=args.segmenter_imgsz,
             sam_only=args.sam_only,
             keep_locator_loaded=args.keep_locator_loaded,
             devices=args.devices,

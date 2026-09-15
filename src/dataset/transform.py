@@ -950,6 +950,22 @@ class CustomTransform(TransformFn):
         *,
         device: torch.device,
     ) -> torch.Tensor:
+        mode = str(self._extra_value("semantic_injection", "structured"))
+        if mode == "null":
+            # Ablation: no language condition at all; both slots stay empty.
+            return torch.stack([
+                self._embed_text(None, device=device),
+                self._embed_text(None, device=device),
+            ])
+        if mode == "raw_language":
+            # Ablation: condition on the raw subtask instruction only; the degree slot
+            # stays empty so the encoder falls back to its null-degree token.
+            return torch.stack([
+                self._embed_text(str(subtaskstructure.get("subtask", "")), device=device),
+                self._embed_text(None, device=device),
+            ])
+        if mode != "structured":
+            raise ValueError(f"Unsupported semantic_injection: {mode!r}")
         action_type = str(subtaskstructure.get("action_type", ""))
         action_degree = subtaskstructure.get("action_degree")
         return torch.stack([
